@@ -12,6 +12,7 @@ def create_project(name):
     src_dir = RENDER_PASSES_DIR / TEMPLATE_NAME
     dst_dir = RENDER_PASSES_DIR / name
 
+    print(dst_dir)
     print(f'Creating render pass library "{name}":')
 
     # Check that destination does not exist.
@@ -44,11 +45,7 @@ def create_project(name):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Script to create a new render pass.")
-    parser.add_argument("name", help="Render pass name")
-    args = parser.parse_args()
-
-    success = create_project(args.name)
+    success = create_project("RasterPass")
 
     return 0 if success else 1
 
