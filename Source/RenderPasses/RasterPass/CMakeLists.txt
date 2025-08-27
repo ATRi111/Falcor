@@ -7,4 +7,5 @@ target_sources(RasterPass PRIVATE
     MyRasterSharedTypes.slang
 )
 
+target_copy_shaders(RasterPass RenderPasses/RasterPass)
 target_source_group(RasterPass "RenderPasses")

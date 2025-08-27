@@ -16,6 +16,9 @@ target_sources(GBuffer PRIVATE
     GBuffer/GBufferRT.h
     GBuffer/GBufferRT.rt.slang
     GBuffer/GBufferRT.slang
+    GBuffer/ImpostorPass.h
+    GBuffer/ImpostorPass.cpp
+    GBuffer/ImpostorRaster.3d.slang
 
     VBuffer/VBufferRaster.3d.slang
     VBuffer/VBufferRaster.cpp

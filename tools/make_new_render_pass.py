@@ -45,7 +45,7 @@ def create_project(name):
 
 
 def main():
-    success = create_project("RasterPass")
+    success = create_project("ForwardMappingPass")
 
     return 0 if success else 1
 

@@ -28,6 +28,7 @@
 #include "GBufferBase.h"
 #include "GBuffer/GBufferRaster.h"
 #include "GBuffer/GBufferRT.h"
+#include "GBuffer/ImpostorPass.h"
 #include "VBuffer/VBufferRaster.h"
 #include "VBuffer/VBufferRT.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
@@ -41,6 +42,7 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, GBufferRT>();
     registry.registerClass<RenderPass, VBufferRaster>();
     registry.registerClass<RenderPass, VBufferRT>();
+    registry.registerClass<RenderPass, ImpostorPass>();
 }
 
 namespace
@@ -196,7 +198,6 @@ void GBufferBase::setScene(RenderContext* pRenderContext, const ref<Scene>& pSce
         }
     }
 }
-
 
 static ref<CPUSampleGenerator> createSamplePattern(GBufferBase::SamplePattern type, uint32_t sampleCount)
 {
