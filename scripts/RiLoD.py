@@ -3,7 +3,7 @@ import falcor
 def render_graph_RasterPass():
     g = RenderGraph("Imposter")
     
-    num_passes = 3
+    imposter_count = 3
     
     pass_params = [
         {
@@ -28,16 +28,23 @@ def render_graph_RasterPass():
             "viewpointIndex": 3,
         }
     ]
+
+    forward_pass = createPass("ForwardMappingPass", {
+    "impostorCount": imposter_count,
+    })
+
+    g.addPass(forward_pass,"ForwardPass")
     
-    for i in range(num_passes):
-        pass_name = f"ImpostorPass{i}"
-        params = pass_params[i]
+    for i in range(imposter_count):
         
-        impostor_pass = createPass("ImpostorPass", params)
+        impostor_pass = createPass("ImpostorPass", pass_params[i])
         
-        g.addPass(impostor_pass, pass_name)
+        g.addPass(impostor_pass, f"ImpostorPass{i}")
+        g.addEdge(f"ImpostorPass{i}.packedNDO",f"ForwardPass.packedNDO{i}")
+        g.addEdge(f"ImpostorPass{i}.packedMCR",f"ForwardPass.packedMCR{i}")
+        g.addEdge(f"ImpostorPass{i}.viewpoint",f"ForwardPass.viewpoint{i}")
         
-        g.markOutput(f"{pass_name}.packedFloats")
+    g.markOutput(f"ForwardPass.mappedNDO")
     
     return g
 

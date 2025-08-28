@@ -40,8 +40,8 @@ cbuffer PerFrameCB
 // GBuffer channels
 struct GBufferPSOut
 {
-    float4 gPackedFloats : SV_TARGET0;
-    uint2 gPackedInts : SV_TARGET1;
+    float4 gPackedNDO : SV_TARGET0;
+    float4 gPackedMCR : SV_TARGET1;
 };
 
 #define is_valid(name) (is_valid_##name != 0)
@@ -92,8 +92,8 @@ GBufferPSOut psMain(VSOut vsOut, uint triangleIndex: SV_PrimitiveID, float3 bary
     GBufferPSOut psOut = {};
 
     float2 octo = normalToOctoUV(gbuf.normW.xyz);
-    psOut.gPackedFloats = float4(octo.x, octo.y, vsOut.posH.z, gbuf.diffuseOpacity.w);
-    psOut.gPackedInts = uint2(gbuf.mtlData.x, asuint(gbuf.texC.x * 65535.0));
+    psOut.gPackedNDO = float4(octo.x, octo.y, vsOut.posH.z, gbuf.diffuseOpacity.w);
+    psOut.gPackedMCR = float4(asfloat(gbuf.mtlData.x), gbuf.texC.x, gbuf.texC.y, 0);
 
     return psOut;
 }

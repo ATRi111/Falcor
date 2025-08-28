@@ -32,6 +32,20 @@
 
 using namespace Falcor;
 
+struct Viewpoint
+{
+    float3 position;
+    float3 target;
+    float3 up;
+
+    Viewpoint()
+    {
+        position = float3(0, 0, 0);
+        target = float3(1, 0, 0);
+        up = float3(0, 1, 0);
+    }
+};
+
 class ImpostorPass : public GBuffer
 {
 public:
@@ -53,20 +67,13 @@ private:
 
     bool mComplete;
 
-    struct
-    {
-        float3 position;
-        float3 target;
-        float3 up;
-    } mViewpoints;
+    Viewpoint mViewpoint;
     uint32_t mViewpointIndex;
 
     ref<Fbo> mpFbo;
 
-    ref<Texture> cachedPackedFloats;
-    ref<Texture> cachedPackedInts;
-    ref<Texture> outputPackedFloats;
-    ref<Texture> outputPackedInts;
+    ref<Texture> cachedPackedNDO;
+    ref<Texture> cachedPackedMCR;
 
     struct
     {

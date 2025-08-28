@@ -32,8 +32,8 @@ const std::string kDepthPassProgramFile = "E:/Project/Falcor/Source/RenderPasses
 const std::string kGBufferPassProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/ImpostorRaster.3d.slang";
 const RasterizerState::CullMode kDefaultCullMode = RasterizerState::CullMode::Back;
 const ChannelList kImpostorChannels = {
-    {"packedFloats", "gPackedFloats", "World normal(x,y), depth, opacity", false, ResourceFormat::RGBA32Float},
-    {"packedInts", "gPackedInts", "Material id or counter, uv", false, ResourceFormat::RG32Uint},
+    {"packedNDO", "gPackedNDO", "World normal(x,y), depth, opacity", false, ResourceFormat::RGBA32Float},
+    {"packedMCR", "gPackedMCR", "Material id or counter(int), uv, extra roughness", false, ResourceFormat::RGBA32Float},
 };
 
 const std::string kDepthName = "depth";
@@ -42,6 +42,7 @@ const std::string kCameraPosition = "cameraPosition";
 const std::string kCameraTarget = "cameraTarget";
 const std::string kCameraUp = "cameraUp";
 const std::string kViewpointIndex = "viewpointIndex";
+const std::string kOutputViewpoint = "viewpoint";
 } // namespace
 
 ImpostorPass::ImpostorPass(ref<Device> pDevice, const Properties& props) : GBuffer(pDevice), mComplete(false)
@@ -79,6 +80,10 @@ RenderPassReflection ImpostorPass::reflect(const CompileData& compileData)
         .texture2D(sz.x, sz.y);
 
     addRenderPassOutputs(reflector, kImpostorChannels, ResourceBindFlags::RenderTarget, sz);
+    reflector.addOutput(kOutputViewpoint, "Viewpoint of impostor")
+        .format(ResourceFormat::Unknown)
+        .bindFlags(ResourceBindFlags::Constant)
+        .rawBuffer(sizeof(Viewpoint));
 
     return reflector;
 }
@@ -95,10 +100,13 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
         return;
     }
 
+    ref<Buffer> viewpointBuffer = renderData.getResource(kOutputViewpoint)->asBuffer();
+    viewpointBuffer->setBlob(&mViewpoint, 0, sizeof(mViewpoint));
+
     if (mComplete)
     {
-        pRenderContext->copyResource(renderData.getTexture("packedFloats").get(), cachedPackedFloats.get());
-        pRenderContext->copyResource(renderData.getTexture("packedInts").get(), cachedPackedInts.get());
+        pRenderContext->copyResource(renderData.getTexture("packedNDO").get(), cachedPackedNDO.get());
+        pRenderContext->copyResource(renderData.getTexture("packedMCR").get(), cachedPackedMCR.get());
         return;
     }
 
@@ -182,20 +190,20 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
         //     mpFbo->attachColorTarget(pTex, uint32_t(i));
         // }
         const uint2 size = uint2(pDepth->getWidth(), pDepth->getHeight());
-        cachedPackedFloats =
+        cachedPackedNDO =
             mpDevice->createTexture2D(size.x, size.y, ResourceFormat::RGBA32Float, 1, 1, nullptr, ResourceBindFlags::RenderTarget);
-        cachedPackedInts =
-            mpDevice->createTexture2D(size.x, size.y, ResourceFormat::RG32Uint, 1, 1, nullptr, ResourceBindFlags::RenderTarget);
+        cachedPackedMCR =
+            mpDevice->createTexture2D(size.x, size.y, ResourceFormat::RGBA32Float, 1, 1, nullptr, ResourceBindFlags::RenderTarget);
 
-        mpFbo->attachColorTarget(cachedPackedFloats, 0);
-        mpFbo->attachColorTarget(cachedPackedInts, 1);
+        mpFbo->attachColorTarget(cachedPackedNDO, 0);
+        mpFbo->attachColorTarget(cachedPackedMCR, 1);
 
         mGBufferPass.pState->setFbo(mpFbo); // Sets the viewport
 
         // Rasterize the scene.
         mpScene->rasterize(pRenderContext, mGBufferPass.pState.get(), mGBufferPass.pVars.get(), cullMode);
-        pRenderContext->copyResource(renderData.getTexture("packedFloats").get(), cachedPackedFloats.get());
-        pRenderContext->copyResource(renderData.getTexture("packedInts").get(), cachedPackedInts.get());
+        pRenderContext->copyResource(renderData.getTexture("packedNDO").get(), cachedPackedNDO.get());
+        pRenderContext->copyResource(renderData.getTexture("packedMCR").get(), cachedPackedMCR.get());
     }
     mComplete = true;
 }
@@ -214,7 +222,7 @@ void ImpostorPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
         }
     }
 
-    pScene->addViewpoint(mViewpoints.position, mViewpoints.target, mViewpoints.up);
+    pScene->addViewpoint(mViewpoint.position, mViewpoint.target, mViewpoint.up);
 }
 
 void ImpostorPass::parseProperties(const Properties& props)
@@ -223,11 +231,11 @@ void ImpostorPass::parseProperties(const Properties& props)
     for (const auto& [key, value] : props)
     {
         if (key == kCameraPosition)
-            mViewpoints.position = value;
+            mViewpoint.position = value;
         if (key == kCameraTarget)
-            mViewpoints.target = value;
+            mViewpoint.target = value;
         if (key == kCameraUp)
-            mViewpoints.up = value;
+            mViewpoint.up = value;
         if (key == kViewpointIndex)
             mViewpointIndex = value;
     }
