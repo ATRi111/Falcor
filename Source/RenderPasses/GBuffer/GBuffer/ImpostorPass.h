@@ -68,6 +68,7 @@ private:
     bool mComplete;
 
     Viewpoint mViewpoint;
+    float4x4 invVP;
     uint32_t mViewpointIndex;
 
     ref<Fbo> mpFbo;

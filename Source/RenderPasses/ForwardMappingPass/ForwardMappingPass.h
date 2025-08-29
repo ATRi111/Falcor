@@ -31,20 +31,6 @@
 
 using namespace Falcor;
 
-struct Viewpoint
-{
-    float3 position;
-    float3 target;
-    float3 up;
-
-    Viewpoint()
-    {
-        position = float3(0, 0, 0);
-        target = float3(1, 0, 0);
-        up = float3(0, 1, 0);
-    }
-};
-
 class ForwardMappingPass : public RenderPass
 {
 public:
@@ -60,7 +46,6 @@ public:
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override {}
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
-    virtual void prepareVars(const RenderData& renderData);
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
@@ -72,5 +57,4 @@ private:
     ref<SampleGenerator> mpSampleGenerator;
     uint32_t mImpostorCount;
     ref<ComputePass> mpComputePass;
-    std::vector<float4x4> mTransformMatrixes; // 从一个Impostor视角下的纹理空间到当前视角下的纹理空间的变换矩阵
 };

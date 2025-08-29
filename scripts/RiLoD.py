@@ -1,32 +1,39 @@
 import falcor
 
 def render_graph_RasterPass():
-    g = RenderGraph("Imposter")
+    g = RenderGraph("RiLoD")
     
     imposter_count = 3
     
     pass_params = [
+        # {
+        #     "outputSizeSelection": "Default",
+        #     "cameraPosition": [0.0, 3.0, 1.0],
+        #     "cameraTarget": [0.0, 2.0, 1.0],
+        #     "cameraUp": [0.0, 0.0, 1.0],
+        #     "viewpointIndex": 1,
+        # },
         {
             "outputSizeSelection": "Default",
-            "cameraPosition": [0.0, 1.0, 5.0],
-            "cameraTarget": [0.0, 1.0, 4.0],
-            "cameraUp": [0.0, 1.0, 0.0],
+            "cameraPosition": [-0.8, 3.0, 1.0],
+            "cameraTarget": [-0.8, 2.0, 1.0],
+            "cameraUp": [1.0, 0.0, 0.0],
             "viewpointIndex": 1,
         },
         {
             "outputSizeSelection": "Default",
-            "cameraPosition": [-5.0, 1.0, 1.0],
-            "cameraTarget": [-4.0, 1.0, 1.0],
+            "cameraPosition": [-1.0, 1.2, 3.0],
+            "cameraTarget": [-1.0, 1.2, 2.0],
             "cameraUp": [0.0, 1.0, 0.0],
             "viewpointIndex": 2,
         },
         {
             "outputSizeSelection": "Default",
-            "cameraPosition": [0.0, 6.0, 1.0],
-            "cameraTarget": [0.0, 5.0, 1.0],
-            "cameraUp": [0.0, 1.0, -1.0],
+            "cameraPosition": [-3.0, 1.2, 1.2],
+            "cameraTarget": [-2.0, 1.2, 1.2],
+            "cameraUp": [0.0, 1.0, 0.0],
             "viewpointIndex": 3,
-        }
+        },
     ]
 
     forward_pass = createPass("ForwardMappingPass", {
@@ -42,9 +49,9 @@ def render_graph_RasterPass():
         g.addPass(impostor_pass, f"ImpostorPass{i}")
         g.addEdge(f"ImpostorPass{i}.packedNDO",f"ForwardPass.packedNDO{i}")
         g.addEdge(f"ImpostorPass{i}.packedMCR",f"ForwardPass.packedMCR{i}")
-        g.addEdge(f"ImpostorPass{i}.viewpoint",f"ForwardPass.viewpoint{i}")
+        g.addEdge(f"ImpostorPass{i}.invVP",f"ForwardPass.invVP{i}")
         
-    g.markOutput(f"ForwardPass.mappedNDO")
+    g.markOutput(f"ForwardPass.worldNormal")
     
     return g
 

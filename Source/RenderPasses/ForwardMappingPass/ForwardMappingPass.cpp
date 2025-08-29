@@ -30,7 +30,7 @@
 namespace
 {
 const std::string kComputePassProgramFile = "E:/Project/Falcor/Source/RenderPasses/ForwardMappingPass/ForwardMapping.cs.slang";
-const std::string kInputViewpoint = "viewpoint";
+const std::string kInputMatrix = "invVP";
 const std::string kInputPackedNDO = "packedNDO";
 const std::string kInputPackedMCR = "packedMCR";
 const std::string kImpostorCount = "impostorCount";
@@ -67,10 +67,10 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
         reflector.addInput(kInputPackedMCR + si, "Packed MCR data from Impostor" + si)
             .format(ResourceFormat::RGBA32Float)
             .bindFlags(ResourceBindFlags::ShaderResource);
-        reflector.addInput(kInputViewpoint + si, "Viewpoint of Impostor" + si)
+        reflector.addInput(kInputMatrix + si, "Inverse viewProjectMatrix of Impostor" + si)
             .format(ResourceFormat::Unknown)
             .bindFlags(ResourceBindFlags::Constant)
-            .rawBuffer(sizeof(Viewpoint));
+            .rawBuffer(sizeof(float4x4));
     }
 
     reflector.addOutput(kOutputMappedFloats, "Mapped NDO data")
@@ -85,43 +85,11 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
     return reflector;
 }
 
-void ForwardMappingPass::prepareVars(const RenderData& renderData)
-{
-    float3 currentFront = normalize(mpCamera->getTarget() - mpCamera->getPosition());
-    float3 currentUp = mpCamera->getUpVector();
-    float3 currentRight = cross(currentFront, currentUp);
-    float3x3 currentBasis;
-    currentBasis.setCol(0, currentRight);
-    currentBasis.setCol(1, currentUp);
-    currentBasis.setCol(2, currentFront);
-
-    for (size_t i = 0; i < mImpostorCount; i++)
-    {
-        ref<Buffer> buffer = renderData.getResource("viewpoint" + std::to_string(i))->asBuffer();
-        Viewpoint vp;
-        buffer->getBlob(&vp, 0, sizeof(Viewpoint));
-        float3 front = normalize(vp.target - vp.position);
-        float3 up = normalize(vp.up);
-        float3 right = cross(front, up);
-        float3x3 originBasis;
-        originBasis.setCol(0, right);
-        originBasis.setCol(1, up);
-        originBasis.setCol(2, front);
-        float3x3 rotation = mul(inverse(currentBasis), originBasis); // 基变换矩阵
-
-        float4x4 transform = float4x4(rotation);
-        transform.setCol(3, float4(0.f, 0.f, 0.f, 1.f));
-        transform = translate(transform, mpCamera->getPosition() - vp.position);
-        mTransformMatrixes.push_back(transform);
-    }
-}
-
 void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (!mpScene)
         return;
 
-    prepareVars(renderData);
     if (!mpComputePass)
     {
         ProgramDesc desc;
@@ -137,29 +105,36 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
         mpComputePass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
+    mpCamera->setFocalLength(21.f);
+    mpCamera->setFrameHeight(24.f);
     ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedFloats);
     ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedInts);
     ref<Texture> worldNormal = renderData.getTexture(kWorldNormal);
 
-    pRenderContext->clearUAV(mappedNDO->getUAV().get(), float4(0.f, 0.f, 1.f, 0.f)); // 深度初始化为最大值
+    pRenderContext->clearUAV(mappedNDO->getUAV().get(), float4());
     pRenderContext->clearUAV(mappedMCR->getUAV().get(), float4());
-    pRenderContext->clearUAV(worldNormal->getUAV().get(), float4(0.f, 0.f, 0.f, 1.f));
+    pRenderContext->clearUAV(worldNormal->getUAV().get(), float4());
 
+    ShaderVar var = mpComputePass->getRootVar();
+    var["CB"]["width"] = mappedNDO->getWidth();
+    var["CB"]["height"] = mappedNDO->getHeight();
+    var["CB"]["VP"] = mpCamera->getViewProjMatrix();
+    var["gMappedNDO"] = mappedNDO;
+    var["gMappedMCR"] = mappedMCR;
+    var["gWorldNormal"] = worldNormal;
     for (size_t i = 0; i < mImpostorCount; i++)
     {
-        ShaderVar var = mpComputePass->getRootVar();
-        var["CB"]["transform"] = mTransformMatrixes[i];
+        ref<Buffer> buffer = renderData.getResource(kInputMatrix + std::to_string(i))->asBuffer();
+        float4x4 invVP;
+        buffer->getBlob(&invVP, 0, sizeof(float4x4));
+
+        var["CB"]["invOriginVP"] = invVP;
         var["gPackedNDO"] = renderData.getTexture(kInputPackedNDO + std::to_string(i));
         var["gPackedMCR"] = renderData.getTexture(kInputPackedMCR + std::to_string(i));
-        var["gMappedNDO"] = mappedNDO;
-        var["gMappedMCR"] = mappedMCR;
-        var["gWorldNormal"] = worldNormal;
 
         mpComputePass->execute(pRenderContext, uint3(mappedNDO->getWidth(), mappedNDO->getHeight(), 1));
+        pRenderContext->uavBarrier(mappedNDO.get());
     }
-
-    pRenderContext->copyResource(renderData.getTexture(kOutputMappedFloats).get(), renderData.getTexture(kInputPackedNDO + "0").get());
-    pRenderContext->copyResource(renderData.getTexture(kOutputMappedInts).get(), renderData.getTexture(kInputPackedMCR + "0").get());
 }
 
 void ForwardMappingPass::renderUI(Gui::Widgets& widget) {}
@@ -168,4 +143,5 @@ void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene
 {
     mpScene = pScene;
     mpCamera = pScene->getCamera();
+    mpScene->selectViewpoint(0);
 }

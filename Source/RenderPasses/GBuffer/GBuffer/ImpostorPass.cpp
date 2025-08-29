@@ -42,7 +42,7 @@ const std::string kCameraPosition = "cameraPosition";
 const std::string kCameraTarget = "cameraTarget";
 const std::string kCameraUp = "cameraUp";
 const std::string kViewpointIndex = "viewpointIndex";
-const std::string kOutputViewpoint = "viewpoint";
+const std::string kOutputMatrix = "invVP";
 } // namespace
 
 ImpostorPass::ImpostorPass(ref<Device> pDevice, const Properties& props) : GBuffer(pDevice), mComplete(false)
@@ -80,10 +80,10 @@ RenderPassReflection ImpostorPass::reflect(const CompileData& compileData)
         .texture2D(sz.x, sz.y);
 
     addRenderPassOutputs(reflector, kImpostorChannels, ResourceBindFlags::RenderTarget, sz);
-    reflector.addOutput(kOutputViewpoint, "Viewpoint of impostor")
+    reflector.addOutput(kOutputMatrix, "Viewpoint of impostor")
         .format(ResourceFormat::Unknown)
         .bindFlags(ResourceBindFlags::Constant)
-        .rawBuffer(sizeof(Viewpoint));
+        .rawBuffer(sizeof(float4x4));
 
     return reflector;
 }
@@ -100,13 +100,12 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
         return;
     }
 
-    ref<Buffer> viewpointBuffer = renderData.getResource(kOutputViewpoint)->asBuffer();
-    viewpointBuffer->setBlob(&mViewpoint, 0, sizeof(mViewpoint));
-
+    ref<Buffer> matrixBuffer = renderData.getResource(kOutputMatrix)->asBuffer();
     if (mComplete)
     {
         pRenderContext->copyResource(renderData.getTexture("packedNDO").get(), cachedPackedNDO.get());
         pRenderContext->copyResource(renderData.getTexture("packedMCR").get(), cachedPackedMCR.get());
+        matrixBuffer->setBlob(&invVP, 0, sizeof(float4x4));
         return;
     }
 
@@ -126,8 +125,14 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
     }
 
     mpScene->selectViewpoint(mViewpointIndex);
-
+    ref<Camera> camera = mpScene->getCamera();
+    camera->setFocalLength(0.f);
+    camera->setFrameHeight(4000.f);
+    camera->setFarPlane(5.f);
     mpScene->update(pRenderContext, 0.);
+
+    invVP = camera->getInvViewProjMatrix();
+    matrixBuffer->setBlob(&invVP, 0, sizeof(float4x4));
 
     // Depth pass.
     {
@@ -184,11 +189,6 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
 
         auto var = mGBufferPass.pVars->getRootVar();
         var["PerFrameCB"]["gFrameDim"] = mFrameDim;
-        // for (size_t i = 0; i < kImpostorChannels.size(); ++i)
-        //{
-        //     ref<Texture> pTex = getOutput(renderData, kImpostorChannels[i].name);
-        //     mpFbo->attachColorTarget(pTex, uint32_t(i));
-        // }
         const uint2 size = uint2(pDepth->getWidth(), pDepth->getHeight());
         cachedPackedNDO =
             mpDevice->createTexture2D(size.x, size.y, ResourceFormat::RGBA32Float, 1, 1, nullptr, ResourceBindFlags::RenderTarget);

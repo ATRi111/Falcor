@@ -53,7 +53,7 @@ VSOut vsMain(VSIn vsIn)
 
 float2 normalToOctoUV(float3 n)
 {
-    float2 p = float2(n.x, n.y) / dot(float3(1, 1, 1), n);
+    float2 p = n.xy / dot(1, abs(n));
     if (n.z < 0)
         p = (1.0 - abs(p.yx)) * sign(p.xy);
     return p * 0.5 + 0.5;
