@@ -37,12 +37,14 @@ struct Viewpoint
     float3 position;
     float3 target;
     float3 up;
+    float cameraSize;
 
     Viewpoint()
     {
         position = float3(0, 0, 0);
         target = float3(1, 0, 0);
         up = float3(0, 1, 0);
+        cameraSize = 0;
     }
 };
 
@@ -64,12 +66,16 @@ public:
 
 private:
     void recreatePrograms();
+    void calculateViewPoint(float3 min, float3 max, uint32_t index);
 
     bool mComplete;
 
     Viewpoint mViewpoint;
     float4x4 invVP;
     uint32_t mViewpointIndex;
+    float aspectRatio;
+
+    std::vector<float3> mViewDirections;
 
     ref<Fbo> mpFbo;
 

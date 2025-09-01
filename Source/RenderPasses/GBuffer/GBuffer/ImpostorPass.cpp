@@ -38,9 +38,6 @@ const ChannelList kImpostorChannels = {
 
 const std::string kDepthName = "depth";
 
-const std::string kCameraPosition = "cameraPosition";
-const std::string kCameraTarget = "cameraTarget";
-const std::string kCameraUp = "cameraUp";
 const std::string kViewpointIndex = "viewpointIndex";
 const std::string kOutputMatrix = "invVP";
 } // namespace
@@ -68,12 +65,21 @@ ImpostorPass::ImpostorPass(ref<Device> pDevice, const Properties& props) : GBuff
     mGBufferPass.pState->setDepthStencilState(pDsState);
 
     mpFbo = Fbo::create(mpDevice);
+
+    mViewDirections.emplace_back(0, 0, 0); // 0号为默认观察方向
+    mViewDirections.emplace_back(1, 0, 0);
+    mViewDirections.emplace_back(-1, 0, 0);
+    mViewDirections.emplace_back(0, 1, 0);
+    mViewDirections.emplace_back(0, -1, 0);
+    mViewDirections.emplace_back(0, 0, 1);
+    mViewDirections.emplace_back(0, 0, -1);
+    aspectRatio = 16.f / 9.f;
 }
 
 RenderPassReflection ImpostorPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    const uint2 sz = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mFixedOutputSize, compileData.defaultTexDims);
+    uint2 sz = RenderPassHelpers::calculateIOSize(mOutputSizeSelection, mFixedOutputSize, compileData.defaultTexDims);
     reflector.addInternal(kDepthName, "Depth buffer")
         .format(ResourceFormat::D32Float)
         .bindFlags(ResourceBindFlags::DepthStencil)
@@ -127,8 +133,9 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
     mpScene->selectViewpoint(mViewpointIndex);
     ref<Camera> camera = mpScene->getCamera();
     camera->setFocalLength(0.f);
-    camera->setFrameHeight(4000.f);
-    camera->setFarPlane(5.f);
+    camera->setAspectRatio(aspectRatio);
+    camera->setFrameHeight(mViewpoint.cameraSize * 1000);
+    camera->setFarPlane(10.f);
     mpScene->update(pRenderContext, 0.);
 
     invVP = camera->getInvViewProjMatrix();
@@ -222,6 +229,12 @@ void ImpostorPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
         }
     }
 
+    AABB aabb = pScene->getSceneBounds();
+    calculateViewPoint(aabb.minPoint, aabb.maxPoint, mViewpointIndex);
+    float3 right = math::normalize(math::cross(mViewpoint.target - mViewpoint.position, mViewpoint.up));
+    float3 diag = aabb.maxPoint - aabb.minPoint;
+    float size = math::max(diag.x, diag.y);
+    mViewpoint.cameraSize = size * 1.1f;
     pScene->addViewpoint(mViewpoint.position, mViewpoint.target, mViewpoint.up);
 }
 
@@ -230,12 +243,6 @@ void ImpostorPass::parseProperties(const Properties& props)
     GBuffer::parseProperties(props);
     for (const auto& [key, value] : props)
     {
-        if (key == kCameraPosition)
-            mViewpoint.position = value;
-        if (key == kCameraTarget)
-            mViewpoint.target = value;
-        if (key == kCameraUp)
-            mViewpoint.up = value;
         if (key == kViewpointIndex)
             mViewpointIndex = value;
     }
@@ -249,4 +256,18 @@ void ImpostorPass::recreatePrograms()
     mDepthPass.pVars = nullptr;
     mGBufferPass.pProgram = nullptr;
     mGBufferPass.pVars = nullptr;
+}
+
+void ImpostorPass::calculateViewPoint(float3 min, float3 max, uint32_t index)
+{
+    float3 center = (min + max) / 2.f;
+    float3 half = center - min;
+    float3 direction = mViewDirections[index];
+    float3 mid = center + math::abs(math::dot(half, direction)) * direction;
+    mViewpoint.position = mid + 1.f * direction;
+    mViewpoint.target = mid;
+    if (mViewDirections[index].y != 0)
+        mViewpoint.up = float3(0, 0, 1);
+    else
+        mViewpoint.up = float3(0, 1, 0);
 }

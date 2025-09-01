@@ -27,31 +27,95 @@
  **************************************************************************/
 #include "ReshadingPass.h"
 
+namespace
+{
+const std::string kInputFilteredNDO = "filteredNDO";
+const std::string kInputFilteredMCR = "filteredMCR";
+const std::string kOutputColor = "color";
+const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/ReshadingPass/Reshading.ps.slang";
+} // namespace
+
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
     registry.registerClass<RenderPass, ReshadingPass>();
 }
 
-ReshadingPass::ReshadingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice) {}
-
-Properties ReshadingPass::getProperties() const
+ref<ReshadingPass> ReshadingPass::create(ref<Device> pDevice, const Properties& props)
 {
-    return {};
+    return make_ref<ReshadingPass>(pDevice, props);
+}
+
+ReshadingPass::ReshadingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
+{
+    mpDevice = pDevice;
+    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
+
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
+        .setAddressingMode(TextureAddressingMode::Clamp, TextureAddressingMode::Clamp, TextureAddressingMode::Clamp);
+    mpSampler = mpDevice->createSampler(samplerDesc);
+
+    mpFullScreenPass = FullScreenPass::create(mpDevice, kShaderFile);
 }
 
 RenderPassReflection ReshadingPass::reflect(const CompileData& compileData)
 {
-    // Define the required resources here
     RenderPassReflection reflector;
-    // reflector.addOutput("dst");
-    // reflector.addInput("src");
+    reflector.addInput(kInputFilteredNDO, "Input normal, depth, opacity").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputFilteredMCR, "Input material id, texCoord, roughness").bindFlags(ResourceBindFlags::ShaderResource);
+
+    reflector.addOutput(kOutputColor, "Output color").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA32Float);
     return reflector;
 }
 
 void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    // renderData holds the requested resources
-    // auto& pTexture = renderData.getTexture("src");
+    const auto& pOutput = renderData.getTexture(kOutputColor);
+    pRenderContext->clearRtv(pOutput->getRTV().get(), float4(0, 0, 0, 0));
+    if (!mpScene)
+        return;
+
+    const auto& pFilteredNDO = renderData.getTexture(kInputFilteredNDO);
+    const auto& pFilteredMCR = renderData.getTexture(kInputFilteredMCR);
+
+    if (!mpProgram)
+    {
+        ProgramDesc desc;
+        desc.addShaderLibrary(kShaderFile).psEntry("main");
+        desc.setShaderModel(ShaderModel::SM6_5);
+        mpProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
+    }
+
+    // Bind resources to the full-screen pass
+    auto var = mpFullScreenPass->getRootVar();
+    var["gFilteredNDO"] = pFilteredNDO;
+    var["gFilteredMCR"] = pFilteredMCR;
+    var["gSampler"] = mpSampler;
+
+    const auto& lights = mpScene->getLights();
+    for (size_t i = 0; i < lights.size(); i++)
+    {
+        if (lights[i]->getType() == LightType::Directional)
+        {
+            var["DirectionalLightCB"]["lightPosW"] = lights[i]->getData().posW;
+            var["DirectionalLightCB"]["lightDirW"] = lights[i]->getData().dirW;
+            var["DirectionalLightCB"]["lightColor"] = lights[i]->getData().intensity;
+            break;
+        }
+    }
+
+    ref<Camera> camera = mpScene->getCamera();
+    var["CameraCB"]["cameraPosW"] = camera->getPosition();
+    var["CameraCB"]["invVP"] = camera->getInvViewProjMatrix();
+
+    ref<Fbo> fbo = Fbo::create(mpDevice);
+    fbo->attachColorTarget(pOutput, 0);
+    mpFullScreenPass->execute(pRenderContext, fbo);
 }
 
 void ReshadingPass::renderUI(Gui::Widgets& widget) {}
+
+void ReshadingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
+{
+    mpScene = pScene;
+}

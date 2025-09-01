@@ -34,8 +34,8 @@ const std::string kInputMatrix = "invVP";
 const std::string kInputPackedNDO = "packedNDO";
 const std::string kInputPackedMCR = "packedMCR";
 const std::string kImpostorCount = "impostorCount";
-const std::string kOutputMappedFloats = "mappedNDO";
-const std::string kOutputMappedInts = "mappedMCR";
+const std::string kOutputMappedNDO = "mappedNDO";
+const std::string kOutputMappedMCR = "mappedMCR";
 const std::string kWorldNormal = "worldNormal";
 } // namespace
 
@@ -58,12 +58,13 @@ ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& pr
 RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
+    uint width = 0, height = 0;
     for (size_t i = 0; i < mImpostorCount; i++)
     {
         std::string si = std::to_string(i);
-        reflector.addInput(kInputPackedNDO + si, "Packed NDO data from Impostor" + si)
-            .format(ResourceFormat::RGBA32Float)
-            .bindFlags(ResourceBindFlags::ShaderResource);
+        RenderPassReflection::Field& field = reflector.addInput(kInputPackedNDO + si, "Packed NDO data from Impostor" + si)
+                                                 .format(ResourceFormat::RGBA32Float)
+                                                 .bindFlags(ResourceBindFlags::ShaderResource);
         reflector.addInput(kInputPackedMCR + si, "Packed MCR data from Impostor" + si)
             .format(ResourceFormat::RGBA32Float)
             .bindFlags(ResourceBindFlags::ShaderResource);
@@ -71,17 +72,22 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
             .format(ResourceFormat::Unknown)
             .bindFlags(ResourceBindFlags::Constant)
             .rawBuffer(sizeof(float4x4));
+        width = field.getWidth();
+        height = field.getHeight();
     }
 
-    reflector.addOutput(kOutputMappedFloats, "Mapped NDO data")
+    reflector.addOutput(kOutputMappedNDO, "Mapped NDO data")
         .format(ResourceFormat::RGBA32Float)
-        .bindFlags(ResourceBindFlags::UnorderedAccess);
-    reflector.addOutput(kOutputMappedInts, "Mapped MCR data")
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .texture2D(width, height);
+    reflector.addOutput(kOutputMappedMCR, "Mapped MCR data")
         .format(ResourceFormat::RGBA32Float)
-        .bindFlags(ResourceBindFlags::UnorderedAccess);
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .texture2D(width, height);
     reflector.addOutput(kWorldNormal, "World space normal")
         .format(ResourceFormat::RGBA32Float)
-        .bindFlags(ResourceBindFlags::UnorderedAccess);
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .texture2D(width, height);
     return reflector;
 }
 
@@ -103,12 +109,16 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
         // defines.add(getShaderDefines(renderData));
 
         mpComputePass = ComputePass::create(mpDevice, desc, defines, true);
+
+        mpCamera->setFocalLength(21.f);
+        mpCamera->setFrameHeight(24.f);
+
+        mpScene->selectViewpoint(0);
+        mpScene->update(pRenderContext, 0.f);
     }
 
-    mpCamera->setFocalLength(21.f);
-    mpCamera->setFrameHeight(24.f);
-    ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedFloats);
-    ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedInts);
+    ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
+    ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
     ref<Texture> worldNormal = renderData.getTexture(kWorldNormal);
 
     pRenderContext->clearUAV(mappedNDO->getUAV().get(), float4());
@@ -143,5 +153,4 @@ void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene
 {
     mpScene = pScene;
     mpCamera = pScene->getCamera();
-    mpScene->selectViewpoint(0);
 }

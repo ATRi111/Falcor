@@ -3,55 +3,33 @@ import falcor
 def render_graph_RasterPass():
     g = RenderGraph("RiLoD")
     
-    imposter_count = 3
-    
-    pass_params = [
-        # {
-        #     "outputSizeSelection": "Default",
-        #     "cameraPosition": [0.0, 3.0, 1.0],
-        #     "cameraTarget": [0.0, 2.0, 1.0],
-        #     "cameraUp": [0.0, 0.0, 1.0],
-        #     "viewpointIndex": 1,
-        # },
-        {
-            "outputSizeSelection": "Default",
-            "cameraPosition": [-0.8, 3.0, 1.0],
-            "cameraTarget": [-0.8, 2.0, 1.0],
-            "cameraUp": [1.0, 0.0, 0.0],
-            "viewpointIndex": 1,
-        },
-        {
-            "outputSizeSelection": "Default",
-            "cameraPosition": [-1.0, 1.2, 3.0],
-            "cameraTarget": [-1.0, 1.2, 2.0],
-            "cameraUp": [0.0, 1.0, 0.0],
-            "viewpointIndex": 2,
-        },
-        {
-            "outputSizeSelection": "Default",
-            "cameraPosition": [-3.0, 1.2, 1.2],
-            "cameraTarget": [-2.0, 1.2, 1.2],
-            "cameraUp": [0.0, 1.0, 0.0],
-            "viewpointIndex": 3,
-        },
-    ]
+    imposter_count = 6
 
     forward_pass = createPass("ForwardMappingPass", {
     "impostorCount": imposter_count,
     })
-
     g.addPass(forward_pass,"ForwardPass")
-    
     for i in range(imposter_count):
-        
-        impostor_pass = createPass("ImpostorPass", pass_params[i])
-        
+        impostor_pass = createPass("ImpostorPass", {
+        "viewpointIndex": i+1,
+        })
         g.addPass(impostor_pass, f"ImpostorPass{i}")
         g.addEdge(f"ImpostorPass{i}.packedNDO",f"ForwardPass.packedNDO{i}")
         g.addEdge(f"ImpostorPass{i}.packedMCR",f"ForwardPass.packedMCR{i}")
         g.addEdge(f"ImpostorPass{i}.invVP",f"ForwardPass.invVP{i}")
-        
-    g.markOutput(f"ForwardPass.worldNormal")
+
+    filter_pass = createPass("FilterPass")
+    g.addPass(filter_pass,"FilterPass")
+    g.addEdge("ForwardPass.mappedNDO","FilterPass.mappedNDO")
+    g.addEdge("ForwardPass.mappedMCR","FilterPass.mappedMCR")
+
+    reshading_pass = createPass("ReshadingPass")
+    g.addPass(reshading_pass,"ReshadingPass")
+    
+    g.addEdge("FilterPass.filteredNDO","ReshadingPass.filteredNDO")
+    g.addEdge("FilterPass.filteredMCR","ReshadingPass.filteredMCR")
+
+    g.markOutput("ReshadingPass.color")
     
     return g
 

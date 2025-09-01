@@ -70,12 +70,6 @@ MyRasterPass::MyRasterPass(ref<Device> pDevice, const Properties& props) : Rende
     mMode = (uint)MyRasterMode::BlinnPhong;
 }
 
-Properties MyRasterPass::getProperties() const
-{
-    Properties props;
-    return props;
-}
-
 RenderPassReflection MyRasterPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;

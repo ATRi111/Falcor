@@ -29,17 +29,16 @@
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
 #include "Core/Pass/FullScreenPass.h"
-#include "MyRasterSharedTypes.slang"
 using namespace Falcor;
 
-class MyRasterPass : public RenderPass
+class FilterPass : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(MyRasterPass, "MyRasterPass", "Custom Raster Pass");
+    FALCOR_PLUGIN_CLASS(FilterPass, "FilterPass", "Insert pass description here.");
 
-    static ref<MyRasterPass> create(ref<Device> pDevice, const Properties& props);
+    static ref<FilterPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<FilterPass>(pDevice, props); }
 
-    MyRasterPass(ref<Device> pDevice, const Properties& props);
+    FilterPass(ref<Device> pDevice, const Properties& props);
 
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
@@ -47,10 +46,10 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
-    ref<Scene> mpScene;
     ref<SampleGenerator> mpSampleGenerator;
-    ref<Program> mpProgram;
-    ref<FullScreenPass> mpFullScreenPass;
     ref<Sampler> mpSampler;
-    uint mMode;
+    ref<Scene> mpScene;
+    ref<ComputePass> mpComputePass;
+    uint blockSize = 16; // 滤波时每块的边长
+    uint2 blockCount;
 };
