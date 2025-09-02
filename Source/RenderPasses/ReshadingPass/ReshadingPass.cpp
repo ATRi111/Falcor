@@ -49,11 +49,13 @@ ReshadingPass::ReshadingPass(ref<Device> pDevice, const Properties& props) : Ren
 {
     mpDevice = pDevice;
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
+    mLoDLevel = 0;
+    mForceLoDLevel = -1;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
         .setAddressingMode(TextureAddressingMode::Clamp, TextureAddressingMode::Clamp, TextureAddressingMode::Clamp);
-    mpSampler = mpDevice->createSampler(samplerDesc);
+    mpPointSampler = mpDevice->createSampler(samplerDesc);
 
     mpFullScreenPass = FullScreenPass::create(mpDevice, kShaderFile);
 }
@@ -61,10 +63,17 @@ ReshadingPass::ReshadingPass(ref<Device> pDevice, const Properties& props) : Ren
 RenderPassReflection ReshadingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kInputFilteredNDO, "Input normal, depth, opacity").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(kInputFilteredMCR, "Input material id, texCoord, roughness").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputFilteredNDO, "Input normal, depth, opacity")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+    reflector.addInput(kInputFilteredMCR, "Input material id, texCoord, roughness")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
 
-    reflector.addOutput(kOutputColor, "Output color").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA32Float);
+    reflector.addOutput(kOutputColor, "Output color")
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::RGBA32Float)
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, 1);
     return reflector;
 }
 
@@ -86,11 +95,13 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
         mpProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
+    float LoDLevel = 0;
+
     // Bind resources to the full-screen pass
     auto var = mpFullScreenPass->getRootVar();
     var["gFilteredNDO"] = pFilteredNDO;
     var["gFilteredMCR"] = pFilteredMCR;
-    var["gSampler"] = mpSampler;
+    var["gPointSampler"] = mpPointSampler;
 
     const auto& lights = mpScene->getLights();
     for (size_t i = 0; i < lights.size(); i++)
@@ -105,17 +116,38 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
     }
 
     ref<Camera> camera = mpScene->getCamera();
+    if (mForceLoDLevel >= 0)
+        mLoDLevel = math::clamp(mForceLoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
+    else
+        mLoDLevel = CalculateSceneLoDLevel(camera);
     var["CameraCB"]["cameraPosW"] = camera->getPosition();
     var["CameraCB"]["invVP"] = camera->getInvViewProjMatrix();
+    int lowerLevel = (int)(math::floor(mLoDLevel));
+    var["CameraCB"]["lowerLevel"] = (int)(math::floor(mLoDLevel));
+    var["CameraCB"]["t"] = mLoDLevel - lowerLevel;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutput, 0);
     mpFullScreenPass->execute(pRenderContext, fbo);
 }
 
-void ReshadingPass::renderUI(Gui::Widgets& widget) {}
+void ReshadingPass::renderUI(Gui::Widgets& widget)
+{
+    widget.var("LoDLevel", mLoDLevel);
+    widget.var("ForceLoDLevel", mForceLoDLevel);
+}
 
 void ReshadingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
+}
+
+float ReshadingPass::CalculateSceneLoDLevel(ref<Camera> camera)
+{
+    AABB aabb = mpScene->getSceneBounds();
+    float size = math::length(aabb.maxPoint - aabb.minPoint);
+    float distance = math::length(camera->getPosition() - aabb.center());
+    float k = distance * camera->getFrameHeight() / camera->getFocalLength() / size;
+    float LoDLevel = math::log2(k) - 1;
+    return math::clamp(LoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
 }

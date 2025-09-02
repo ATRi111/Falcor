@@ -46,9 +46,12 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    float CalculateSceneLoDLevel(ref<Camera> camera);
+    float mLoDLevel;
+    float mForceLoDLevel;
     ref<Scene> mpScene;
     ref<SampleGenerator> mpSampleGenerator;
     ref<Program> mpProgram;
     ref<FullScreenPass> mpFullScreenPass;
-    ref<Sampler> mpSampler;
+    ref<Sampler> mpPointSampler;
 };

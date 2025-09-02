@@ -36,7 +36,6 @@ const std::string kInputPackedMCR = "packedMCR";
 const std::string kImpostorCount = "impostorCount";
 const std::string kOutputMappedNDO = "mappedNDO";
 const std::string kOutputMappedMCR = "mappedMCR";
-const std::string kWorldNormal = "worldNormal";
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -58,36 +57,31 @@ ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& pr
 RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    uint width = 0, height = 0;
     for (size_t i = 0; i < mImpostorCount; i++)
     {
         std::string si = std::to_string(i);
-        RenderPassReflection::Field& field = reflector.addInput(kInputPackedNDO + si, "Packed NDO data from Impostor" + si)
-                                                 .format(ResourceFormat::RGBA32Float)
-                                                 .bindFlags(ResourceBindFlags::ShaderResource);
+        reflector.addInput(kInputPackedNDO + si, "Packed NDO data from Impostor" + si)
+            .format(ResourceFormat::RGBA32Float)
+            .bindFlags(ResourceBindFlags::ShaderResource)
+            .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
         reflector.addInput(kInputPackedMCR + si, "Packed MCR data from Impostor" + si)
             .format(ResourceFormat::RGBA32Float)
-            .bindFlags(ResourceBindFlags::ShaderResource);
+            .bindFlags(ResourceBindFlags::ShaderResource)
+            .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
         reflector.addInput(kInputMatrix + si, "Inverse viewProjectMatrix of Impostor" + si)
             .format(ResourceFormat::Unknown)
             .bindFlags(ResourceBindFlags::Constant)
             .rawBuffer(sizeof(float4x4));
-        width = field.getWidth();
-        height = field.getHeight();
     }
 
     reflector.addOutput(kOutputMappedNDO, "Mapped NDO data")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(width, height);
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
     reflector.addOutput(kOutputMappedMCR, "Mapped MCR data")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(width, height);
-    reflector.addOutput(kWorldNormal, "World space normal")
-        .format(ResourceFormat::RGBA32Float)
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(width, height);
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
     return reflector;
 }
 
@@ -109,41 +103,43 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
         // defines.add(getShaderDefines(renderData));
 
         mpComputePass = ComputePass::create(mpDevice, desc, defines, true);
-
-        mpCamera->setFocalLength(21.f);
-        mpCamera->setFrameHeight(24.f);
-
-        mpScene->selectViewpoint(0);
-        mpScene->update(pRenderContext, 0.f);
     }
+    mpCamera->setFocalLength(21.f);
+    mpCamera->setFrameHeight(24.f);
 
     ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
     ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
-    ref<Texture> worldNormal = renderData.getTexture(kWorldNormal);
 
-    pRenderContext->clearUAV(mappedNDO->getUAV().get(), float4());
-    pRenderContext->clearUAV(mappedMCR->getUAV().get(), float4());
-    pRenderContext->clearUAV(worldNormal->getUAV().get(), float4());
+    for (size_t i = 0; i < RiLoDMipCount; i++)
+    {
+        pRenderContext->clearUAV(mappedNDO->getUAV(i).get(), float4());
+        pRenderContext->clearUAV(mappedMCR->getUAV(i).get(), float4());
+    }
 
     ShaderVar var = mpComputePass->getRootVar();
-    var["CB"]["width"] = mappedNDO->getWidth();
-    var["CB"]["height"] = mappedNDO->getHeight();
     var["CB"]["VP"] = mpCamera->getViewProjMatrix();
-    var["gMappedNDO"] = mappedNDO;
-    var["gMappedMCR"] = mappedMCR;
-    var["gWorldNormal"] = worldNormal;
     for (size_t i = 0; i < mImpostorCount; i++)
     {
         ref<Buffer> buffer = renderData.getResource(kInputMatrix + std::to_string(i))->asBuffer();
         float4x4 invVP;
         buffer->getBlob(&invVP, 0, sizeof(float4x4));
+        ref<Texture> packedNDO = renderData.getTexture(kInputPackedNDO + std::to_string(i));
+        ref<Texture> packedMCR = renderData.getTexture(kInputPackedMCR + std::to_string(i));
 
         var["CB"]["invOriginVP"] = invVP;
-        var["gPackedNDO"] = renderData.getTexture(kInputPackedNDO + std::to_string(i));
-        var["gPackedMCR"] = renderData.getTexture(kInputPackedMCR + std::to_string(i));
-
-        mpComputePass->execute(pRenderContext, uint3(mappedNDO->getWidth(), mappedNDO->getHeight(), 1));
-        pRenderContext->uavBarrier(mappedNDO.get());
+        for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
+        {
+            int width = mappedNDO->getWidth() >> mipLevel;
+            int height = mappedNDO->getHeight() >> mipLevel;
+            var["gPackedNDO"].setSrv(packedNDO->getSRV(mipLevel));
+            var["gPackedMCR"].setSrv(packedMCR->getSRV(mipLevel));
+            var["gMappedNDO"].setUav(mappedNDO->getUAV(mipLevel));
+            var["gMappedMCR"].setUav(mappedMCR->getUAV(mipLevel));
+            var["CB"]["width"] = width;
+            var["CB"]["height"] = height;
+            mpComputePass->execute(pRenderContext, uint3(width, height, 1));
+        }
+        pRenderContext->uavBarrier(mappedNDO.get()); // 不同层级可以并行重建，不同方向不可
     }
 }
 

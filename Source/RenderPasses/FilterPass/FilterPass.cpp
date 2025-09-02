@@ -56,27 +56,23 @@ FilterPass::FilterPass(ref<Device> pDevice, const Properties& props) : RenderPas
 RenderPassReflection FilterPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    RenderPassReflection::Field& input = reflector.addInput(kInputMappedNDO, "Input normal, depth, opacity")
-                                             .format(ResourceFormat::RGBA32Float)
-                                             .bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputMappedNDO, "Input normal, depth, opacity")
+        .format(ResourceFormat::RGBA32Float)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
     reflector.addInput(kInputMappedMCR, "Input material id, texCoord, roughness")
         .format(ResourceFormat::RGBA32Float)
-        .bindFlags(ResourceBindFlags::ShaderResource);
-
-    uint width = input.getWidth();
-    uint height = input.getHeight();
-
-    width = std::min(width, 1920u);
-    height = std::min(height, 1080u);
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
 
     reflector.addOutput(kOutputFilteredNDO, "Output normal, depth, opacity")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(width, height);
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
     reflector.addOutput(kOutputFilteredMCR, "Output material id, texCoord, roughness")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(width, height);
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
     return reflector;
 }
 
@@ -100,6 +96,11 @@ void FilterPass::execute(RenderContext* pRenderContext, const RenderData& render
     ref<Texture> mappedMCR = renderData.getTexture(kInputMappedMCR);
     ref<Texture> filteredNDO = renderData.getTexture(kOutputFilteredNDO);
     ref<Texture> filteredMCR = renderData.getTexture(kOutputFilteredMCR);
+
+    pRenderContext->copyResource(filteredNDO.get(), mappedNDO.get());
+    pRenderContext->copyResource(filteredMCR.get(), mappedMCR.get());
+    return;
+
     blockCount = uint2(mappedNDO->getWidth() / blockSize, mappedNDO->getHeight() / blockSize); // 简单地认为能整除
     auto var = mpComputePass->getRootVar();
     var["gMappedNDO"] = mappedNDO;

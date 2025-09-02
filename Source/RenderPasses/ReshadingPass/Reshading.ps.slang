@@ -1,6 +1,6 @@
 Texture2D<float4> gFilteredNDO;
 Texture2D<float4> gFilteredMCR;
-SamplerState gSampler;
+SamplerState gPointSampler;
 
 cbuffer DirectionalLightCB
 {
@@ -13,6 +13,8 @@ cbuffer CameraCB
 {
     float3 cameraPosW;
     float4x4 invVP;
+    uint lowerLevel;
+    float t;
 };
 
 float NDC_GGX(float3 n, float3 h, float rough)
@@ -58,24 +60,59 @@ float3 octoUVToNormal(float2 uv)
 
 float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
 {
-    float4 NDO = gFilteredNDO.Sample(gSampler, texCoord);
-    if (NDO.w == 0)
-        discard;
-    float2 octoUV = NDO.xy;
-    float4 NDC = float4(texCoord * 2 - 1, NDO.z, 1);
-    float4 temp = mul(invVP, NDC);
-    float4 posW = temp / temp.w;
-    float3 normal = octoUVToNormal(octoUV);
-    float3 viewW = normalize(cameraPosW - posW.xyz);
-    float3 diff = float3(0.2, 0.2, 0.2);
-    float3 spec = float3(0.8, 0.8, 0.8);
-    float roughness = 0.1;
-    float3 emissive = 0;
+    float4 higherNDO = gFilteredNDO.SampleLevel(gPointSampler, texCoord, lowerLevel + 1);
+    float4 lowerNDO = gFilteredNDO.SampleLevel(gPointSampler, texCoord, lowerLevel);
 
-    float3 dirL = 0;
-    float3 pointL = 0;
+    bool[2] valids;
+    float3[2] normals;
+    float[2] depths;
+    float3[2] diffs;
+    float3[2] specs;
+    float3[2] emmsives;
+    float[2] roughnesss;
+    float3[2] colors;
+    float ambient = 0.02;
 
-    dirL = Shading(viewW, normal, diff, spec, roughness);
+    if (lowerNDO.w != 0 && t != 1)
+    {
+        diffs[0] = 0.1;
+        specs[0] = 0.9;
+        roughnesss[0] = 0.5;
+        emmsives[0] = 0;
+        normals[0] = octoUVToNormal(lowerNDO.xy);
+        depths[0] = lowerNDO.z;
+        valids[0] = true;
+    }
+    else
+        valids[0] = false;
 
-    return float4(dirL + pointL + emissive, 1);
+    if (higherNDO.w != 0 && t != 0)
+    {
+        diffs[1] = 0.1;
+        specs[1] = 0.9;
+        roughnesss[1] = 0.5;
+        emmsives[1] = 0;
+        normals[1] = octoUVToNormal(higherNDO.xy);
+        depths[1] = higherNDO.z;
+        valids[1] = true;
+    }
+    else
+        valids[1] = false;
+
+    for (uint i = 0; i < 2; i++)
+    {
+        if (valids[i])
+        {
+            float4 NDC = float4(texCoord * 2 - 1, depths[i], 1);
+            float4 temp = mul(invVP, NDC);
+            float4 posW = temp / temp.w;
+            float3 viewW = normalize(cameraPosW - posW.xyz);
+            colors[i] = Shading(viewW, normals[i], diffs[i], specs[i], roughnesss[i]);
+        }
+        else
+            colors[i] = 0;
+    }
+
+    float3 color = lerp(colors[0], colors[1], t);
+    return float4(ambient + color, 1);
 }

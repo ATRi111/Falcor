@@ -30,6 +30,7 @@ namespace
 {
 const std::string kDepthPassProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/DepthPass.3d.slang";
 const std::string kGBufferPassProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/ImpostorRaster.3d.slang";
+const std::string kComputePassProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/MipmapGenerator.cs.slang";
 const RasterizerState::CullMode kDefaultCullMode = RasterizerState::CullMode::Back;
 const ChannelList kImpostorChannels = {
     {"packedNDO", "gPackedNDO", "World normal(x,y), depth, opacity", false, ResourceFormat::RGBA32Float},
@@ -83,9 +84,18 @@ RenderPassReflection ImpostorPass::reflect(const CompileData& compileData)
     reflector.addInternal(kDepthName, "Depth buffer")
         .format(ResourceFormat::D32Float)
         .bindFlags(ResourceBindFlags::DepthStencil)
-        .texture2D(sz.x, sz.y);
+        .texture2D(RiLoDWidth, RiLoDHeight, 1, 1);
 
-    addRenderPassOutputs(reflector, kImpostorChannels, ResourceBindFlags::RenderTarget, sz);
+    for (const auto& it : kImpostorChannels)
+    {
+        auto& tex = reflector.addOutput(it.name, it.desc).texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        tex.bindFlags(ResourceBindFlags::RenderTarget);
+        if (it.format != ResourceFormat::Unknown)
+            tex.format(it.format);
+        if (it.optional)
+            tex.flags(RenderPassReflection::Field::Flags::Optional);
+    }
+
     reflector.addOutput(kOutputMatrix, "Viewpoint of impostor")
         .format(ResourceFormat::Unknown)
         .bindFlags(ResourceBindFlags::Constant)
@@ -196,11 +206,24 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
 
         auto var = mGBufferPass.pVars->getRootVar();
         var["PerFrameCB"]["gFrameDim"] = mFrameDim;
-        const uint2 size = uint2(pDepth->getWidth(), pDepth->getHeight());
-        cachedPackedNDO =
-            mpDevice->createTexture2D(size.x, size.y, ResourceFormat::RGBA32Float, 1, 1, nullptr, ResourceBindFlags::RenderTarget);
-        cachedPackedMCR =
-            mpDevice->createTexture2D(size.x, size.y, ResourceFormat::RGBA32Float, 1, 1, nullptr, ResourceBindFlags::RenderTarget);
+        cachedPackedNDO = mpDevice->createTexture2D(
+            RiLoDWidth,
+            RiLoDHeight,
+            ResourceFormat::RGBA32Float,
+            1,
+            RiLoDMipCount,
+            nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource
+        );
+        cachedPackedMCR = mpDevice->createTexture2D(
+            RiLoDWidth,
+            RiLoDHeight,
+            ResourceFormat::RGBA32Float,
+            1,
+            RiLoDMipCount,
+            nullptr,
+            ResourceBindFlags::UnorderedAccess | ResourceBindFlags::RenderTarget | ResourceBindFlags::ShaderResource
+        );
 
         mpFbo->attachColorTarget(cachedPackedNDO, 0);
         mpFbo->attachColorTarget(cachedPackedMCR, 1);
@@ -209,9 +232,43 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
 
         // Rasterize the scene.
         mpScene->rasterize(pRenderContext, mGBufferPass.pState.get(), mGBufferPass.pVars.get(), cullMode);
-        pRenderContext->copyResource(renderData.getTexture("packedNDO").get(), cachedPackedNDO.get());
-        pRenderContext->copyResource(renderData.getTexture("packedMCR").get(), cachedPackedMCR.get());
     }
+
+    // Generate Mipmap
+    {
+        if (!mpComputePass)
+        {
+            ProgramDesc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kComputePassProgramFile).csEntry("main");
+
+            DefineList defines;
+            defines.add(mpScene->getSceneDefines());
+            // defines.add(getShaderDefines(renderData));
+
+            mpComputePass = ComputePass::create(mpDevice, desc, defines, true);
+        }
+
+        uint2 size = uint2(cachedPackedNDO->getWidth(), cachedPackedNDO->getHeight());
+        for (size_t i = 1; i < RiLoDMipCount; i++) // 目前只能生成两层Mipmap
+        {
+            if (i == 1)
+                mpComputePass->addDefine("FIRSTCOUNTER", "1", true);
+            else
+                mpComputePass->addDefine("FIRSTCOUNTER", "0", true);
+
+            ShaderVar var = mpComputePass->getRootVar();
+            var["gPrevNDO"].setSrv(cachedPackedNDO->getSRV(i - 1, 0, 1));
+            var["gCurrentNDO"].setUav(cachedPackedNDO->getUAV(i, 0, 1));
+            var["gPrevMCR"].setSrv(cachedPackedMCR->getSRV(i - 1, 0, 1));
+            var["gCurrentMCR"].setUav(cachedPackedMCR->getUAV(i, 0, 1));
+            mpComputePass->execute(pRenderContext, uint3(size.x >> i, size.y >> i, 1));
+            pRenderContext->uavBarrier(cachedPackedNDO.get());
+        }
+    }
+
+    pRenderContext->copyResource(renderData.getTexture("packedNDO").get(), cachedPackedNDO.get());
+    pRenderContext->copyResource(renderData.getTexture("packedMCR").get(), cachedPackedMCR.get());
     mComplete = true;
 }
 
@@ -256,6 +313,7 @@ void ImpostorPass::recreatePrograms()
     mDepthPass.pVars = nullptr;
     mGBufferPass.pProgram = nullptr;
     mGBufferPass.pVars = nullptr;
+    mpComputePass = nullptr;
 }
 
 void ImpostorPass::calculateViewPoint(float3 min, float3 max, uint32_t index)

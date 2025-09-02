@@ -96,4 +96,6 @@ private:
         ref<Program> pProgram;
         ref<ProgramVars> pVars;
     } mGBufferPass;
+
+    ref<ComputePass> mpComputePass;
 };
