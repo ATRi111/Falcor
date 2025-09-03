@@ -50,8 +50,9 @@ ReshadingPass::ReshadingPass(ref<Device> pDevice, const Properties& props) : Ren
 {
     mpDevice = pDevice;
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
+    mCurrentLoDLevel = 0;
     mLoDLevel = 0;
-    mForceLoDLevel = -1;
+    mLoDLevelFixed = false;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
@@ -124,17 +125,17 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
     }
 
     ref<Camera> camera = mpScene->getCamera();
-    if (mForceLoDLevel >= 0)
-        mLoDLevel = math::clamp(mForceLoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
+    if (mLoDLevelFixed)
+        mCurrentLoDLevel = math::clamp(mLoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
     else
-        mLoDLevel = CalculateLoDLevel(matrix.getRow(0).x);
+        mCurrentLoDLevel = CalculateLoDLevel(matrix.getRow(0).x);
     float4x4 extendMatrix = float4x4(matrix);
     var["CB"]["cameraPosW"] = camera->getPosition();
     var["CB"]["invVP"] = math::inverse(camera->getViewProjMatrixNoJitter());
     var["CB"]["extendMatrix"] = extendMatrix;
-    int lowerLevel = (int)(math::floor(mLoDLevel));
-    var["CB"]["lowerLevel"] = (int)(math::floor(mLoDLevel));
-    var["CB"]["t"] = mLoDLevel - lowerLevel;
+    int lowerLevel = (int)(math::floor(mCurrentLoDLevel));
+    var["CB"]["lowerLevel"] = (int)(math::floor(mCurrentLoDLevel));
+    var["CB"]["t"] = mCurrentLoDLevel - lowerLevel;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutput, 0);
@@ -143,8 +144,10 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
 void ReshadingPass::renderUI(Gui::Widgets& widget)
 {
-    widget.var("LoDLevel", mLoDLevel);
-    widget.var("ForceLoDLevel", mForceLoDLevel);
+    widget.var("CurrentLoDLevel", mCurrentLoDLevel);
+    widget.checkbox("FixedLoDLevel", mLoDLevelFixed);
+    if (mLoDLevelFixed)
+        widget.var("LoDLevel", mLoDLevel);
 }
 
 void ReshadingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

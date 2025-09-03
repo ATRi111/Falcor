@@ -47,8 +47,9 @@ public:
 
 private:
     float CalculateLoDLevel(float scaleRate);
+    float mCurrentLoDLevel;
     float mLoDLevel;
-    float mForceLoDLevel;
+    bool mLoDLevelFixed;
     ref<Scene> mpScene;
     ref<SampleGenerator> mpSampleGenerator;
     ref<Program> mpProgram;
