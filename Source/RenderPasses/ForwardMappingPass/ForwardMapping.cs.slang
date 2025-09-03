@@ -13,12 +13,14 @@ cbuffer CB
     uint outputHeight;    // G-Buffer的高度
 };
 
-void forwardMapping(uint2 originPixel)
+// offset为采样点相对于纹素左上角的偏移量
+void forwardMapping(uint2 originPixel, float2 offset)
 {
     float4 packedNDO = gPackedNDO[originPixel];
     if (packedNDO.w == 0)
-        return; // 忽略未写入透明度的纹素
-    float4 originNDC = float4(2 * (originPixel.x + 0.5) / width - 1, 1 - 2 * (originPixel.y + 0.5) / height, packedNDO.z, 1);
+        return;
+    float2 p = float2(originPixel.x, originPixel.y) + offset;
+    float4 originNDC = float4(2 * p.x / width - 1, 1 - 2 * p.y / height, packedNDO.z, 1);
     float4 temp = mul(invOriginVP, originNDC);
     float4 posWorld = temp / temp.w;
     float4 posClip = mul(GBufferVP, posWorld);
@@ -31,7 +33,7 @@ void forwardMapping(uint2 originPixel)
         float4 currentNDO = gMappedNDO[pixel];
         if (depth <= currentNDO.z || currentNDO.w == 0)
         {
-            gMappedNDO[pixel] = float4(packedNDO.xy, depth, 1); // 只有depth需要变换
+            gMappedNDO[pixel] = float4(packedNDO.xy, depth, packedNDO.w); // 只有depth需要变换
             gMappedMCR[pixel] = gPackedMCR[originPixel];
         }
     }
@@ -41,5 +43,12 @@ void forwardMapping(uint2 originPixel)
 void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
     uint2 originScreenPos = dispatchThreadId.xy;
-    forwardMapping(originScreenPos);
+#if ENABLE_SUPERSAMPLING
+    forwardMapping(originScreenPos, float2(0.1f, 0.3f));
+    forwardMapping(originScreenPos, float2(0.7f, 0.1f));
+    forwardMapping(originScreenPos, float2(0.3f, 0.9f));
+    forwardMapping(originScreenPos, float2(0.9f, 0.7f));
+#else
+    forwardMapping(originScreenPos, float2(0.5f, 0.5f));
+#endif
 }

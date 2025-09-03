@@ -44,9 +44,11 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 
 FilterPass::FilterPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
+    mEnableFilter = false;
+
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     Sampler::Desc samplerDesc;
-    samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Point)
+    samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
         .setAddressingMode(TextureAddressingMode::Border, TextureAddressingMode::Border, TextureAddressingMode::Border)
         .setBorderColor(float4());
 
@@ -97,22 +99,35 @@ void FilterPass::execute(RenderContext* pRenderContext, const RenderData& render
     ref<Texture> filteredNDO = renderData.getTexture(kOutputFilteredNDO);
     ref<Texture> filteredMCR = renderData.getTexture(kOutputFilteredMCR);
 
-    pRenderContext->copyResource(filteredNDO.get(), mappedNDO.get());
-    pRenderContext->copyResource(filteredMCR.get(), mappedMCR.get());
-    return;
-
-    blockCount = uint2(mappedNDO->getWidth() / blockSize, mappedNDO->getHeight() / blockSize); // 简单地认为能整除
-    auto var = mpComputePass->getRootVar();
-    var["gMappedNDO"] = mappedNDO;
-    var["gMappedMCR"] = mappedMCR;
-    var["gFilteredNDO"] = filteredNDO;
-    var["gFilteredMCR"] = filteredMCR;
-    var["gSampler"] = mpSampler;
-    var["CB"]["blockSize"] = blockSize;
-    mpComputePass->execute(pRenderContext, uint3(blockCount, 1));
+    if (mEnableFilter)
+    {
+        auto var = mpComputePass->getRootVar();
+        for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
+        {
+            uint width = mappedNDO->getWidth() >> mipLevel;
+            uint height = mappedNDO->getHeight() >> mipLevel;
+            var["gMappedNDO"].setSrv(mappedNDO->getSRV(mipLevel, 1, 0, 1));
+            var["gMappedMCR"].setSrv(mappedMCR->getSRV(mipLevel, 1, 0, 1));
+            var["gFilteredNDO"].setUav(filteredNDO->getUAV(mipLevel, 0, 1));
+            var["gFilteredMCR"].setUav(filteredMCR->getUAV(mipLevel, 0, 1));
+            var["gSampler"] = mpSampler;
+            var["CB"]["kernelSize"] = 2;
+            var["CB"]["deltaU"] = 1.f / width;
+            var["CB"]["deltaV"] = 1.f / height;
+            mpComputePass->execute(pRenderContext, uint3(width, height, 1));
+        }
+    }
+    else
+    {
+        pRenderContext->copyResource(filteredNDO.get(), mappedNDO.get());
+        pRenderContext->copyResource(filteredMCR.get(), mappedMCR.get());
+    }
 }
 
-void FilterPass::renderUI(Gui::Widgets& widget) {}
+void FilterPass::renderUI(Gui::Widgets& widget)
+{
+    widget.checkbox("Enable Filter", mEnableFilter);
+}
 
 void FilterPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {

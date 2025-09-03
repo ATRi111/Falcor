@@ -17,8 +17,6 @@ float2 normalToOctoUV(float3 n)
 }
 float3 octoUVToNormal(float2 uv)
 {
-    if (length(uv) == 0)
-        return 0;
     float2 p = uv * 2 - 1;
     float3 n = float3(p, 1 - dot(1, abs(p)));
     if (n.z < 0)

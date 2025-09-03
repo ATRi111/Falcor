@@ -145,7 +145,7 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
     camera->setFocalLength(0.f);
     camera->setAspectRatio(aspectRatio);
     camera->setFrameHeight(mViewpoint.cameraSize * 1000);
-    camera->setFarPlane(10.f);
+    camera->setFarPlane(mViewpoint.cameraSize * 2);
     mpScene->update(pRenderContext, 0.);
 
     invVP = math::inverse(camera->getViewProjMatrixNoJitter());
@@ -258,9 +258,9 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
                 mpComputePass->addDefine("FIRSTCOUNTER", "0", true);
 
             ShaderVar var = mpComputePass->getRootVar();
-            var["gPrevNDO"].setSrv(cachedPackedNDO->getSRV(i - 1, 0, 1));
+            var["gPrevNDO"].setSrv(cachedPackedNDO->getSRV(i - 1, 1, 0, 1));
             var["gCurrentNDO"].setUav(cachedPackedNDO->getUAV(i, 0, 1));
-            var["gPrevMCR"].setSrv(cachedPackedMCR->getSRV(i - 1, 0, 1));
+            var["gPrevMCR"].setSrv(cachedPackedMCR->getSRV(i - 1, 1, 0, 1));
             var["gCurrentMCR"].setUav(cachedPackedMCR->getUAV(i, 0, 1));
             mpComputePass->execute(pRenderContext, uint3(size.x >> i, size.y >> i, 1));
             pRenderContext->uavBarrier(cachedPackedNDO.get());
@@ -290,7 +290,7 @@ void ImpostorPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
     calculateViewPoint(aabb.minPoint, aabb.maxPoint, mViewpointIndex);
     float3 right = math::normalize(math::cross(mViewpoint.target - mViewpoint.position, mViewpoint.up));
     float3 diag = aabb.maxPoint - aabb.minPoint;
-    float size = math::max(diag.x, diag.y);
+    float size = math::max(math::max(diag.x, diag.y), diag.z);
     mViewpoint.cameraSize = size * 1.01f;
     pScene->addViewpoint(mViewpoint.position, mViewpoint.target, mViewpoint.up);
 }

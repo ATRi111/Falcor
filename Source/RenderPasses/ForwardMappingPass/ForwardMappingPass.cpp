@@ -48,6 +48,8 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     mImpostorCount = 1;
+    mEnableSuperSampling = false;
+
     for (const auto& [key, value] : props)
     {
         if (key == kImpostorCount)
@@ -141,7 +143,7 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             pRenderContext->clearUAV(mappedNDO->getUAV(i).get(), float4());
             pRenderContext->clearUAV(mappedMCR->getUAV(i).get(), float4());
         }
-
+        mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0",true);
         ShaderVar var = mpComputePass->getRootVar();
         float3x3 homographMatrix;
         float4x4 GBufferVP = CalculateProperViewProjMatrix(homographMatrix);
@@ -161,10 +163,10 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             {
                 int width = packedNDO->getWidth() >> mipLevel;
                 int height = packedNDO->getHeight() >> mipLevel;
-                var["gPackedNDO"].setSrv(packedNDO->getSRV(mipLevel));
-                var["gPackedMCR"].setSrv(packedMCR->getSRV(mipLevel));
-                var["gMappedNDO"].setUav(mappedNDO->getUAV(mipLevel));
-                var["gMappedMCR"].setUav(mappedMCR->getUAV(mipLevel));
+                var["gPackedNDO"].setSrv(packedNDO->getSRV(mipLevel, 1, 0, 1));
+                var["gPackedMCR"].setSrv(packedMCR->getSRV(mipLevel, 1, 0, 1));
+                var["gMappedNDO"].setUav(mappedNDO->getUAV(mipLevel, 0, 1));
+                var["gMappedMCR"].setUav(mappedMCR->getUAV(mipLevel, 0, 1));
                 var["CB"]["width"] = width;
                 var["CB"]["height"] = height;
                 var["CB"]["outputWidth"] = RiLoDOutputWidth >> mipLevel;
@@ -176,7 +178,10 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
     }
 }
 
-void ForwardMappingPass::renderUI(Gui::Widgets& widget) {}
+void ForwardMappingPass::renderUI(Gui::Widgets& widget)
+{
+    widget.checkbox("EnableSuperSampling", mEnableSuperSampling);
+}
 
 void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
@@ -217,7 +222,7 @@ float4x4 ForwardMappingPass::CalculateProperViewProjMatrix(float3x3& homographMa
     float4x4 viewMat = math::matrixFromLookAt(
         aabb.center() - 2.f * maxDistance * front, aabb.center(), mpCamera->getUpVector(), math::Handedness::RightHanded
     );
-    float4x4 projMat = math::perspective(fovY, mpCamera->getAspectRatio(), mpCamera->getNearPlane(), mpCamera->getFarPlane());
+    float4x4 projMat = math::perspective(fovY, mpCamera->getAspectRatio(), mpCamera->getNearPlane(), 4.f * maxDistance);
     float4x4 VP = mul(projMat, viewMat);
     // 计算相机移动导致视口坐标变化对应的单应性矩阵
     float3 posW1 = aabb.center();

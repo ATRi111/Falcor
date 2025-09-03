@@ -61,4 +61,5 @@ private:
     uint32_t mImpostorCount;
     ref<ComputePass> mpComputePass;
     ref<ComputePass> mpDepthPass;
+    bool mEnableSuperSampling;
 };

@@ -50,6 +50,5 @@ private:
     ref<Sampler> mpSampler;
     ref<Scene> mpScene;
     ref<ComputePass> mpComputePass;
-    uint blockSize = 16; // 滤波时每块的边长
-    uint2 blockCount;
+    bool mEnableFilter;
 };

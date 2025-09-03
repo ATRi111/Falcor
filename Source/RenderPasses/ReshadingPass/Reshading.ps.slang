@@ -81,6 +81,7 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
     float3[2] emmsives;
     float[2] roughnesss;
     float3[2] colors;
+    float[2] opacitys;
     float ambient = 0.02;
 
     if (lowerNDO.w != 0 && t != 1)
@@ -91,6 +92,7 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
         emmsives[0] = 0;
         normals[0] = octoUVToNormal(lowerNDO.xy);
         depths[0] = lowerNDO.z;
+        opacitys[0] = lowerNDO.w;
         valids[0] = true;
     }
     else
@@ -104,6 +106,7 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
         emmsives[1] = 0;
         normals[1] = octoUVToNormal(higherNDO.xy);
         depths[1] = higherNDO.z;
+        opacitys[1] = lowerNDO.w;
         valids[1] = true;
     }
     else
@@ -112,7 +115,10 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
     for (uint i = 0; i < 2; i++)
     {
         if (valids[i])
+        {
             colors[i] = ambient + Shading(viewW, normals[i], diffs[i], specs[i], roughnesss[i]);
+            colors[i] *= opacitys[i];
+        }
         else
             colors[i] = 0;
     }

@@ -146,8 +146,7 @@ void ReshadingPass::renderUI(Gui::Widgets& widget)
 {
     widget.var("CurrentLoDLevel", mCurrentLoDLevel);
     widget.checkbox("FixedLoDLevel", mLoDLevelFixed);
-    if (mLoDLevelFixed)
-        widget.var("LoDLevel", mLoDLevel);
+    widget.var("LoDLevel", mLoDLevel);
 }
 
 void ReshadingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
