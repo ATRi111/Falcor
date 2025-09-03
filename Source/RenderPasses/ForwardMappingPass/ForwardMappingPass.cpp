@@ -48,7 +48,7 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     mImpostorCount = 1;
-    mEnableSuperSampling = false;
+    mEnableSuperSampling = true;
 
     for (const auto& [key, value] : props)
     {
@@ -138,12 +138,12 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
         ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
         ref<Buffer> matrixBuffer = renderData.getResource(kOutputMatrix)->asBuffer();
 
-        for (size_t i = 0; i < RiLoDMipCount; i++)
+        for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
         {
-            pRenderContext->clearUAV(mappedNDO->getUAV(i).get(), float4());
-            pRenderContext->clearUAV(mappedMCR->getUAV(i).get(), float4());
+            pRenderContext->clearUAV(mappedNDO->getUAV(mipLevel, 0, 1).get(), float4());
+            pRenderContext->clearUAV(mappedMCR->getUAV(mipLevel, 0, 1).get(), float4());
         }
-        mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0",true);
+        mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0", true);
         ShaderVar var = mpComputePass->getRootVar();
         float3x3 homographMatrix;
         float4x4 GBufferVP = CalculateProperViewProjMatrix(homographMatrix);

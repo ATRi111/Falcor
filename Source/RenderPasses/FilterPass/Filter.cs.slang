@@ -11,9 +11,11 @@ cbuffer CB
     float deltaV;
 };
 
-float calcWeight(uint2 offset, float4 centerNDO, float4 currentNDO)
+float calcWeight(uint2 offset, float4 centerNDO, float4 currentNDO, float averageDepth)
 {
-    float weight = kernelSize * 2 + 1 - abs(offset.x) - abs(offset.y); // 类似高斯滤波
+    int sqrDistance = offset.x * offset.x - offset.y * offset.y;
+    float weight = exp(-sqrDistance / kernelSize);
+    weight /= max((currentNDO.z - averageDepth) * (currentNDO.z - averageDepth), 0.000001f);
     weight *= currentNDO.w;
     return weight;
 }
@@ -39,20 +41,40 @@ float3 octoUVToNormal(float2 uv)
 void filter(uint2 pixel)
 {
     float4 centerNDO = gMappedNDO[pixel];
+    if (centerNDO.w == 0)
+        return;
     float4 centerMCR = gMappedMCR[pixel];
     float2 mtlCoordSum = 0;
     float weightSum = 0;
     float depthSum = 0;
     float3 normalSum = 0;
     float opacitySum = 0;
+
+    float averageDepth = 0;
+    float2 centerUV = float2((pixel.x + 0.5f) * deltaU, (pixel.y + 0.5f) * deltaV);
     for (int x = -kernelSize; x <= kernelSize; x++)
     {
         for (int y = -kernelSize; y <= kernelSize; y++)
         {
-            float2 uv = float2((pixel.x + 0.5f + x) * deltaU, (pixel.y + 0.5f + y) * deltaV);
+            float2 uv = centerUV + float2(x * deltaU, y * deltaV);
             float4 currentNDO = gMappedNDO.Sample(gSampler, uv);
+            averageDepth += currentNDO.z * currentNDO.w;
+            weightSum += currentNDO.w;
+        }
+    }
+    averageDepth /= weightSum;
+    weightSum = 0;
+
+    for (int x = -kernelSize; x <= kernelSize; x++)
+    {
+        for (int y = -kernelSize; y <= kernelSize; y++)
+        {
+            float2 uv = centerUV + float2(x * deltaU, y * deltaV);
+            float4 currentNDO = gMappedNDO.Sample(gSampler, uv);
+            if (currentNDO.w == 0)
+                continue;
             float4 currentMCR = gMappedMCR.Sample(gSampler, uv);
-            float weight = calcWeight(uint2(x, y), centerNDO, currentNDO);
+            float weight = calcWeight(uint2(x, y), centerNDO, currentNDO, averageDepth);
             depthSum += weight * currentNDO.z;
             normalSum += weight * octoUVToNormal(currentNDO.xy);
             mtlCoordSum += weight * currentMCR.yz;

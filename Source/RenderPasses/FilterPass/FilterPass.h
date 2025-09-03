@@ -51,4 +51,5 @@ private:
     ref<Scene> mpScene;
     ref<ComputePass> mpComputePass;
     bool mEnableFilter;
+    uint mKernelSize;
 };

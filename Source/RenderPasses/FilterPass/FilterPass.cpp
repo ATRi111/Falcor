@@ -45,6 +45,7 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 FilterPass::FilterPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     mEnableFilter = false;
+    mKernelSize = 2;
 
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
     Sampler::Desc samplerDesc;
@@ -99,6 +100,11 @@ void FilterPass::execute(RenderContext* pRenderContext, const RenderData& render
     ref<Texture> filteredNDO = renderData.getTexture(kOutputFilteredNDO);
     ref<Texture> filteredMCR = renderData.getTexture(kOutputFilteredMCR);
 
+    for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
+    {
+        pRenderContext->clearUAV(filteredNDO->getUAV(mipLevel, 0, 1).get(), float4());
+        pRenderContext->clearUAV(filteredMCR->getUAV(mipLevel, 0, 1).get(), float4());
+    }
     if (mEnableFilter)
     {
         auto var = mpComputePass->getRootVar();
@@ -111,7 +117,7 @@ void FilterPass::execute(RenderContext* pRenderContext, const RenderData& render
             var["gFilteredNDO"].setUav(filteredNDO->getUAV(mipLevel, 0, 1));
             var["gFilteredMCR"].setUav(filteredMCR->getUAV(mipLevel, 0, 1));
             var["gSampler"] = mpSampler;
-            var["CB"]["kernelSize"] = 2;
+            var["CB"]["kernelSize"] = math::clamp(mKernelSize, 1u, 16u);
             var["CB"]["deltaU"] = 1.f / width;
             var["CB"]["deltaV"] = 1.f / height;
             mpComputePass->execute(pRenderContext, uint3(width, height, 1));
@@ -126,7 +132,8 @@ void FilterPass::execute(RenderContext* pRenderContext, const RenderData& render
 
 void FilterPass::renderUI(Gui::Widgets& widget)
 {
-    widget.checkbox("Enable Filter", mEnableFilter);
+    widget.checkbox("EnableFilter", mEnableFilter);
+    widget.var("KernelSize", mKernelSize);
 }
 
 void FilterPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
