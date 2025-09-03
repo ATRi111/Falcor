@@ -32,6 +32,7 @@ namespace
 const std::string kInputFilteredNDO = "filteredNDO";
 const std::string kInputFilteredMCR = "filteredMCR";
 const std::string kOutputColor = "color";
+const std::string kInputMatrix = "matrix";
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/ReshadingPass/Reshading.ps.slang";
 } // namespace
 
@@ -65,15 +66,20 @@ RenderPassReflection ReshadingPass::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
     reflector.addInput(kInputFilteredNDO, "Input normal, depth, opacity")
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
     reflector.addInput(kInputFilteredMCR, "Input material id, texCoord, roughness")
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+
+    reflector.addInput(kInputMatrix, "TexCoord to GBuffer TexCoord")
+        .format(ResourceFormat::Unknown)
+        .bindFlags(ResourceBindFlags::Constant)
+        .rawBuffer(sizeof(float3x3));
 
     reflector.addOutput(kOutputColor, "Output color")
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, 1);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
     return reflector;
 }
 
@@ -95,7 +101,9 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
         mpProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
-    float LoDLevel = 0;
+    ref<Buffer> buffer = renderData.getResource(kInputMatrix)->asBuffer();
+    float3x3 matrix;
+    buffer->getBlob(&matrix, 0, sizeof(float3x3));
 
     // Bind resources to the full-screen pass
     auto var = mpFullScreenPass->getRootVar();
@@ -119,12 +127,14 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
     if (mForceLoDLevel >= 0)
         mLoDLevel = math::clamp(mForceLoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
     else
-        mLoDLevel = CalculateSceneLoDLevel(camera);
-    var["CameraCB"]["cameraPosW"] = camera->getPosition();
-    var["CameraCB"]["invVP"] = camera->getInvViewProjMatrix();
+        mLoDLevel = CalculateLoDLevel(matrix.getRow(0).x);
+    float4x4 extendMatrix = float4x4(matrix);
+    var["CB"]["cameraPosW"] = camera->getPosition();
+    var["CB"]["invVP"] = math::inverse(camera->getViewProjMatrixNoJitter());
+    var["CB"]["extendMatrix"] = extendMatrix;
     int lowerLevel = (int)(math::floor(mLoDLevel));
-    var["CameraCB"]["lowerLevel"] = (int)(math::floor(mLoDLevel));
-    var["CameraCB"]["t"] = mLoDLevel - lowerLevel;
+    var["CB"]["lowerLevel"] = (int)(math::floor(mLoDLevel));
+    var["CB"]["t"] = mLoDLevel - lowerLevel;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutput, 0);
@@ -141,13 +151,9 @@ void ReshadingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
 {
     mpScene = pScene;
 }
-
-float ReshadingPass::CalculateSceneLoDLevel(ref<Camera> camera)
+// sacleRate指一个像素边长对应到G-Buffer中的纹素边长
+float ReshadingPass::CalculateLoDLevel(float scaleRate)
 {
-    AABB aabb = mpScene->getSceneBounds();
-    float size = math::length(aabb.maxPoint - aabb.minPoint);
-    float distance = math::length(camera->getPosition() - aabb.center());
-    float k = distance * camera->getFrameHeight() / camera->getFocalLength() / size;
-    float LoDLevel = math::log2(k) - 1;
+    float LoDLevel = math::log2(scaleRate);
     return math::clamp(LoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
 }

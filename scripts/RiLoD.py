@@ -16,7 +16,7 @@ def render_graph_RasterPass():
         g.addPass(impostor_pass, f"ImpostorPass{i}")
         g.addEdge(f"ImpostorPass{i}.packedNDO",f"ForwardPass.packedNDO{i}")
         g.addEdge(f"ImpostorPass{i}.packedMCR",f"ForwardPass.packedMCR{i}")
-        g.addEdge(f"ImpostorPass{i}.invVP",f"ForwardPass.invVP{i}")
+        g.addEdge(f"ImpostorPass{i}.invVP",f"ForwardPass.impostorInvVP{i}")
 
     filter_pass = createPass("FilterPass")
     g.addPass(filter_pass,"FilterPass")
@@ -28,6 +28,7 @@ def render_graph_RasterPass():
     
     g.addEdge("FilterPass.filteredNDO","ReshadingPass.filteredNDO")
     g.addEdge("FilterPass.filteredMCR","ReshadingPass.filteredMCR")
+    g.addEdge("ForwardPass.matrix","ReshadingPass.matrix")
 
     g.markOutput("ReshadingPass.color")
     

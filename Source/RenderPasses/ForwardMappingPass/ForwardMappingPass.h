@@ -28,6 +28,7 @@
 #pragma once
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "RenderGraph/RenderPassHelpers.h"
 
 using namespace Falcor;
 
@@ -52,9 +53,12 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    float4x4 CalculateProperViewProjMatrix(float3x3& homographMatrix);
+    float2 WorldToTexCoord(float4 world, float4x4 VP);
     ref<Scene> mpScene;
     ref<Camera> mpCamera;
     ref<SampleGenerator> mpSampleGenerator;
     uint32_t mImpostorCount;
     ref<ComputePass> mpComputePass;
+    ref<ComputePass> mpDepthPass;
 };

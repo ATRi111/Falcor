@@ -30,12 +30,14 @@
 namespace
 {
 const std::string kComputePassProgramFile = "E:/Project/Falcor/Source/RenderPasses/ForwardMappingPass/ForwardMapping.cs.slang";
-const std::string kInputMatrix = "invVP";
+const std::string kDepthPassProgramFile = "E:/Project/Falcor/Source/RenderPasses/ForwardMappingPass/ForwardDepth.cs.slang";
+const std::string kInputInvVP = "impostorInvVP";
 const std::string kInputPackedNDO = "packedNDO";
 const std::string kInputPackedMCR = "packedMCR";
 const std::string kImpostorCount = "impostorCount";
 const std::string kOutputMappedNDO = "mappedNDO";
 const std::string kOutputMappedMCR = "mappedMCR";
+const std::string kOutputMatrix = "matrix";
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -68,7 +70,7 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
             .format(ResourceFormat::RGBA32Float)
             .bindFlags(ResourceBindFlags::ShaderResource)
             .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
-        reflector.addInput(kInputMatrix + si, "Inverse viewProjectMatrix of Impostor" + si)
+        reflector.addInput(kInputInvVP + si, "Inverse viewProjectMatrix of Impostor" + si)
             .format(ResourceFormat::Unknown)
             .bindFlags(ResourceBindFlags::Constant)
             .rawBuffer(sizeof(float4x4));
@@ -77,11 +79,17 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
     reflector.addOutput(kOutputMappedNDO, "Mapped NDO data")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
     reflector.addOutput(kOutputMappedMCR, "Mapped MCR data")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+
+    reflector.addOutput(kOutputMatrix, "Screen-space TexCoord to GBuffer TexCoord")
+        .format(ResourceFormat::Unknown)
+        .bindFlags(ResourceBindFlags::Constant)
+        .rawBuffer(sizeof(float3x3));
+
     return reflector;
 }
 
@@ -104,42 +112,67 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
 
         mpComputePass = ComputePass::create(mpDevice, desc, defines, true);
     }
+    if (!mpDepthPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kDepthPassProgramFile).csEntry("main");
+        // desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
+        // defines.add(getShaderDefines(renderData));
+
+        mpDepthPass = ComputePass::create(mpDevice, desc, defines, true);
+    }
     mpCamera->setFocalLength(21.f);
     mpCamera->setFrameHeight(24.f);
+    mpCamera->setAspectRatio(RiLoDOutputWidth / (float)RiLoDOutputHeight);
 
-    ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
-    ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
-
-    for (size_t i = 0; i < RiLoDMipCount; i++)
+    // 重建G-Buffer
     {
-        pRenderContext->clearUAV(mappedNDO->getUAV(i).get(), float4());
-        pRenderContext->clearUAV(mappedMCR->getUAV(i).get(), float4());
-    }
+        ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
+        ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
+        ref<Buffer> matrixBuffer = renderData.getResource(kOutputMatrix)->asBuffer();
 
-    ShaderVar var = mpComputePass->getRootVar();
-    var["CB"]["VP"] = mpCamera->getViewProjMatrix();
-    for (size_t i = 0; i < mImpostorCount; i++)
-    {
-        ref<Buffer> buffer = renderData.getResource(kInputMatrix + std::to_string(i))->asBuffer();
-        float4x4 invVP;
-        buffer->getBlob(&invVP, 0, sizeof(float4x4));
-        ref<Texture> packedNDO = renderData.getTexture(kInputPackedNDO + std::to_string(i));
-        ref<Texture> packedMCR = renderData.getTexture(kInputPackedMCR + std::to_string(i));
-
-        var["CB"]["invOriginVP"] = invVP;
-        for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
+        for (size_t i = 0; i < RiLoDMipCount; i++)
         {
-            int width = mappedNDO->getWidth() >> mipLevel;
-            int height = mappedNDO->getHeight() >> mipLevel;
-            var["gPackedNDO"].setSrv(packedNDO->getSRV(mipLevel));
-            var["gPackedMCR"].setSrv(packedMCR->getSRV(mipLevel));
-            var["gMappedNDO"].setUav(mappedNDO->getUAV(mipLevel));
-            var["gMappedMCR"].setUav(mappedMCR->getUAV(mipLevel));
-            var["CB"]["width"] = width;
-            var["CB"]["height"] = height;
-            mpComputePass->execute(pRenderContext, uint3(width, height, 1));
+            pRenderContext->clearUAV(mappedNDO->getUAV(i).get(), float4());
+            pRenderContext->clearUAV(mappedMCR->getUAV(i).get(), float4());
         }
-        pRenderContext->uavBarrier(mappedNDO.get()); // 不同层级可以并行重建，不同方向不可
+
+        ShaderVar var = mpComputePass->getRootVar();
+        float3x3 homographMatrix;
+        float4x4 GBufferVP = CalculateProperViewProjMatrix(homographMatrix);
+        matrixBuffer->setBlob(&homographMatrix, 0, sizeof(float3x3));
+        var["CB"]["GBufferVP"] = GBufferVP;
+
+        for (size_t i = 0; i < mImpostorCount; i++)
+        {
+            ref<Buffer> buffer = renderData.getResource(kInputInvVP + std::to_string(i))->asBuffer();
+            float4x4 invVP;
+            buffer->getBlob(&invVP, 0, sizeof(float4x4));
+            ref<Texture> packedNDO = renderData.getTexture(kInputPackedNDO + std::to_string(i));
+            ref<Texture> packedMCR = renderData.getTexture(kInputPackedMCR + std::to_string(i));
+
+            var["CB"]["invOriginVP"] = invVP;
+            for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
+            {
+                int width = packedNDO->getWidth() >> mipLevel;
+                int height = packedNDO->getHeight() >> mipLevel;
+                var["gPackedNDO"].setSrv(packedNDO->getSRV(mipLevel));
+                var["gPackedMCR"].setSrv(packedMCR->getSRV(mipLevel));
+                var["gMappedNDO"].setUav(mappedNDO->getUAV(mipLevel));
+                var["gMappedMCR"].setUav(mappedMCR->getUAV(mipLevel));
+                var["CB"]["width"] = width;
+                var["CB"]["height"] = height;
+                var["CB"]["outputWidth"] = RiLoDOutputWidth >> mipLevel;
+                var["CB"]["outputHeight"] = RiLoDOutputHeight >> mipLevel;
+                mpComputePass->execute(pRenderContext, uint3(width, height, 1));
+            }
+            pRenderContext->uavBarrier(mappedNDO.get()); // 不同层级可以并行重建，不同方向不可
+        }
     }
 }
 
@@ -149,4 +182,73 @@ void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene
 {
     mpScene = pScene;
     mpCamera = pScene->getCamera();
+}
+
+float4x4 ForwardMappingPass::CalculateProperViewProjMatrix(float3x3& homographMatrix)
+{
+    // 计算合适的相机位置,及VP矩阵
+    AABB aabb = mpScene->getSceneBounds();
+    float3 front = math::normalize(mpCamera->getTarget() - mpCamera->getPosition());
+    float3 points[8] = {};
+    float xMin = aabb.minPoint.x;
+    float yMin = aabb.minPoint.y;
+    float zMin = aabb.minPoint.z;
+    float xMax = aabb.maxPoint.x;
+    float yMax = aabb.maxPoint.y;
+    float zMax = aabb.maxPoint.z;
+    points[0] = float3(xMin, yMin, zMin);
+    points[1] = float3(xMin, yMin, zMax);
+    points[2] = float3(xMin, yMax, zMin);
+    points[3] = float3(xMin, yMax, zMax);
+    points[4] = float3(xMax, yMin, zMin);
+    points[5] = float3(xMax, yMin, zMax);
+    points[6] = float3(xMax, yMax, zMin);
+    points[7] = float3(xMax, yMax, zMax);
+    float maxDistance = 0;
+    for (size_t i = 0; i < 8; i++)
+    {
+        float3 v = points[i] - aabb.center();
+        float3 projection = v - math::dot(v, front) * front;
+        maxDistance = std::max(maxDistance, math::length(projection));
+    }
+    maxDistance *= 1.01f;
+    float fovY = 2.0f * std::atan(0.5f * mpCamera->getFrameHeight() / mpCamera->getFocalLength());
+
+    float4x4 viewMat = math::matrixFromLookAt(
+        aabb.center() - 2.f * maxDistance * front, aabb.center(), mpCamera->getUpVector(), math::Handedness::RightHanded
+    );
+    float4x4 projMat = math::perspective(fovY, mpCamera->getAspectRatio(), mpCamera->getNearPlane(), mpCamera->getFarPlane());
+    float4x4 VP = mul(projMat, viewMat);
+    // 计算相机移动导致视口坐标变化对应的单应性矩阵
+    float3 posW1 = aabb.center();
+    float3 posW2 = posW1 + mpCamera->getUpVector();
+    posW2 = posW2 - math::dot(posW2, front) * front; // 在任意正对相机的平面内选取两个参考点
+    float2 screenTexCoord1 = WorldToTexCoord(float4(posW1, 1), mpCamera->getViewProjMatrixNoJitter());
+    float2 screenTexCoord2 = WorldToTexCoord(float4(posW2, 1), mpCamera->getViewProjMatrixNoJitter());
+    float2 GBufferTexCoord1 = WorldToTexCoord(float4(posW1, 1), VP);
+    float2 GBufferTexCoord2 = WorldToTexCoord(float4(posW2, 1), VP);
+
+    float2 screenMid = 0.5f * (screenTexCoord1 + screenTexCoord2);
+    float2 GBufferMid = 0.5f * (GBufferTexCoord1 + GBufferTexCoord2);
+    float scaleRate = math::length(GBufferTexCoord2 - GBufferTexCoord1) / math::length(screenTexCoord2 - screenTexCoord1);
+
+    homographMatrix = float3x3::identity();
+    float3x3 transform = float3x3::identity();
+    transform.setCol(2, float3(-screenMid.x, -screenMid.y, 1));
+    homographMatrix = math::mul(transform, homographMatrix); // 平移到原点
+    float3x3 scale = float3x3::identity();
+    scale.setRow(0, float3(scaleRate, 0, 0));
+    scale.setRow(1, float3(0, scaleRate, 0));
+    homographMatrix = math::mul(scale, homographMatrix); // 缩放
+    transform.setCol(2, float3(GBufferMid.x, GBufferMid.y, 1));
+    homographMatrix = math::mul(transform, homographMatrix);
+    return VP;
+}
+
+float2 ForwardMappingPass::WorldToTexCoord(float4 world, float4x4 VP)
+{
+    float4 clip = math::mul(VP, world);
+    float4 NDC = clip / clip.w;
+    float4 texCoord = NDC * 0.5f + 0.5f;
+    return float2(texCoord.x, texCoord.y);
 }

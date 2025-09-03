@@ -59,20 +59,20 @@ RenderPassReflection FilterPass::reflect(const CompileData& compileData)
     reflector.addInput(kInputMappedNDO, "Input normal, depth, opacity")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
     reflector.addInput(kInputMappedMCR, "Input material id, texCoord, roughness")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
 
     reflector.addOutput(kOutputFilteredNDO, "Output normal, depth, opacity")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
     reflector.addOutput(kOutputFilteredMCR, "Output material id, texCoord, roughness")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(RiLoDWidth, RiLoDHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
     return reflector;
 }
 

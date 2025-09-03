@@ -122,8 +122,10 @@ class FALCOR_API RenderPass : public Object
 public:
     using PluginCreate = std::function<ref<RenderPass>(ref<Device> pDevice, const Properties& props)>;
     const int RiLoDMipCount = 3;
-    const int RiLoDWidth = 1920;
-    const int RiLoDHeight = 1080;
+    const int RiLoDWidth = 1024;
+    const int RiLoDHeight = 1024;
+    const int RiLoDOutputWidth = 1920;
+    const int RiLoDOutputHeight = 1080;
     struct PluginInfo
     {
         std::string desc; ///< Brief textual description of what the render pass does.

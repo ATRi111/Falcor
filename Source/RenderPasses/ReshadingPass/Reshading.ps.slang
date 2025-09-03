@@ -9,10 +9,11 @@ cbuffer DirectionalLightCB
     float3 lightDirW;
 };
 
-cbuffer CameraCB
+cbuffer CB
 {
     float3 cameraPosW;
     float4x4 invVP;
+    float4x4 extendMatrix; // 当前纹理坐标到G-Buffer纹理坐标的变换矩阵(取左上角3x3)
     uint lowerLevel;
     float t;
 };
@@ -60,8 +61,17 @@ float3 octoUVToNormal(float2 uv)
 
 float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
 {
-    float4 higherNDO = gFilteredNDO.SampleLevel(gPointSampler, texCoord, lowerLevel + 1);
-    float4 lowerNDO = gFilteredNDO.SampleLevel(gPointSampler, texCoord, lowerLevel);
+    float3 coord = float3(texCoord, 1);
+    float3x3 matrix = float3x3(extendMatrix);
+    float3 GBufferCoord = mul(matrix, coord);
+    float4 higherNDO = gFilteredNDO.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel + 1);
+    float4 lowerNDO = gFilteredNDO.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel);
+
+    float depth = lerp(lowerNDO.z, higherNDO.z, t);
+    float4 NDC = float4(texCoord * 2 - 1, depth, 1);
+    float4 temp = mul(invVP, NDC);
+    float4 posW = temp / temp.w;
+    float3 viewW = normalize(cameraPosW - posW.xyz);
 
     bool[2] valids;
     float3[2] normals;
@@ -102,17 +112,11 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
     for (uint i = 0; i < 2; i++)
     {
         if (valids[i])
-        {
-            float4 NDC = float4(texCoord * 2 - 1, depths[i], 1);
-            float4 temp = mul(invVP, NDC);
-            float4 posW = temp / temp.w;
-            float3 viewW = normalize(cameraPosW - posW.xyz);
-            colors[i] = Shading(viewW, normals[i], diffs[i], specs[i], roughnesss[i]);
-        }
+            colors[i] = ambient + Shading(viewW, normals[i], diffs[i], specs[i], roughnesss[i]);
         else
             colors[i] = 0;
     }
 
     float3 color = lerp(colors[0], colors[1], t);
-    return float4(ambient + color, 1);
+    return float4(color, 1);
 }

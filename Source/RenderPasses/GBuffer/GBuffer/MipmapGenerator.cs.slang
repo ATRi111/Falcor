@@ -101,17 +101,17 @@ void mix(uint2 currentPixel)
     float[4] opacitys;
     uint[4] materialIDs;
     float2[4] texCoords;
-    // 不完全透明的纹素才被视为有效纹素，参与混合
+    // 不完全透明的纹素才被视为有效纹素，参与混合（透明像素仍参与透明度混合）
     uint validCount = 0;
     for (uint i = 0; i < 4; i++)
     {
         float4 NDO = gPrevNDO[prevPixel + offsets[i]];
         float4 MCR = gPrevMCR[prevPixel + offsets[i]];
+        opacitys[i] = NDO.w;
         if (NDO.w == 0)
             continue;
         depths[validCount] = NDO.z;
         normals[validCount] = octoUVToNormal(NDO.xy);
-        opacitys[validCount] = NDO.w;
         materialIDs[validCount] = asuint(MCR.x);
         texCoords[validCount] = MCR.yz;
         validCount++;
@@ -121,7 +121,7 @@ void mix(uint2 currentPixel)
         float3 normal = mixNormal(normals, validCount);
         float2 octoUV = normalToOctoUV(normal);
         float depth = mixDepth(depths, validCount);
-        float opacity = mixOpacity(opacitys, validCount);
+        float opacity = mixOpacity(opacitys, 4);
         uint materialID = materialIDCounter(materialIDs, validCount);
         float2 texCoord = mixTexCoord(texCoords, validCount);
         gCurrentNDO[currentPixel] = float4(octoUV, depth, opacity);

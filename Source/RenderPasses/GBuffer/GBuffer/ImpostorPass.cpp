@@ -40,7 +40,7 @@ const ChannelList kImpostorChannels = {
 const std::string kDepthName = "depth";
 
 const std::string kViewpointIndex = "viewpointIndex";
-const std::string kOutputMatrix = "invVP";
+const std::string kOutputInvVP = "invVP";
 } // namespace
 
 ImpostorPass::ImpostorPass(ref<Device> pDevice, const Properties& props) : GBuffer(pDevice), mComplete(false)
@@ -74,7 +74,7 @@ ImpostorPass::ImpostorPass(ref<Device> pDevice, const Properties& props) : GBuff
     mViewDirections.emplace_back(0, -1, 0);
     mViewDirections.emplace_back(0, 0, 1);
     mViewDirections.emplace_back(0, 0, -1);
-    aspectRatio = 16.f / 9.f;
+    aspectRatio = 1.f;
 }
 
 RenderPassReflection ImpostorPass::reflect(const CompileData& compileData)
@@ -96,7 +96,7 @@ RenderPassReflection ImpostorPass::reflect(const CompileData& compileData)
             tex.flags(RenderPassReflection::Field::Flags::Optional);
     }
 
-    reflector.addOutput(kOutputMatrix, "Viewpoint of impostor")
+    reflector.addOutput(kOutputInvVP, "Inverse ViewProjMatrix of impostor")
         .format(ResourceFormat::Unknown)
         .bindFlags(ResourceBindFlags::Constant)
         .rawBuffer(sizeof(float4x4));
@@ -116,7 +116,7 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
         return;
     }
 
-    ref<Buffer> matrixBuffer = renderData.getResource(kOutputMatrix)->asBuffer();
+    ref<Buffer> matrixBuffer = renderData.getResource(kOutputInvVP)->asBuffer();
     if (mComplete)
     {
         pRenderContext->copyResource(renderData.getTexture("packedNDO").get(), cachedPackedNDO.get());
@@ -148,7 +148,7 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
     camera->setFarPlane(10.f);
     mpScene->update(pRenderContext, 0.);
 
-    invVP = camera->getInvViewProjMatrix();
+    invVP = math::inverse(camera->getViewProjMatrixNoJitter());
     matrixBuffer->setBlob(&invVP, 0, sizeof(float4x4));
 
     // Depth pass.
@@ -291,7 +291,7 @@ void ImpostorPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
     float3 right = math::normalize(math::cross(mViewpoint.target - mViewpoint.position, mViewpoint.up));
     float3 diag = aabb.maxPoint - aabb.minPoint;
     float size = math::max(diag.x, diag.y);
-    mViewpoint.cameraSize = size * 1.1f;
+    mViewpoint.cameraSize = size * 1.01f;
     pScene->addViewpoint(mViewpoint.position, mViewpoint.target, mViewpoint.up);
 }
 
