@@ -174,6 +174,7 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
                 mpComputePass->execute(pRenderContext, uint3(width, height, 1));
             }
             pRenderContext->uavBarrier(mappedNDO.get()); // 不同层级可以并行重建，不同方向不可
+            pRenderContext->uavBarrier(mappedMCR.get());
         }
     }
 }
@@ -217,36 +218,45 @@ float4x4 ForwardMappingPass::CalculateProperViewProjMatrix(float3x3& homographMa
         maxDistance = std::max(maxDistance, math::length(projection));
     }
     maxDistance *= 1.01f;
-    float fovY = 2.0f * std::atan(0.5f * mpCamera->getFrameHeight() / mpCamera->getFocalLength());
 
-    float4x4 viewMat = math::matrixFromLookAt(
-        aabb.center() - 2.f * maxDistance * front, aabb.center(), mpCamera->getUpVector(), math::Handedness::RightHanded
-    );
-    float4x4 projMat = math::perspective(fovY, mpCamera->getAspectRatio(), mpCamera->getNearPlane(), 4.f * maxDistance);
-    float4x4 VP = mul(projMat, viewMat);
-    // 计算相机移动导致视口坐标变化对应的单应性矩阵
-    float3 posW1 = aabb.center();
-    float3 posW2 = posW1 + mpCamera->getUpVector();
-    posW2 = posW2 - math::dot(posW2, front) * front; // 在任意正对相机的平面内选取两个参考点
-    float2 screenTexCoord1 = WorldToTexCoord(float4(posW1, 1), mpCamera->getViewProjMatrixNoJitter());
-    float2 screenTexCoord2 = WorldToTexCoord(float4(posW2, 1), mpCamera->getViewProjMatrixNoJitter());
-    float2 GBufferTexCoord1 = WorldToTexCoord(float4(posW1, 1), VP);
-    float2 GBufferTexCoord2 = WorldToTexCoord(float4(posW2, 1), VP);
+    float4x4 VP;
+    if (math::length(mpCamera->getPosition()) < 2.0f * maxDistance)
+    {
+        VP = mpCamera->getViewProjMatrixNoJitter(); // 当前相机离场景过近时，重建时直接使用当前相机
+        homographMatrix = float3x3::identity();
+    }
+    else
+    {
+        float fovY = 2.0f * std::atan(0.5f * mpCamera->getFrameHeight() / mpCamera->getFocalLength());
+        float4x4 viewMat = math::matrixFromLookAt(
+            aabb.center() - 2.f * maxDistance * front, aabb.center(), mpCamera->getUpVector(), math::Handedness::RightHanded
+        );
+        float4x4 projMat = math::perspective(fovY, mpCamera->getAspectRatio(), mpCamera->getNearPlane(), 4.f * maxDistance);
+        VP = mul(projMat, viewMat);
+        // 计算相机移动导致视口坐标变化对应的单应性矩阵
+        float3 posW1 = aabb.center();
+        float3 posW2 = posW1 + mpCamera->getUpVector();
+        posW2 = posW2 - math::dot(posW2, front) * front; // 在任意正对相机的平面内选取两个参考点
+        float2 screenTexCoord1 = WorldToTexCoord(float4(posW1, 1), mpCamera->getViewProjMatrixNoJitter());
+        float2 screenTexCoord2 = WorldToTexCoord(float4(posW2, 1), mpCamera->getViewProjMatrixNoJitter());
+        float2 GBufferTexCoord1 = WorldToTexCoord(float4(posW1, 1), VP);
+        float2 GBufferTexCoord2 = WorldToTexCoord(float4(posW2, 1), VP);
 
-    float2 screenMid = 0.5f * (screenTexCoord1 + screenTexCoord2);
-    float2 GBufferMid = 0.5f * (GBufferTexCoord1 + GBufferTexCoord2);
-    float scaleRate = math::length(GBufferTexCoord2 - GBufferTexCoord1) / math::length(screenTexCoord2 - screenTexCoord1);
+        float2 screenMid = 0.5f * (screenTexCoord1 + screenTexCoord2);
+        float2 GBufferMid = 0.5f * (GBufferTexCoord1 + GBufferTexCoord2);
+        float scaleRate = math::length(GBufferTexCoord2 - GBufferTexCoord1) / math::length(screenTexCoord2 - screenTexCoord1);
 
-    homographMatrix = float3x3::identity();
-    float3x3 transform = float3x3::identity();
-    transform.setCol(2, float3(-screenMid.x, -screenMid.y, 1));
-    homographMatrix = math::mul(transform, homographMatrix); // 平移到原点
-    float3x3 scale = float3x3::identity();
-    scale.setRow(0, float3(scaleRate, 0, 0));
-    scale.setRow(1, float3(0, scaleRate, 0));
-    homographMatrix = math::mul(scale, homographMatrix); // 缩放
-    transform.setCol(2, float3(GBufferMid.x, GBufferMid.y, 1));
-    homographMatrix = math::mul(transform, homographMatrix);
+        homographMatrix = float3x3::identity();
+        float3x3 transform = float3x3::identity();
+        transform.setCol(2, float3(-screenMid.x, -screenMid.y, 1));
+        homographMatrix = math::mul(transform, homographMatrix); // 平移到原点
+        float3x3 scale = float3x3::identity();
+        scale.setRow(0, float3(scaleRate, 0, 0));
+        scale.setRow(1, float3(0, scaleRate, 0));
+        homographMatrix = math::mul(scale, homographMatrix); // 缩放
+        transform.setCol(2, float3(GBufferMid.x, GBufferMid.y, 1));
+        homographMatrix = math::mul(transform, homographMatrix);
+    }
     return VP;
 }
 

@@ -28,12 +28,15 @@ void forwardMapping(uint2 originPixel, float2 offset)
     float2 coord = NDC.xy * 0.5 + 0.5;
     uint2 pixel = uint2((uint)floor(coord.x * outputWidth), (uint)floor((1 - coord.y) * outputHeight));
     float depth = NDC.z;
+
     if (pixel.x >= 0 && pixel.x < outputWidth && pixel.y >= 0 && pixel.y < outputHeight)
     {
         float4 currentNDO = gMappedNDO[pixel];
-        if (depth <= currentNDO.z || currentNDO.w == 0)
+        float w = currentNDO.w;
+        if (depth <= currentNDO.z || w == 0)
         {
-            gMappedNDO[pixel] = float4(packedNDO.xy, depth, packedNDO.w); // 只有depth需要变换
+            // gMappedNDO[pixel] = float4(packedNDO.xy, depth, saturate(packedNDO.w + w)); // 透明度叠加
+            gMappedNDO[pixel] = float4(packedNDO.xy, depth, packedNDO.w);
             gMappedMCR[pixel] = gPackedMCR[originPixel];
         }
     }

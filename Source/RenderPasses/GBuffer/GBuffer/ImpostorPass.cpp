@@ -117,6 +117,7 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
     }
 
     ref<Buffer> matrixBuffer = renderData.getResource(kOutputInvVP)->asBuffer();
+    ref<Camera> camera = mpScene->getCamera();
     if (mComplete)
     {
         pRenderContext->copyResource(renderData.getTexture("packedNDO").get(), cachedPackedNDO.get());
@@ -124,7 +125,6 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
         matrixBuffer->setBlob(&invVP, 0, sizeof(float4x4));
         return;
     }
-
     GBuffer::execute(pRenderContext, renderData);
     auto pDepth = renderData.getTexture(kDepthName);
     FALCOR_ASSERT(pDepth);
@@ -141,7 +141,7 @@ void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& rend
     }
 
     mpScene->selectViewpoint(mViewpointIndex);
-    ref<Camera> camera = mpScene->getCamera();
+
     camera->setFocalLength(0.f);
     camera->setAspectRatio(aspectRatio);
     camera->setFrameHeight(mViewpoint.cameraSize * 1000);
