@@ -50,9 +50,10 @@ private:
     float mCurrentLoDLevel;
     float mLoDLevel;
     bool mLoDLevelFixed;
+    bool mUpdateScene;
+    bool mDebug;
     ref<Scene> mpScene;
     ref<SampleGenerator> mpSampleGenerator;
-    ref<Program> mpProgram;
     ref<FullScreenPass> mpFullScreenPass;
     ref<Sampler> mpPointSampler;
 };

@@ -1,3 +1,7 @@
+import Scene.Raster;
+import Utils.Math.MathHelpers;
+import Rendering.Materials.TexLODHelpers;
+
 Texture2D<float4> gFilteredNDO;
 Texture2D<float4> gFilteredMCR;
 SamplerState gPointSampler;
@@ -12,10 +16,17 @@ cbuffer DirectionalLightCB
 cbuffer CB
 {
     float3 cameraPosW;
-    float4x4 invVP;
+    float4x4 invVP;        // 生成G-buffer所用相机的invVP
     float4x4 extendMatrix; // 当前纹理坐标到G-Buffer纹理坐标的变换矩阵(取左上角3x3)
     uint lowerLevel;
     float t;
+};
+
+struct PsOut
+{
+    float4 color : SV_Target0;
+    float4 posW : SV_Target1;
+    float2 GBufferUV : SV_Target2;
 };
 
 float NDC_GGX(float3 n, float3 h, float rough)
@@ -59,19 +70,24 @@ float3 octoUVToNormal(float2 uv)
     return normalize(n);
 }
 
-float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
+float3 calcView(float2 texCoord, float depth)
 {
+    float4 NDC = float4(texCoord * 2 - 1, depth, 1);
+    float4 temp = mul(invVP, NDC);
+    float4 posW = temp / temp.w;
+    return normalize(cameraPosW - posW.xyz);
+}
+
+PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
+{
+    PsOut ret = {};
     float3 coord = float3(texCoord, 1);
     float3x3 matrix = float3x3(extendMatrix);
     float3 GBufferCoord = mul(matrix, coord);
     float4 higherNDO = gFilteredNDO.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel + 1);
     float4 lowerNDO = gFilteredNDO.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel);
-
-    float depth = lerp(lowerNDO.z, higherNDO.z, t);
-    float4 NDC = float4(texCoord * 2 - 1, depth, 1);
-    float4 temp = mul(invVP, NDC);
-    float4 posW = temp / temp.w;
-    float3 viewW = normalize(cameraPosW - posW.xyz);
+    float4 higherMCR = gFilteredMCR.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel + 1);
+    float4 lowerMCR = gFilteredMCR.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel);
 
     bool[2] valids;
     float3[2] normals;
@@ -82,6 +98,7 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
     float[2] roughnesss;
     float3[2] colors;
     float[2] opacitys;
+    float3[2] views;
     float ambient = 0.02;
 
     if (lowerNDO.w != 0 && t != 1)
@@ -94,9 +111,19 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
         depths[0] = lowerNDO.z;
         opacitys[0] = lowerNDO.w;
         valids[0] = true;
+        views[0] = calcView(GBufferCoord.xy, lowerNDO.z);
+
+        float4 NDC = float4(GBufferCoord.xy * 2 - 1, lowerNDO.z, 1);
+        float4 temp = mul(invVP, NDC);
+        ret.posW = temp / temp.w;
+        ret.GBufferUV = GBufferCoord.xy;
     }
     else
+    {
+        ret.posW = 0;
+        ret.GBufferUV = 0;
         valids[0] = false;
+    }
 
     if (higherNDO.w != 0 && t != 0)
     {
@@ -106,17 +133,20 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
         emmsives[1] = 0;
         normals[1] = octoUVToNormal(higherNDO.xy);
         depths[1] = higherNDO.z;
-        opacitys[1] = lowerNDO.w;
+        opacitys[1] = higherNDO.w;
         valids[1] = true;
+        views[1] = calcView(GBufferCoord.xy, higherNDO.z);
     }
     else
+    {
         valids[1] = false;
+    }
 
     for (uint i = 0; i < 2; i++)
     {
         if (valids[i])
         {
-            colors[i] = ambient + Shading(viewW, normals[i], diffs[i], specs[i], roughnesss[i]);
+            colors[i] = ambient + Shading(views[i], normals[i], diffs[i], specs[i], roughnesss[i]);
             colors[i] *= opacitys[i];
         }
         else
@@ -124,5 +154,6 @@ float4 main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION) : SV_TARGET
     }
 
     float3 color = lerp(colors[0], colors[1], t);
-    return float4(color, 1);
+    ret.color = float4(color, 1);
+    return ret;
 }

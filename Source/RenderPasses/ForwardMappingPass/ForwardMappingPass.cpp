@@ -87,10 +87,10 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
 
-    reflector.addOutput(kOutputMatrix, "Screen-space TexCoord to GBuffer TexCoord")
+    reflector.addOutput(kOutputMatrix, "invVP of G-Buffer Camera & Matrix transform Screen-space TexCoord to GBuffer TexCoord")
         .format(ResourceFormat::Unknown)
         .bindFlags(ResourceBindFlags::Constant)
-        .rawBuffer(sizeof(float3x3));
+        .rawBuffer(sizeof(float3x3) + sizeof(float4x4));
 
     return reflector;
 }
@@ -143,11 +143,13 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             pRenderContext->clearUAV(mappedNDO->getUAV(mipLevel, 0, 1).get(), float4());
             pRenderContext->clearUAV(mappedMCR->getUAV(mipLevel, 0, 1).get(), float4());
         }
-        mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0", true);
+        mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0");
         ShaderVar var = mpComputePass->getRootVar();
         float3x3 homographMatrix;
         float4x4 GBufferVP = CalculateProperViewProjMatrix(homographMatrix);
-        matrixBuffer->setBlob(&homographMatrix, 0, sizeof(float3x3));
+        float4x4 invGBufferVP = math::inverse(GBufferVP);
+        matrixBuffer->setBlob(&invGBufferVP, 0, sizeof(float4x4));
+        matrixBuffer->setBlob(&homographMatrix, sizeof(float4x4), sizeof(float3x3));
         var["CB"]["GBufferVP"] = GBufferVP;
 
         for (size_t i = 0; i < mImpostorCount; i++)
@@ -210,6 +212,7 @@ float4x4 ForwardMappingPass::CalculateProperViewProjMatrix(float3x3& homographMa
     points[5] = float3(xMax, yMin, zMax);
     points[6] = float3(xMax, yMax, zMin);
     points[7] = float3(xMax, yMax, zMax);
+
     float maxDistance = 0;
     for (size_t i = 0; i < 8; i++)
     {
@@ -217,35 +220,33 @@ float4x4 ForwardMappingPass::CalculateProperViewProjMatrix(float3x3& homographMa
         float3 projection = v - math::dot(v, front) * front;
         maxDistance = std::max(maxDistance, math::length(projection));
     }
-    maxDistance *= 1.01f;
+    float cameraDistance = 2.f * maxDistance;
+    float fovY = 2.f * std::atan(0.5f * mpCamera->getFrameHeight() / mpCamera->getFocalLength());
+    float4x4 viewMat = math::matrixFromLookAt(
+        aabb.center() - cameraDistance * front, aabb.center(), mpCamera->getUpVector(), math::Handedness::RightHanded
+    );
+    float4x4 projMat = math::perspective(fovY, RiLoDOutputWidth / (float)RiLoDOutputHeight, 0.1f, 4.f * maxDistance);
+    float4x4 VP = mul(projMat, viewMat);
+    // 计算相机移动导致视口坐标变化对应的单应性矩阵
+    float3 posW1 = aabb.center();
+    float3 posW2 = posW1 + mpCamera->getUpVector();
+    posW2 = posW2 - math::dot(posW2, front) * front; // 在任意正对相机的平面内选取两个参考点
+    float2 screenTexCoord1 = WorldToTexCoord(float4(posW1, 1), mpCamera->getViewProjMatrixNoJitter());
+    float2 screenTexCoord2 = WorldToTexCoord(float4(posW2, 1), mpCamera->getViewProjMatrixNoJitter());
+    float2 GBufferTexCoord1 = WorldToTexCoord(float4(posW1, 1), VP);
+    float2 GBufferTexCoord2 = WorldToTexCoord(float4(posW2, 1), VP);
 
-    float4x4 VP;
-    if (math::length(mpCamera->getPosition()) < 2.0f * maxDistance)
+    float2 screenMid = 0.5f * (screenTexCoord1 + screenTexCoord2);
+    float2 GBufferMid = 0.5f * (GBufferTexCoord1 + GBufferTexCoord2);
+    float scaleRate = math::length(GBufferTexCoord2 - GBufferTexCoord1) / math::length(screenTexCoord2 - screenTexCoord1);
+
+    if (scaleRate < 1.0f)
     {
         VP = mpCamera->getViewProjMatrixNoJitter(); // 当前相机离场景过近时，重建时直接使用当前相机
         homographMatrix = float3x3::identity();
     }
     else
     {
-        float fovY = 2.0f * std::atan(0.5f * mpCamera->getFrameHeight() / mpCamera->getFocalLength());
-        float4x4 viewMat = math::matrixFromLookAt(
-            aabb.center() - 2.f * maxDistance * front, aabb.center(), mpCamera->getUpVector(), math::Handedness::RightHanded
-        );
-        float4x4 projMat = math::perspective(fovY, mpCamera->getAspectRatio(), mpCamera->getNearPlane(), 4.f * maxDistance);
-        VP = mul(projMat, viewMat);
-        // 计算相机移动导致视口坐标变化对应的单应性矩阵
-        float3 posW1 = aabb.center();
-        float3 posW2 = posW1 + mpCamera->getUpVector();
-        posW2 = posW2 - math::dot(posW2, front) * front; // 在任意正对相机的平面内选取两个参考点
-        float2 screenTexCoord1 = WorldToTexCoord(float4(posW1, 1), mpCamera->getViewProjMatrixNoJitter());
-        float2 screenTexCoord2 = WorldToTexCoord(float4(posW2, 1), mpCamera->getViewProjMatrixNoJitter());
-        float2 GBufferTexCoord1 = WorldToTexCoord(float4(posW1, 1), VP);
-        float2 GBufferTexCoord2 = WorldToTexCoord(float4(posW2, 1), VP);
-
-        float2 screenMid = 0.5f * (screenTexCoord1 + screenTexCoord2);
-        float2 GBufferMid = 0.5f * (GBufferTexCoord1 + GBufferTexCoord2);
-        float scaleRate = math::length(GBufferTexCoord2 - GBufferTexCoord1) / math::length(screenTexCoord2 - screenTexCoord1);
-
         homographMatrix = float3x3::identity();
         float3x3 transform = float3x3::identity();
         transform.setCol(2, float3(-screenMid.x, -screenMid.y, 1));
@@ -254,6 +255,7 @@ float4x4 ForwardMappingPass::CalculateProperViewProjMatrix(float3x3& homographMa
         scale.setRow(0, float3(scaleRate, 0, 0));
         scale.setRow(1, float3(0, scaleRate, 0));
         homographMatrix = math::mul(scale, homographMatrix); // 缩放
+        transform = float3x3::identity();
         transform.setCol(2, float3(GBufferMid.x, GBufferMid.y, 1));
         homographMatrix = math::mul(transform, homographMatrix);
     }

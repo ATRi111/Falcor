@@ -117,7 +117,7 @@ void FilterPass::execute(RenderContext* pRenderContext, const RenderData& render
             var["gFilteredNDO"].setUav(filteredNDO->getUAV(mipLevel, 0, 1));
             var["gFilteredMCR"].setUav(filteredMCR->getUAV(mipLevel, 0, 1));
             var["gSampler"] = mpSampler;
-            var["CB"]["kernelSize"] = math::clamp(mKernelSize, 1u, 16u);
+            var["CB"]["kernelSize"] = mKernelSize;
             var["CB"]["deltaU"] = 1.f / width;
             var["CB"]["deltaV"] = 1.f / height;
             mpComputePass->execute(pRenderContext, uint3(width, height, 1));
@@ -134,6 +134,7 @@ void FilterPass::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("EnableFilter", mEnableFilter);
     widget.var("KernelSize", mKernelSize);
+    mKernelSize = math::clamp(mKernelSize, 1u, 16u);
 }
 
 void FilterPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

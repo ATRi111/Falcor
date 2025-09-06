@@ -120,7 +120,8 @@ void mix(uint2 currentPixel)
         float2 octoUV = normalToOctoUV(normal);
         float depth = mixDepth(depths, validCount);
         float opacity = mixOpacity(opacitys, 4);
-        uint materialID = materialIDCounter(materialIDs, validCount);
+        // uint materialID = materialIDCounter(materialIDs, validCount);
+        uint materialID = materialIDs[0]; // 暂时不处理纹理ID混合
         float2 texCoord = mixTexCoord(texCoords, validCount);
         gCurrentNDO[currentPixel] = float4(octoUV, depth, opacity);
         gCurrentMCR[currentPixel] = float4(asfloat(materialID), texCoord, 0);
