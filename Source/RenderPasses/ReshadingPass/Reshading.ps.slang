@@ -1,6 +1,14 @@
+#include "Scene/VertexAttrib.slangh"
+
 import Scene.Raster;
 import Utils.Math.MathHelpers;
 import Rendering.Materials.TexLODHelpers;
+import Scene.SceneTypes;
+import Scene.ShadingData;
+import Rendering.Materials.IMaterialInstance;
+import Utils.Math.FormatConversion;
+__exported import Rendering.Materials.StandardMaterial;
+__exported import Scene.Material.ShadingUtils;
 
 Texture2D<float4> gFilteredNDO;
 Texture2D<float4> gFilteredMCR;
@@ -27,6 +35,8 @@ struct PsOut
     float4 color : SV_Target0;
     float4 posW : SV_Target1;
     float2 GBufferUV : SV_Target2;
+    float4 materialID : SV_Target3;
+    float2 materialUV : SV_Target4;
 };
 
 float NDC_GGX(float3 n, float3 h, float rough)
@@ -70,12 +80,12 @@ float3 octoUVToNormal(float2 uv)
     return normalize(n);
 }
 
-float3 calcView(float2 texCoord, float depth)
+float3 calcPosW(float2 texCoord, float depth)
 {
     float4 NDC = float4(2 * texCoord.x - 1, 1 - 2 * texCoord.y, depth, 1);
     float4 temp = mul(invVP, NDC);
     float4 posW = temp / temp.w;
-    return normalize(cameraPosW - posW.xyz);
+    return posW.xyz;
 }
 
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
@@ -83,74 +93,83 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     PsOut ret = {};
     float3 coord = float3(texCoord, 1);
     float3x3 matrix = float3x3(extendMatrix);
-    float3 GBufferCoord = mul(matrix, coord);
-    float4 higherNDO = gFilteredNDO.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel + 1);
-    float4 lowerNDO = gFilteredNDO.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel);
-    float4 higherMCR = gFilteredMCR.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel + 1);
-    float4 lowerMCR = gFilteredMCR.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel);
+    float2 GBufferCoord = mul(matrix, coord).xy;
 
-    bool[2] valids;
-    float3[2] normals;
-    float[2] depths;
-    float3[2] diffs;
-    float3[2] specs;
-    float3[2] emmsives;
-    float[2] roughnesss;
+    float4[2] NDOs;
+    float4[2] MCRs;
     float3[2] colors;
-    float[2] opacitys;
-    float3[2] views;
+
+    NDOs[0] = gFilteredNDO.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel);
+    NDOs[1] = gFilteredNDO.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel + 1);
+    MCRs[0] = gFilteredMCR.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel);
+    MCRs[1] = gFilteredMCR.SampleLevel(gPointSampler, GBufferCoord.xy, lowerLevel + 1);
+
     float ambient = 0.02;
 
-    if (lowerNDO.w != 0 && t != 1)
+    for (uint i = 0; i < 2; i++)
     {
-        diffs[0] = 0.1;
-        specs[0] = 0.9;
-        roughnesss[0] = 0.5;
-        emmsives[0] = 0;
-        normals[0] = octoUVToNormal(lowerNDO.xy);
-        depths[0] = lowerNDO.z;
-        opacitys[0] = lowerNDO.w;
-        valids[0] = true;
-        views[0] = calcView(GBufferCoord.xy, lowerNDO.z);
+        if (NDOs[i].w == 0)
+        {
+            colors[i] = 0;
+        }
+        else
+        {
+            float3 normal = octoUVToNormal(NDOs[i].xy);
+            float3 posW = calcPosW(GBufferCoord, NDOs[i].z);
+            float3 view = normalize(cameraPosW - posW);
+            float2 uv = MCRs[i].yz;
+            float opacity = NDOs[i].w;
 
-        float4 NDC = float4(2 * GBufferCoord.x - 1, 1 - 2 * GBufferCoord.y, lowerNDO.z, 1);
-        float4 temp = mul(invVP, NDC);
-        ret.posW = temp / temp.w;
+            float3 dpdx = ddx(posW);
+            float3 dpdy = ddy(posW);
+            float2 duvdx = ddx(uv);
+            float2 duvdy = ddy(uv);
+            float3 tangent = (duvdy.y * dpdx - duvdx.y * dpdy) / (duvdx.x * duvdy.y - duvdy.x * duvdx.y);
+            tangent = normalize(tangent - normal * dot(normal, tangent));
+            float3 bitangent = cross(normal, tangent);
+            float handiness = (dot(cross(normal, tangent), bitangent) > 0.0) ? 1.0 : -1.0;
+
+            VertexData v = {};
+            v.normalW = normal;
+            v.texC = MCRs[i].yz;
+            v.posW = posW;
+            v.faceNormalW = normalize(cross(dpdx, dpdy));
+            v.tangentW = float4(tangent, handiness);
+            ShadingData sd = gScene.materials.prepareShadingData(v, asuint(MCRs[i].x), view);
+            let lod = ImplicitLodTextureSampler();
+            let mi = gScene.materials.getMaterialInstance(sd, lod, 0);
+            BSDFProperties bsdf = mi.getProperties(sd);
+
+            float3 diff = float3(bsdf.diffuseReflectionAlbedo);
+            float3 spec = float3(bsdf.specularReflectance);
+            float roughness = bsdf.roughness;
+            float3 emmision = bsdf.emission;
+#if DEBUG
+            diff = 0.1;
+            spec = 0.9;
+            roughness = 0.2;
+            emmision = 0;
+#endif
+
+            colors[i] = ambient + emmision + Shading(view, normal, diff, spec, roughness);
+            colors[i] *= opacity;
+        }
+    }
+
+    if (NDOs[0].w != 0)
+    {
+        ret.posW = float4(calcPosW(GBufferCoord, NDOs[0].z), 1);
         ret.GBufferUV = GBufferCoord.xy;
+        uint ID = asuint(MCRs[0].x);
+        ret.materialID = 1 - float4(ID & 4, ID & 2, ID & 1, 1);
+        ret.materialUV = MCRs[0].yz;
     }
     else
     {
         ret.posW = 0;
         ret.GBufferUV = 0;
-        valids[0] = false;
-    }
-
-    if (higherNDO.w != 0 && t != 0)
-    {
-        diffs[1] = 0.1;
-        specs[1] = 0.9;
-        roughnesss[1] = 0.5;
-        emmsives[1] = 0;
-        normals[1] = octoUVToNormal(higherNDO.xy);
-        depths[1] = higherNDO.z;
-        opacitys[1] = higherNDO.w;
-        valids[1] = true;
-        views[1] = calcView(GBufferCoord.xy, higherNDO.z);
-    }
-    else
-    {
-        valids[1] = false;
-    }
-
-    for (uint i = 0; i < 2; i++)
-    {
-        if (valids[i])
-        {
-            colors[i] = ambient + Shading(views[i], normals[i], diffs[i], specs[i], roughnesss[i]);
-            colors[i] *= opacitys[i];
-        }
-        else
-            colors[i] = 0;
+        ret.materialID = 0;
+        ret.materialUV = 0;
     }
 
     float3 color = lerp(colors[0], colors[1], t);

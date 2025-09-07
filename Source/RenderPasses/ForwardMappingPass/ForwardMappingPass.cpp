@@ -30,7 +30,6 @@
 namespace
 {
 const std::string kComputePassProgramFile = "E:/Project/Falcor/Source/RenderPasses/ForwardMappingPass/ForwardMapping.cs.slang";
-const std::string kDepthPassProgramFile = "E:/Project/Falcor/Source/RenderPasses/ForwardMappingPass/ForwardDepth.cs.slang";
 const std::string kInputInvVP = "impostorInvVP";
 const std::string kInputPackedNDO = "packedNDO";
 const std::string kInputPackedMCR = "packedMCR";
@@ -120,20 +119,6 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
 
         mpComputePass = ComputePass::create(mpDevice, desc, defines, true);
     }
-    if (!mpDepthPass)
-    {
-        ProgramDesc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kDepthPassProgramFile).csEntry("main");
-        // desc.addTypeConformances(mpScene->getTypeConformances());
-
-        DefineList defines;
-        defines.add(mpScene->getSceneDefines());
-        defines.add(mpSampleGenerator->getDefines());
-        // defines.add(getShaderDefines(renderData));
-
-        mpDepthPass = ComputePass::create(mpDevice, desc, defines, true);
-    }
     mpCamera->setFocalLength(21.f);
     mpCamera->setFrameHeight(24.f);
     mpCamera->setAspectRatio(RiLoDOutputWidth / (float)RiLoDOutputHeight);
@@ -159,8 +144,8 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
         float4x4 invGBufferVP = math::inverse(GBufferVP);
         matrixBuffer->setBlob(&invGBufferVP, 0, sizeof(float4x4));
         matrixBuffer->setBlob(&homographMatrix, sizeof(float4x4), sizeof(float3x3));
-        var["CB"]["GBufferVP"] = GBufferVP;
 
+        var["CB"]["GBufferVP"] = GBufferVP;
         for (size_t i = 0; i < mImpostorCount; i++)
         {
             ref<Buffer> buffer = renderData.getResource(kInputInvVP + std::to_string(i))->asBuffer();
@@ -232,51 +217,78 @@ float4x4 ForwardMappingPass::CalculateProperViewProjMatrix(float3x3& homographMa
         maxDistance = std::max(maxDistance, math::length(projection));
     }
     float cameraDistance = 2.f * maxDistance;
-    float fovY = 2.f * std::atan(0.5f * mpCamera->getFrameHeight() / mpCamera->getFocalLength());
-    float4x4 viewMat = math::matrixFromLookAt(
-        aabb.center() - cameraDistance * front, aabb.center(), mpCamera->getUpVector(), math::Handedness::RightHanded
-    );
-    float4x4 projMat = math::perspective(fovY, RiLoDOutputWidth / (float)RiLoDOutputHeight, 0.1f, 4.f * maxDistance);
-    float4x4 VP = mul(projMat, viewMat);
-    // 计算相机移动导致视口坐标变化对应的单应性矩阵
+    float3 cameraPosition = aabb.center() - cameraDistance * front;
     float3 posW1 = aabb.center();
     float3 posW2 = posW1 + mpCamera->getUpVector();
     posW2 = posW2 - math::dot(posW2, front) * front; // 在任意正对相机的平面内选取两个参考点
-    float2 screenTexCoord1 = WorldToTexCoord(float4(posW1, 1), mpCamera->getViewProjMatrixNoJitter());
-    float2 screenTexCoord2 = WorldToTexCoord(float4(posW2, 1), mpCamera->getViewProjMatrixNoJitter());
-    float2 GBufferTexCoord1 = WorldToTexCoord(float4(posW1, 1), VP);
-    float2 GBufferTexCoord2 = WorldToTexCoord(float4(posW2, 1), VP);
 
-    float2 screenMid = 0.5f * (screenTexCoord1 + screenTexCoord2);
-    float2 GBufferMid = 0.5f * (GBufferTexCoord1 + GBufferTexCoord2);
-    float scaleRate = math::length(GBufferTexCoord2 - GBufferTexCoord1) / math::length(screenTexCoord2 - screenTexCoord1);
+    float4x4 GBufferVP = CalculateVP(cameraPosition, 4.f * maxDistance);
+    // 计算相机移动导致视口坐标变化对应的单应性矩阵
+    float scaleRate =
+        CalculateHomographMatrix(mpCamera->getViewProjMatrixNoJitter(), GBufferVP, float4(posW1, 1), float4(posW2, 1), homographMatrix);
 
-    if (scaleRate < 1.0f)
+    if (scaleRate < 0.5f)
     {
-        VP = mpCamera->getViewProjMatrixNoJitter(); // 当前相机离场景过近时，重建时直接使用当前相机
-        homographMatrix = float3x3::identity();
+        GBufferVP = mpCamera->getViewProjMatrixNoJitter();
+        homographMatrix = float3x3::identity(); // 当前相机离场景过近时，重建时直接使用当前相机
     }
-    else
+    else if (scaleRate < 1.0f)
     {
-        homographMatrix = float3x3::identity();
-        float3x3 transform = float3x3::identity();
-        transform.setCol(2, float3(-screenMid.x, -screenMid.y, 1));
-        homographMatrix = math::mul(transform, homographMatrix); // 平移到原点
-        float3x3 scale = float3x3::identity();
-        scale.setRow(0, float3(scaleRate, 0, 0));
-        scale.setRow(1, float3(0, scaleRate, 0));
-        homographMatrix = math::mul(scale, homographMatrix); // 缩放
-        transform = float3x3::identity();
-        transform.setCol(2, float3(GBufferMid.x, GBufferMid.y, 1));
-        homographMatrix = math::mul(transform, homographMatrix);
+        cameraPosition = math::lerp(mpCamera->getPosition(), cameraPosition, 2.f * (scaleRate - 0.5f)); // 平滑过渡，避免相机抖动
+        GBufferVP = CalculateVP(cameraPosition, 4.f * maxDistance);
+        CalculateHomographMatrix(mpCamera->getViewProjMatrixNoJitter(), GBufferVP, float4(posW1, 1), float4(posW2, 1), homographMatrix);
     }
-    return VP;
+    return GBufferVP;
 }
 
 float2 ForwardMappingPass::WorldToTexCoord(float4 world, float4x4 VP)
 {
     float4 clip = math::mul(VP, world);
     float4 NDC = clip / clip.w;
-    float4 texCoord = NDC * 0.5f + 0.5f;
-    return float2(texCoord.x, texCoord.y);
+    float2 texCoord = float2(0.5f * NDC.x + 0.5f, 0.5f - 0.5f * NDC.y);
+    return texCoord;
+}
+
+float ForwardMappingPass::CalculateHomographMatrix(
+    float4x4 originVP,
+    float4x4 targetVP,
+    float4 point0,
+    float4 point1,
+    float3x3& homographMatrix
+)
+{
+    float2 originTexCoord0 = WorldToTexCoord(point0, originVP);
+    float2 originTexCoord1 = WorldToTexCoord(point1, originVP);
+    float2 targetTexCoord0 = WorldToTexCoord(point0, targetVP);
+    float2 targetTexCoord1 = WorldToTexCoord(point1, targetVP);
+
+    float2 originMid = 0.5f * (originTexCoord0 + originTexCoord1);
+    float2 targetMid = 0.5f * (targetTexCoord0 + targetTexCoord1);
+    float3 origin = float3(originTexCoord1 - originTexCoord0, 0);
+    float3 target = float3(targetTexCoord1 - targetTexCoord0, 0);
+    // float scaleRate = math::dot(target, origin) / math::dot(origin, origin);
+    float scaleRate = math::length(target) / math::length(origin);
+
+    homographMatrix = float3x3::identity();
+    float3x3 transform = float3x3::identity();
+    transform.setCol(2, float3(-originMid.x, -originMid.y, 1));
+    homographMatrix = math::mul(transform, homographMatrix); // 平移到原点
+    float3x3 scale = float3x3::identity();
+    scale.setRow(0, float3(scaleRate, 0, 0));
+    scale.setRow(1, float3(0, scaleRate, 0));
+    homographMatrix = math::mul(scale, homographMatrix); // 缩放
+    transform = float3x3::identity();
+    transform.setCol(2, float3(targetMid.x, targetMid.y, 1));
+    homographMatrix = math::mul(transform, homographMatrix);
+    return scaleRate;
+}
+
+float4x4 ForwardMappingPass::CalculateVP(float3 cameraPosition, float far)
+{
+    float3 front = math::normalize(mpCamera->getTarget() - mpCamera->getPosition());
+    float fovY = 2.f * std::atan(0.5f * mpCamera->getFrameHeight() / mpCamera->getFocalLength());
+    float4x4 viewMat =
+        math::matrixFromLookAt(cameraPosition, cameraPosition + front, mpCamera->getUpVector(), math::Handedness::RightHanded);
+    float4x4 projMat = math::perspective(fovY, RiLoDOutputWidth / (float)RiLoDOutputHeight, 0.1f, far);
+    return mul(projMat, viewMat);
 }

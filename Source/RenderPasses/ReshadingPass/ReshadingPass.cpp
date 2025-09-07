@@ -31,10 +31,12 @@ namespace
 {
 const std::string kInputFilteredNDO = "filteredNDO";
 const std::string kInputFilteredMCR = "filteredMCR";
+const std::string kInputMatrix = "matrix";
 const std::string kOutputColor = "color";
 const std::string kOutputPosW = "posW";
 const std::string kOutputGBufferUV = "GBufferUV";
-const std::string kInputMatrix = "matrix";
+const std::string kOutputMaterialID = "MaterialID";
+const std::string kOutputMaterialUV = "MaterialUV";
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/ReshadingPass/Reshading.ps.slang";
 } // namespace
 
@@ -92,6 +94,14 @@ RenderPassReflection ReshadingPass::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RG32Float)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
+    reflector.addOutput(kOutputMaterialID, "Output Material ID")
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::RG32Float)
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
+    reflector.addOutput(kOutputMaterialUV, "Output Material UV")
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::RG32Float)
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
     return reflector;
 }
 
@@ -105,15 +115,18 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
         ProgramDesc desc;
         desc.addShaderLibrary(kShaderFile).psEntry("main");
         desc.setShaderModel(ShaderModel::SM6_5);
+        desc.addTypeConformances(mpScene->getTypeConformances());
         mpFullScreenPass = FullScreenPass::create(mpDevice, desc, mpScene->getSceneDefines());
         mUpdateScene = false;
     }
 
+    const auto& pFilteredNDO = renderData.getTexture(kInputFilteredNDO);
+    const auto& pFilteredMCR = renderData.getTexture(kInputFilteredMCR);
     const auto& pOutputColor = renderData.getTexture(kOutputColor);
     const auto& pOutputPosW = renderData.getTexture(kOutputPosW);
     const auto& pOutputGBufferUV = renderData.getTexture(kOutputGBufferUV);
-    const auto& pFilteredNDO = renderData.getTexture(kInputFilteredNDO);
-    const auto& pFilteredMCR = renderData.getTexture(kInputFilteredMCR);
+    const auto& pOutputMaterialID = renderData.getTexture(kOutputMaterialID);
+    const auto& pOutputMaterialUV = renderData.getTexture(kOutputMaterialUV);
 
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0, 0, 0, 0));
     pRenderContext->clearRtv(pOutputPosW->getRTV().get(), float4(0, 0, 0, 0));
@@ -149,18 +162,21 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
         mCurrentLoDLevel = math::clamp(mLoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
     else
         mCurrentLoDLevel = CalculateLoDLevel(homographMatrix.getRow(0).x);
+
     float4x4 extendMatrix = float4x4(homographMatrix);
     var["CB"]["cameraPosW"] = camera->getPosition();
     var["CB"]["invVP"] = invGBufferVP;
     var["CB"]["extendMatrix"] = extendMatrix;
     int lowerLevel = (int)(math::floor(mCurrentLoDLevel));
     var["CB"]["lowerLevel"] = (int)(math::floor(mCurrentLoDLevel));
-    var["CB"]["t"] = mCurrentLoDLevel - lowerLevel;
+    var["CB"]["t"] = math::saturate(mCurrentLoDLevel - lowerLevel);
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
     fbo->attachColorTarget(pOutputPosW, 1);
     fbo->attachColorTarget(pOutputGBufferUV, 2);
+    fbo->attachColorTarget(pOutputMaterialID, 3);
+    fbo->attachColorTarget(pOutputMaterialUV, 4);
     mpFullScreenPass->execute(pRenderContext, fbo);
 }
 

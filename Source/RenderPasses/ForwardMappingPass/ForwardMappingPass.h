@@ -55,11 +55,12 @@ public:
 private:
     float4x4 CalculateProperViewProjMatrix(float3x3& homographMatrix);
     float2 WorldToTexCoord(float4 world, float4x4 VP);
+    float CalculateHomographMatrix(float4x4 originVP, float4x4 currentVP, float4 point0, float4 point1, float3x3& homographMatrix);
+    float4x4 CalculateVP(float3 cameraPosition, float far);
     ref<Scene> mpScene;
     ref<Camera> mpCamera;
     ref<SampleGenerator> mpSampleGenerator;
     uint32_t mImpostorCount;
     ref<ComputePass> mpComputePass;
-    ref<ComputePass> mpDepthPass;
     bool mEnableSuperSampling;
 };

@@ -6,12 +6,12 @@ RWTexture2D<float4> gPosW;      // 世界空间坐标
 
 cbuffer CB
 {
-    float4x4 GBufferVP; // GBuffer的观察投影矩阵
+    float4x4 GBufferVP;   // GBuffer的观察投影矩阵
     float4x4 invOriginVP; // 预生成纹理时的观察投影矩阵的逆矩阵
-    uint width;        // Impostor的宽度
-    uint height;       // Impostor的高度
-    uint outputWidth;  // G-Buffer的宽度
-    uint outputHeight; // G-Buffer的高度
+    uint width;           // Impostor的宽度
+    uint height;          // Impostor的高度
+    uint outputWidth;     // G-Buffer的宽度
+    uint outputHeight;    // G-Buffer的高度
 };
 
 // offset为采样点相对于纹素左上角的偏移量
@@ -28,16 +28,18 @@ void forwardMapping(uint2 originPixel, float2 offset)
     float4 NDC = posClip / posClip.w;
     float2 coord = float2(0.5 * NDC.x + 0.5, 0.5 - 0.5 * NDC.y);
     uint2 pixel = uint2((uint)floor(coord.x * outputWidth), (uint)floor(coord.y * outputHeight));
-    float depth = NDC.z;
+
+    if (any(NDC.xyz < float3(-1, -1, 0)) || any(NDC.xyz > float3(1, 1, 1)))
+        return;
 
     if (pixel.x >= 0 && pixel.x < outputWidth && pixel.y >= 0 && pixel.y < outputHeight)
     {
         float4 currentNDO = gMappedNDO[pixel];
         float w = currentNDO.w;
-        if (depth <= currentNDO.z || w == 0)
+        if (NDC.z <= currentNDO.z || w == 0)
         {
             // gMappedNDO[pixel] = float4(packedNDO.xy, depth, saturate(packedNDO.w + w)); // 透明度叠加
-            gMappedNDO[pixel] = float4(packedNDO.xy, depth, packedNDO.w);
+            gMappedNDO[pixel] = float4(packedNDO.xy, NDC.z, packedNDO.w);
             gMappedMCR[pixel] = gPackedMCR[originPixel];
 #if WRITE_POSW
             gPosW[pixel] = posWorld;

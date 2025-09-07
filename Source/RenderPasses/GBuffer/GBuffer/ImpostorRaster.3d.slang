@@ -38,7 +38,7 @@ cbuffer PerFrameCB
 };
 
 // GBuffer channels
-struct GBufferPSOut
+struct ImpostorPSOut
 {
     float4 gPackedNDO : SV_TARGET0;
     float4 gPackedMCR : SV_TARGET1;
@@ -60,7 +60,7 @@ float2 normalToOctoUV(float3 n)
 }
 
 [earlydepthstencil]
-GBufferPSOut psMain(VSOut vsOut, uint triangleIndex: SV_PrimitiveID, float3 barycentrics: SV_Barycentrics)
+ImpostorPSOut psMain(VSOut vsOut, uint triangleIndex: SV_PrimitiveID, float3 barycentrics: SV_Barycentrics)
 {
     // Using vOut.posH.xy as pixel coordinate since it has the SV_Position semantic.
     int2 ipos = int2(vsOut.posH.xy);
@@ -87,9 +87,7 @@ GBufferPSOut psMain(VSOut vsOut, uint triangleIndex: SV_PrimitiveID, float3 bary
 
     const GBufferData gbuf = prepareGBufferData(sd, v, mi, bsdfProperties);
 
-    const float4 texGrads = float4(ddx(sd.uv), ddy(sd.uv));
-
-    GBufferPSOut psOut = {};
+    ImpostorPSOut psOut = {};
 
     float2 octo = normalToOctoUV(gbuf.normW.xyz);
     psOut.gPackedNDO = float4(octo.x, octo.y, vsOut.posH.z, gbuf.diffuseOpacity.w);
