@@ -38,6 +38,7 @@ const std::string kImpostorCount = "impostorCount";
 const std::string kOutputMappedNDO = "mappedNDO";
 const std::string kOutputMappedMCR = "mappedMCR";
 const std::string kOutputMatrix = "matrix";
+const std::string kOutputPosW = "posW";
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -86,6 +87,11 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+
+    reflector.addOutput(kOutputPosW, "World position")
+        .format(ResourceFormat::RGBA32Float)
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
 
     reflector.addOutput(kOutputMatrix, "invVP of G-Buffer Camera & Matrix transform Screen-space TexCoord to GBuffer TexCoord")
         .format(ResourceFormat::Unknown)
@@ -136,6 +142,7 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
     {
         ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
         ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
+        ref<Texture> pPosW = renderData.getTexture(kOutputPosW);
         ref<Buffer> matrixBuffer = renderData.getResource(kOutputMatrix)->asBuffer();
 
         for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
@@ -143,6 +150,8 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             pRenderContext->clearUAV(mappedNDO->getUAV(mipLevel, 0, 1).get(), float4());
             pRenderContext->clearUAV(mappedMCR->getUAV(mipLevel, 0, 1).get(), float4());
         }
+        pRenderContext->clearUAV(pPosW->getUAV().get(), float4());
+
         mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0");
         ShaderVar var = mpComputePass->getRootVar();
         float3x3 homographMatrix;
@@ -161,8 +170,10 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             ref<Texture> packedMCR = renderData.getTexture(kInputPackedMCR + std::to_string(i));
 
             var["CB"]["invOriginVP"] = invVP;
+            var["gPosW"] = pPosW;
             for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
             {
+                mpComputePass->addDefine("WRITE_POSW", (mipLevel == 0) ? "1" : "0");
                 int width = packedNDO->getWidth() >> mipLevel;
                 int height = packedNDO->getHeight() >> mipLevel;
                 var["gPackedNDO"].setSrv(packedNDO->getSRV(mipLevel, 1, 0, 1));

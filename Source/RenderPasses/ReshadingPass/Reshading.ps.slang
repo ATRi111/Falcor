@@ -72,7 +72,7 @@ float3 octoUVToNormal(float2 uv)
 
 float3 calcView(float2 texCoord, float depth)
 {
-    float4 NDC = float4(texCoord * 2 - 1, depth, 1);
+    float4 NDC = float4(2 * texCoord.x - 1, 1 - 2 * texCoord.y, depth, 1);
     float4 temp = mul(invVP, NDC);
     float4 posW = temp / temp.w;
     return normalize(cameraPosW - posW.xyz);
@@ -113,7 +113,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         valids[0] = true;
         views[0] = calcView(GBufferCoord.xy, lowerNDO.z);
 
-        float4 NDC = float4(GBufferCoord.xy * 2 - 1, lowerNDO.z, 1);
+        float4 NDC = float4(2 * GBufferCoord.x - 1, 1 - 2 * GBufferCoord.y, lowerNDO.z, 1);
         float4 temp = mul(invVP, NDC);
         ret.posW = temp / temp.w;
         ret.GBufferUV = GBufferCoord.xy;
