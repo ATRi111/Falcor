@@ -2,6 +2,8 @@ Texture2D<float4> gPackedNDO;   // Impostor记录的世界空间法线、深度�
 Texture2D<float4> gPackedMCR;   // Impostor记录的纹理ID 、纹理坐标、粗糙度
 RWTexture2D<float4> gMappedNDO; // 映射到GBuffer的世界空间法线、深度、透明度
 RWTexture2D<float4> gMappedMCR; // 映射到GBuffer的纹理ID、纹理坐标、粗糙度
+RWTexture2D<uint> gDepthBuffer;
+
 SamplerState gPointSampler;
 
 cbuffer CB
@@ -45,36 +47,46 @@ float4 originCoordToNDC(float2 originCoord, float depth)
 
 void forwardMapping(float2 originCoord, float4 higherNDO, float4 higherMCR)
 {
-    float4 NDC = originCoordToNDC(originCoord, higherNDO.z);
-    float2 coord = float2(0.5 * NDC.x + 0.5, 0.5 - 0.5 * NDC.y);
-    uint2 pixel = uint2((uint)floor(coord.x * outputWidth), (uint)floor(coord.y * outputHeight));
-    float4 NDO = higherNDO;
+    float4 lowerNDO = gPackedNDO.SampleLevel(gPointSampler, originCoord, lowerLevel);
+    if (lowerNDO.w == 0)
+        return;
+    float4 NDC = originCoordToNDC(originCoord, lowerNDO.z);
+    lowerNDO.z = NDC.z;
     if (any(NDC.xyz < float3(-1, -1, 0)) || any(NDC.xyz > float3(1, 1, 1)))
         return;
 
-    float4 MCR = higherMCR;
-
-    float4 lowerNDO = gPackedNDO.SampleLevel(gPointSampler, originCoord, lowerLevel);
-    if (lowerNDO.w != 0)
-    {
-        float4 lowerMCR = gPackedMCR.SampleLevel(gPointSampler, originCoord, lowerLevel);
-
-        float3 lowerNormal = octoUVToNormal(lowerNDO.xy);
-        float3 higherNormal = octoUVToNormal(higherNDO.xy);
-        float3 normal = normalize(lerp(lowerNormal, higherNormal, t));
-
-        NDO.xy = normalToOctoUV(normal);
-        NDO.z = lerp(lowerNDO.z, higherNDO.z, t);
-        NDO.w = lerp(lowerNDO.w, higherNDO.w, t);
-        MCR.yzw = lerp(lowerMCR.yzw, higherMCR.yzw, t);
-    }
-
+    float2 coord = float2(0.5 * NDC.x + 0.5, 0.5 - 0.5 * NDC.y);
+    uint2 pixel = uint2((uint)floor(coord.x * outputWidth), (uint)floor(coord.y * outputHeight));
     float4 currentNDO = gMappedNDO[pixel];
-    if (currentNDO.w != 0 && NDC.z > currentNDO.z)
-        return;
+    float4 NDO;
+    float4 MCR;
+    float4 lowerMCR = gPackedMCR.SampleLevel(gPointSampler, originCoord, lowerLevel);
 
-    gMappedNDO[pixel] = NDO;
-    gMappedMCR[pixel] = MCR;
+    float3 lowerNormal = octoUVToNormal(lowerNDO.xy);
+    float3 higherNormal = octoUVToNormal(higherNDO.xy);
+    float3 normal = normalize(lerp(lowerNormal, higherNormal, t));
+    NDO.xy = normalToOctoUV(normal);
+    NDO.z = lerp(lowerNDO.z, higherNDO.z, t);
+    NDO.w = lerp(lowerNDO.w, higherNDO.w, t);
+    MCR.yzw = lerp(lowerMCR.yzw, higherMCR.yzw, t);
+    MCR.x = lowerMCR.x;
+
+#if ENABLE_LOCK
+    uint newDepth = asuint(NDO.z);
+    uint oldDepth;
+    InterlockedCompareExchange(gDepthBuffer[pixel], newDepth, newDepth, oldDepth);
+    if (NDO.z < asfloat(oldDepth) || currentNDO.w == 0)
+    {
+        gMappedNDO[pixel] = NDO;
+        gMappedMCR[pixel] = MCR;
+    }
+#else
+    if (currentNDO.w == 0 || NDC.z < currentNDO.z)
+    {
+        gMappedNDO[pixel] = NDO;
+        gMappedMCR[pixel] = MCR;
+    }
+#endif
 }
 // 调用次数等于higherLevel的像素数
 [numthreads(8, 8, 1)]
@@ -92,6 +104,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
     if (any(NDC.xyz < float3(-1, -1, 0)) || any(NDC.xyz > float3(1, 1, 1)))
         return;
 
+    higherNDO.z = NDC.z;
     float2[4] subPixelOffset = { float2(0.f, 0.f), float2(0.5f, 0.f), float2(0.f, 0.5f), float2(0.5f, 0.5f) };
     float2[4] superSamplingOffset = { float2(0.05f, 0.15f), float2(0.35f, 0.05f), float2(0.15f, 0.45f), float2(0.45f, 0.35f) };
 #if ENABLE_SUPERSAMPLING

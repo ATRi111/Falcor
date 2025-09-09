@@ -36,6 +36,7 @@ const std::string kInputPackedMCR = "packedMCR";
 const std::string kImpostorCount = "impostorCount";
 const std::string kOutputMappedNDO = "mappedNDO";
 const std::string kOutputMappedMCR = "mappedMCR";
+const std::string kDepthBuffer = "depth";
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -47,6 +48,7 @@ ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& pr
 {
     mImpostorCount = 1;
     mEnableSuperSampling = true;
+    mEnableLock = false;
     mLoDLevel = mCurrentLoDLevel = 0;
     mForceLoDLevel = false;
 
@@ -92,6 +94,11 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
 
+    reflector.addInternal(kDepthBuffer, "Depth buffer")
+        .format(ResourceFormat::R32Uint)
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
+
     return reflector;
 }
 
@@ -124,11 +131,14 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
     {
         ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
         ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
+        ref<Texture> pDepthBuffer = renderData.getTexture(kDepthBuffer);
 
         pRenderContext->clearUAV(mappedNDO->getUAV().get(), float4());
         pRenderContext->clearUAV(mappedMCR->getUAV().get(), float4());
+        pRenderContext->clearUAV(pDepthBuffer->getUAV().get(), float4(asfloat(1u)));
 
         mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0");
+        mpComputePass->addDefine("ENABLE_LOCK", mEnableLock ? "1" : "0");
         ShaderVar var = mpComputePass->getRootVar();
         float4x4 GBufferVP = mpCamera->getViewProjMatrixNoJitter();
 
@@ -154,6 +164,7 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             var["gPackedMCR"] = packedMCR;
             var["gMappedNDO"] = mappedNDO;
             var["gMappedMCR"] = mappedMCR;
+            var["gDepthBuffer"] = pDepthBuffer;
             var["CB"]["width"] = width >> (lowerLevel + 1);
             var["CB"]["height"] = height >> (lowerLevel + 1);
             var["CB"]["outputWidth"] = RiLoDOutputWidth;
@@ -174,6 +185,7 @@ void ForwardMappingPass::renderUI(Gui::Widgets& widget)
     widget.var("CurrentLoDLevel", mCurrentLoDLevel);
     widget.checkbox("ForceLoDLevel", mForceLoDLevel);
     widget.var("LoDLevel", mLoDLevel);
+    widget.checkbox("EnableLock", mEnableLock);
 }
 
 void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -184,7 +196,13 @@ void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene
 
 float ForwardMappingPass::CalculateLoD()
 {
-    return 0;
+    AABB aabb = mpScene->getSceneBounds();
+    float3 min = aabb.minPoint;
+    float3 max = aabb.maxPoint;
+    float r = math::length(max - min) * 0.5f;
+    float d = math::length(mpCamera->getPosition() - aabb.center());
+    float k = math::length(float2(RiLoDWidth, RiLoDHeight)) / math::length(float2(RiLoDOutputWidth, RiLoDOutputHeight));
+    return math::log2(k * d / r);
 }
 
 float2 ForwardMappingPass::WorldToTexCoord(float4 world, float4x4 VP)

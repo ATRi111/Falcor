@@ -66,4 +66,5 @@ private:
     float mLoDLevel;
     ref<ComputePass> mpComputePass;
     bool mEnableSuperSampling;
+    bool mEnableLock;
 };
