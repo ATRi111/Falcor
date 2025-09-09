@@ -28,7 +28,6 @@ def render_graph_RasterPass():
     
     g.addEdge("FilterPass.filteredNDO","ReshadingPass.filteredNDO")
     g.addEdge("FilterPass.filteredMCR","ReshadingPass.filteredMCR")
-    g.addEdge("ForwardPass.matrix","ReshadingPass.matrix")
 
     g.markOutput("ReshadingPass.color")
     

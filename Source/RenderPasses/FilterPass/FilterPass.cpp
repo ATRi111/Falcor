@@ -62,20 +62,20 @@ RenderPassReflection FilterPass::reflect(const CompileData& compileData)
     reflector.addInput(kInputMappedNDO, "Input normal, depth, opacity")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
     reflector.addInput(kInputMappedMCR, "Input material id, texCoord, roughness")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
 
     reflector.addOutput(kOutputFilteredNDO, "Output normal, depth, opacity")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
     reflector.addOutput(kOutputFilteredMCR, "Output material id, texCoord, roughness")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
     return reflector;
 }
 
@@ -100,28 +100,23 @@ void FilterPass::execute(RenderContext* pRenderContext, const RenderData& render
     ref<Texture> filteredNDO = renderData.getTexture(kOutputFilteredNDO);
     ref<Texture> filteredMCR = renderData.getTexture(kOutputFilteredMCR);
 
-    for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
-    {
-        pRenderContext->clearUAV(filteredNDO->getUAV(mipLevel, 0, 1).get(), float4());
-        pRenderContext->clearUAV(filteredMCR->getUAV(mipLevel, 0, 1).get(), float4());
-    }
+    pRenderContext->clearUAV(filteredNDO->getUAV().get(), float4());
+    pRenderContext->clearUAV(filteredMCR->getUAV().get(), float4());
+
     if (mEnableFilter)
     {
         auto var = mpComputePass->getRootVar();
-        for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
-        {
-            uint width = mappedNDO->getWidth() >> mipLevel;
-            uint height = mappedNDO->getHeight() >> mipLevel;
-            var["gMappedNDO"].setSrv(mappedNDO->getSRV(mipLevel, 1, 0, 1));
-            var["gMappedMCR"].setSrv(mappedMCR->getSRV(mipLevel, 1, 0, 1));
-            var["gFilteredNDO"].setUav(filteredNDO->getUAV(mipLevel, 0, 1));
-            var["gFilteredMCR"].setUav(filteredMCR->getUAV(mipLevel, 0, 1));
-            var["gSampler"] = mpSampler;
-            var["CB"]["kernelSize"] = mKernelSize;
-            var["CB"]["deltaU"] = 1.f / width;
-            var["CB"]["deltaV"] = 1.f / height;
-            mpComputePass->execute(pRenderContext, uint3(width, height, 1));
-        }
+        uint width = mappedNDO->getWidth();
+        uint height = mappedNDO->getHeight();
+        var["gMappedNDO"] = mappedNDO;
+        var["gMappedMCR"] = mappedMCR;
+        var["gFilteredNDO"] = filteredNDO;
+        var["gFilteredMCR"] = filteredMCR;
+        var["gSampler"] = mpSampler;
+        var["CB"]["kernelSize"] = mKernelSize;
+        var["CB"]["deltaU"] = 1.f / width;
+        var["CB"]["deltaV"] = 1.f / height;
+        mpComputePass->execute(pRenderContext, uint3(width, height, 1));
     }
     else
     {

@@ -36,8 +36,6 @@ const std::string kInputPackedMCR = "packedMCR";
 const std::string kImpostorCount = "impostorCount";
 const std::string kOutputMappedNDO = "mappedNDO";
 const std::string kOutputMappedMCR = "mappedMCR";
-const std::string kOutputMatrix = "matrix";
-const std::string kOutputPosW = "posW";
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -49,6 +47,8 @@ ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& pr
 {
     mImpostorCount = 1;
     mEnableSuperSampling = true;
+    mLoDLevel = mCurrentLoDLevel = 0;
+    mForceLoDLevel = false;
 
     for (const auto& [key, value] : props)
     {
@@ -56,6 +56,11 @@ ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& pr
             mImpostorCount = value;
     }
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
+
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
+        .setAddressingMode(TextureAddressingMode::Clamp, TextureAddressingMode::Clamp, TextureAddressingMode::Clamp);
+    mpPointSampler = mpDevice->createSampler(samplerDesc);
 }
 
 RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
@@ -81,21 +86,11 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
     reflector.addOutput(kOutputMappedNDO, "Mapped NDO data")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
     reflector.addOutput(kOutputMappedMCR, "Mapped MCR data")
         .format(ResourceFormat::RGBA32Float)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
-
-    reflector.addOutput(kOutputPosW, "World position")
-        .format(ResourceFormat::RGBA32Float)
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
-
-    reflector.addOutput(kOutputMatrix, "invVP of G-Buffer Camera & Matrix transform Screen-space TexCoord to GBuffer TexCoord")
-        .format(ResourceFormat::Unknown)
-        .bindFlags(ResourceBindFlags::Constant)
-        .rawBuffer(sizeof(float3x3) + sizeof(float4x4));
 
     return reflector;
 }
@@ -121,31 +116,29 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
     }
     mpCamera->setFocalLength(21.f);
     mpCamera->setFrameHeight(24.f);
+    mpCamera->setFarPlane(100.f);
     mpCamera->setAspectRatio(RiLoDOutputWidth / (float)RiLoDOutputHeight);
+    mpScene->update(pRenderContext, 0.f);
 
     // 重建G-Buffer
     {
         ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
         ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
-        ref<Texture> pPosW = renderData.getTexture(kOutputPosW);
-        ref<Buffer> matrixBuffer = renderData.getResource(kOutputMatrix)->asBuffer();
 
-        for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
-        {
-            pRenderContext->clearUAV(mappedNDO->getUAV(mipLevel, 0, 1).get(), float4());
-            pRenderContext->clearUAV(mappedMCR->getUAV(mipLevel, 0, 1).get(), float4());
-        }
-        pRenderContext->clearUAV(pPosW->getUAV().get(), float4());
+        pRenderContext->clearUAV(mappedNDO->getUAV().get(), float4());
+        pRenderContext->clearUAV(mappedMCR->getUAV().get(), float4());
 
         mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0");
         ShaderVar var = mpComputePass->getRootVar();
-        float3x3 homographMatrix;
-        float4x4 GBufferVP = CalculateProperViewProjMatrix(homographMatrix);
-        float4x4 invGBufferVP = math::inverse(GBufferVP);
-        matrixBuffer->setBlob(&invGBufferVP, 0, sizeof(float4x4));
-        matrixBuffer->setBlob(&homographMatrix, sizeof(float4x4), sizeof(float3x3));
+        float4x4 GBufferVP = mpCamera->getViewProjMatrixNoJitter();
 
+        mCurrentLoDLevel = CalculateLoD();
+        if (mForceLoDLevel)
+            mCurrentLoDLevel = mLoDLevel;
+        mCurrentLoDLevel = math::clamp(mCurrentLoDLevel, 0.f, RiLoDMipCount - 1.000001f);
+        uint lowerLevel = (uint)math::floor(mCurrentLoDLevel);
         var["CB"]["GBufferVP"] = GBufferVP;
+        var["gPointSampler"] = mpPointSampler;
         for (size_t i = 0; i < mImpostorCount; i++)
         {
             ref<Buffer> buffer = renderData.getResource(kInputInvVP + std::to_string(i))->asBuffer();
@@ -155,23 +148,21 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             ref<Texture> packedMCR = renderData.getTexture(kInputPackedMCR + std::to_string(i));
 
             var["CB"]["invOriginVP"] = invVP;
-            var["gPosW"] = pPosW;
-            for (size_t mipLevel = 0; mipLevel < RiLoDMipCount; mipLevel++)
-            {
-                mpComputePass->addDefine("WRITE_POSW", (mipLevel == 0) ? "1" : "0");
-                int width = packedNDO->getWidth() >> mipLevel;
-                int height = packedNDO->getHeight() >> mipLevel;
-                var["gPackedNDO"].setSrv(packedNDO->getSRV(mipLevel, 1, 0, 1));
-                var["gPackedMCR"].setSrv(packedMCR->getSRV(mipLevel, 1, 0, 1));
-                var["gMappedNDO"].setUav(mappedNDO->getUAV(mipLevel, 0, 1));
-                var["gMappedMCR"].setUav(mappedMCR->getUAV(mipLevel, 0, 1));
-                var["CB"]["width"] = width;
-                var["CB"]["height"] = height;
-                var["CB"]["outputWidth"] = RiLoDOutputWidth >> mipLevel;
-                var["CB"]["outputHeight"] = RiLoDOutputHeight >> mipLevel;
-                mpComputePass->execute(pRenderContext, uint3(width, height, 1));
-            }
-            pRenderContext->uavBarrier(mappedNDO.get()); // 不同层级可以并行重建，不同方向不可
+            int width = packedNDO->getWidth();
+            int height = packedNDO->getHeight();
+            var["gPackedNDO"] = packedNDO;
+            var["gPackedMCR"] = packedMCR;
+            var["gMappedNDO"] = mappedNDO;
+            var["gMappedMCR"] = mappedMCR;
+            var["CB"]["width"] = width >> (lowerLevel + 1);
+            var["CB"]["height"] = height >> (lowerLevel + 1);
+            var["CB"]["outputWidth"] = RiLoDOutputWidth;
+            var["CB"]["outputHeight"] = RiLoDOutputHeight;
+            var["CB"]["lowerLevel"] = lowerLevel;
+            var["CB"]["t"] = mCurrentLoDLevel - lowerLevel;
+
+            mpComputePass->execute(pRenderContext, uint3(width >> (lowerLevel + 1), height >> (lowerLevel + 1), 1));
+            pRenderContext->uavBarrier(mappedNDO.get()); // 不同方向不可并行重建
             pRenderContext->uavBarrier(mappedMCR.get());
         }
     }
@@ -180,6 +171,9 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
 void ForwardMappingPass::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("EnableSuperSampling", mEnableSuperSampling);
+    widget.var("CurrentLoDLevel", mCurrentLoDLevel);
+    widget.checkbox("ForceLoDLevel", mForceLoDLevel);
+    widget.var("LoDLevel", mLoDLevel);
 }
 
 void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -188,57 +182,9 @@ void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene
     mpCamera = pScene->getCamera();
 }
 
-float4x4 ForwardMappingPass::CalculateProperViewProjMatrix(float3x3& homographMatrix)
+float ForwardMappingPass::CalculateLoD()
 {
-    // 计算合适的相机位置,及VP矩阵
-    AABB aabb = mpScene->getSceneBounds();
-    float3 front = math::normalize(mpCamera->getTarget() - mpCamera->getPosition());
-    float3 points[8] = {};
-    float xMin = aabb.minPoint.x;
-    float yMin = aabb.minPoint.y;
-    float zMin = aabb.minPoint.z;
-    float xMax = aabb.maxPoint.x;
-    float yMax = aabb.maxPoint.y;
-    float zMax = aabb.maxPoint.z;
-    points[0] = float3(xMin, yMin, zMin);
-    points[1] = float3(xMin, yMin, zMax);
-    points[2] = float3(xMin, yMax, zMin);
-    points[3] = float3(xMin, yMax, zMax);
-    points[4] = float3(xMax, yMin, zMin);
-    points[5] = float3(xMax, yMin, zMax);
-    points[6] = float3(xMax, yMax, zMin);
-    points[7] = float3(xMax, yMax, zMax);
-
-    float maxDistance = 0;
-    for (size_t i = 0; i < 8; i++)
-    {
-        float3 v = points[i] - aabb.center();
-        float3 projection = v - math::dot(v, front) * front;
-        maxDistance = std::max(maxDistance, math::length(projection));
-    }
-    float cameraDistance = 2.f * maxDistance;
-    float3 cameraPosition = aabb.center() - cameraDistance * front;
-    float3 posW1 = aabb.center();
-    float3 posW2 = posW1 + mpCamera->getUpVector();
-    posW2 = posW2 - math::dot(posW2, front) * front; // 在任意正对相机的平面内选取两个参考点
-
-    float4x4 GBufferVP = CalculateVP(cameraPosition, 4.f * maxDistance);
-    // 计算相机移动导致视口坐标变化对应的单应性矩阵
-    float scaleRate =
-        CalculateHomographMatrix(mpCamera->getViewProjMatrixNoJitter(), GBufferVP, float4(posW1, 1), float4(posW2, 1), homographMatrix);
-
-    if (scaleRate < 0.5f)
-    {
-        GBufferVP = mpCamera->getViewProjMatrixNoJitter();
-        homographMatrix = float3x3::identity(); // 当前相机离场景过近时，重建时直接使用当前相机
-    }
-    else if (scaleRate < 1.0f)
-    {
-        cameraPosition = math::lerp(mpCamera->getPosition(), cameraPosition, 2.f * (scaleRate - 0.5f)); // 平滑过渡，避免相机抖动
-        GBufferVP = CalculateVP(cameraPosition, 4.f * maxDistance);
-        CalculateHomographMatrix(mpCamera->getViewProjMatrixNoJitter(), GBufferVP, float4(posW1, 1), float4(posW2, 1), homographMatrix);
-    }
-    return GBufferVP;
+    return 0;
 }
 
 float2 ForwardMappingPass::WorldToTexCoord(float4 world, float4x4 VP)
@@ -281,14 +227,4 @@ float ForwardMappingPass::CalculateHomographMatrix(
     transform.setCol(2, float3(targetMid.x, targetMid.y, 1));
     homographMatrix = math::mul(transform, homographMatrix);
     return scaleRate;
-}
-
-float4x4 ForwardMappingPass::CalculateVP(float3 cameraPosition, float far)
-{
-    float3 front = math::normalize(mpCamera->getTarget() - mpCamera->getPosition());
-    float fovY = 2.f * std::atan(0.5f * mpCamera->getFrameHeight() / mpCamera->getFocalLength());
-    float4x4 viewMat =
-        math::matrixFromLookAt(cameraPosition, cameraPosition + front, mpCamera->getUpVector(), math::Handedness::RightHanded);
-    float4x4 projMat = math::perspective(fovY, RiLoDOutputWidth / (float)RiLoDOutputHeight, 0.1f, far);
-    return mul(projMat, viewMat);
 }

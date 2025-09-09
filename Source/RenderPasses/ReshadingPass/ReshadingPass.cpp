@@ -31,10 +31,8 @@ namespace
 {
 const std::string kInputFilteredNDO = "filteredNDO";
 const std::string kInputFilteredMCR = "filteredMCR";
-const std::string kInputMatrix = "matrix";
 const std::string kOutputColor = "color";
 const std::string kOutputPosW = "posW";
-const std::string kOutputGBufferUV = "GBufferUV";
 const std::string kOutputMaterialID = "MaterialID";
 const std::string kOutputMaterialUV = "MaterialUV";
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/ReshadingPass/Reshading.ps.slang";
@@ -54,9 +52,6 @@ ReshadingPass::ReshadingPass(ref<Device> pDevice, const Properties& props) : Ren
 {
     mpDevice = pDevice;
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_UNIFORM);
-    mCurrentLoDLevel = 0;
-    mLoDLevel = 0;
-    mLoDLevelFixed = false;
     mUpdateScene = false;
     mDebug = false;
 
@@ -72,15 +67,10 @@ RenderPassReflection ReshadingPass::reflect(const CompileData& compileData)
     RenderPassReflection reflector;
     reflector.addInput(kInputFilteredNDO, "Input normal, depth, opacity")
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
     reflector.addInput(kInputFilteredMCR, "Input material id, texCoord, roughness")
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, RiLoDMipCount);
-
-    reflector.addInput(kInputMatrix, "invVP of G-Buffer & Camera Matrix transform Screen-space TexCoord to GBuffer TexCoord")
-        .format(ResourceFormat::Unknown)
-        .bindFlags(ResourceBindFlags::Constant)
-        .rawBuffer(sizeof(float4x4) + sizeof(float3x3));
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
 
     reflector.addOutput(kOutputColor, "Output color")
         .bindFlags(ResourceBindFlags::RenderTarget)
@@ -89,10 +79,6 @@ RenderPassReflection ReshadingPass::reflect(const CompileData& compileData)
     reflector.addOutput(kOutputPosW, "Output world position")
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
-        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
-    reflector.addOutput(kOutputGBufferUV, "Output G-Buffer UV")
-        .bindFlags(ResourceBindFlags::RenderTarget)
-        .format(ResourceFormat::RG32Float)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
     reflector.addOutput(kOutputMaterialID, "Output Material ID")
         .bindFlags(ResourceBindFlags::RenderTarget)
@@ -124,19 +110,12 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
     const auto& pFilteredMCR = renderData.getTexture(kInputFilteredMCR);
     const auto& pOutputColor = renderData.getTexture(kOutputColor);
     const auto& pOutputPosW = renderData.getTexture(kOutputPosW);
-    const auto& pOutputGBufferUV = renderData.getTexture(kOutputGBufferUV);
     const auto& pOutputMaterialID = renderData.getTexture(kOutputMaterialID);
     const auto& pOutputMaterialUV = renderData.getTexture(kOutputMaterialUV);
 
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0, 0, 0, 0));
     pRenderContext->clearRtv(pOutputPosW->getRTV().get(), float4(0, 0, 0, 0));
-    pRenderContext->clearRtv(pOutputGBufferUV->getRTV().get(), float4(0, 0, 0, 0));
 
-    ref<Buffer> buffer = renderData.getResource(kInputMatrix)->asBuffer();
-    float3x3 homographMatrix;
-    float4x4 invGBufferVP;
-    buffer->getBlob(&invGBufferVP, 0, sizeof(float4x4));
-    buffer->getBlob(&homographMatrix, sizeof(float4x4), sizeof(float3x3));
     mpFullScreenPass->addDefine("DEBUG", mDebug ? "1" : "0");
 
     // Bind resources to the full-screen pass
@@ -158,33 +137,20 @@ void ReshadingPass::execute(RenderContext* pRenderContext, const RenderData& ren
     }
 
     ref<Camera> camera = mpScene->getCamera();
-    if (mLoDLevelFixed)
-        mCurrentLoDLevel = math::clamp(mLoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
-    else
-        mCurrentLoDLevel = CalculateLoDLevel(homographMatrix.getRow(0).x);
 
-    float4x4 extendMatrix = float4x4(homographMatrix);
     var["CB"]["cameraPosW"] = camera->getPosition();
-    var["CB"]["invVP"] = invGBufferVP;
-    var["CB"]["extendMatrix"] = extendMatrix;
-    int lowerLevel = (int)(math::floor(mCurrentLoDLevel));
-    var["CB"]["lowerLevel"] = (int)(math::floor(mCurrentLoDLevel));
-    var["CB"]["t"] = math::saturate(mCurrentLoDLevel - lowerLevel);
+    var["CB"]["invVP"] = math::inverse(camera->getViewProjMatrixNoJitter());
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
     fbo->attachColorTarget(pOutputPosW, 1);
-    fbo->attachColorTarget(pOutputGBufferUV, 2);
-    fbo->attachColorTarget(pOutputMaterialID, 3);
-    fbo->attachColorTarget(pOutputMaterialUV, 4);
+    fbo->attachColorTarget(pOutputMaterialID, 2);
+    fbo->attachColorTarget(pOutputMaterialUV, 3);
     mpFullScreenPass->execute(pRenderContext, fbo);
 }
 
 void ReshadingPass::renderUI(Gui::Widgets& widget)
 {
-    widget.var("CurrentLoDLevel", mCurrentLoDLevel);
-    widget.checkbox("FixedLoDLevel", mLoDLevelFixed);
-    widget.var("LoDLevel", mLoDLevel);
     widget.checkbox("Debug", mDebug);
 }
 
@@ -192,10 +158,4 @@ void ReshadingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
 {
     mpScene = pScene;
     mUpdateScene = true;
-}
-// sacleRate指一个像素边长对应到G-Buffer中的纹素边长
-float ReshadingPass::CalculateLoDLevel(float scaleRate)
-{
-    float LoDLevel = math::log2(scaleRate);
-    return math::clamp(LoDLevel, 0.f, RiLoDMipCount - 1.0000001f);
 }

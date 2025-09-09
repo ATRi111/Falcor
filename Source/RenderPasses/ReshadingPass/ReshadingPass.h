@@ -46,10 +46,6 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
-    float CalculateLoDLevel(float scaleRate);
-    float mCurrentLoDLevel;
-    float mLoDLevel;
-    bool mLoDLevelFixed;
     bool mUpdateScene;
     bool mDebug;
     ref<Scene> mpScene;

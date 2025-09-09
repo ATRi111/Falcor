@@ -53,14 +53,17 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
-    float4x4 CalculateProperViewProjMatrix(float3x3& homographMatrix);
+    float CalculateLoD();
     float2 WorldToTexCoord(float4 world, float4x4 VP);
     float CalculateHomographMatrix(float4x4 originVP, float4x4 currentVP, float4 point0, float4 point1, float3x3& homographMatrix);
-    float4x4 CalculateVP(float3 cameraPosition, float far);
     ref<Scene> mpScene;
     ref<Camera> mpCamera;
     ref<SampleGenerator> mpSampleGenerator;
-    uint32_t mImpostorCount;
+    ref<Sampler> mpPointSampler;
+    uint mImpostorCount;
+    float mCurrentLoDLevel;
+    bool mForceLoDLevel;
+    float mLoDLevel;
     ref<ComputePass> mpComputePass;
     bool mEnableSuperSampling;
 };
