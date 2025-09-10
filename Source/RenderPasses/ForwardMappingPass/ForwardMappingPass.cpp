@@ -36,7 +36,7 @@ const std::string kInputPackedMCR = "packedMCR";
 const std::string kImpostorCount = "impostorCount";
 const std::string kOutputMappedNDO = "mappedNDO";
 const std::string kOutputMappedMCR = "mappedMCR";
-const std::string kDepthBuffer = "depth";
+const std::string kTexelLock = "texelLock";
 } // namespace
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
@@ -94,7 +94,7 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
 
-    reflector.addInternal(kDepthBuffer, "Depth buffer")
+    reflector.addInternal(kTexelLock, "Texel lock")
         .format(ResourceFormat::R32Uint)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
@@ -131,11 +131,11 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
     {
         ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
         ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
-        ref<Texture> pDepthBuffer = renderData.getTexture(kDepthBuffer);
+        ref<Texture> pTexelLock = renderData.getTexture(kTexelLock);
 
         pRenderContext->clearUAV(mappedNDO->getUAV().get(), float4());
         pRenderContext->clearUAV(mappedMCR->getUAV().get(), float4());
-        pRenderContext->clearUAV(pDepthBuffer->getUAV().get(), float4(asfloat(1u)));
+        pRenderContext->clearUAV(pTexelLock->getUAV().get(), float4(asfloat(1u)));
 
         mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0");
         mpComputePass->addDefine("ENABLE_LOCK", mEnableLock ? "1" : "0");
@@ -164,7 +164,7 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             var["gPackedMCR"] = packedMCR;
             var["gMappedNDO"] = mappedNDO;
             var["gMappedMCR"] = mappedMCR;
-            var["gDepthBuffer"] = pDepthBuffer;
+            var["gTexelLock"] = pTexelLock;
             var["CB"]["width"] = width >> (lowerLevel + 1);
             var["CB"]["height"] = height >> (lowerLevel + 1);
             var["CB"]["outputWidth"] = RiLoDOutputWidth;
@@ -202,6 +202,7 @@ float ForwardMappingPass::CalculateLoD()
     float r = math::length(max - min) * 0.5f;
     float d = math::length(mpCamera->getPosition() - aabb.center());
     float k = math::length(float2(RiLoDWidth, RiLoDHeight)) / math::length(float2(RiLoDOutputWidth, RiLoDOutputHeight));
+    k *= mpCamera->getFrameHeight() / mpCamera->getFocalLength();
     return math::log2(k * d / r);
 }
 

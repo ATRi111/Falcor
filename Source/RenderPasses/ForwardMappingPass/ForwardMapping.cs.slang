@@ -2,7 +2,7 @@ Texture2D<float4> gPackedNDO;   // Impostor记录的世界空间法线、深度�
 Texture2D<float4> gPackedMCR;   // Impostor记录的纹理ID 、纹理坐标、粗糙度
 RWTexture2D<float4> gMappedNDO; // 映射到GBuffer的世界空间法线、深度、透明度
 RWTexture2D<float4> gMappedMCR; // 映射到GBuffer的纹理ID、纹理坐标、粗糙度
-RWTexture2D<uint> gDepthBuffer;
+RWTexture2D<uint> gTexelLock;
 
 SamplerState gPointSampler;
 
@@ -12,8 +12,8 @@ cbuffer CB
     float4x4 invOriginVP; // Impostor的观察投影矩阵的逆矩阵
     uint lowerLevel;
     float t;
-    uint width;        // Impostor的第lowerLevel+1层Mipmap的宽度
-    uint height;       // Impostor的第lowerLevel+1层Mipmap的高度
+    uint width;        // 水平方向的总采样点个数
+    uint height;       // 垂直方向的总采样点个数
     uint outputWidth;  // G-Buffer的宽度
     uint outputHeight; // G-Buffer的高度
 };
@@ -45,6 +45,14 @@ float4 originCoordToNDC(float2 originCoord, float depth)
     return posClip / posClip.w;
 }
 
+float2 originPixelToPixel(float2 originPixel, float depth)
+{
+    float2 originCoord = float2(originPixel.x / width, originPixel.y / height);
+    float4 NDC = originCoordToNDC(originCoord, depth);
+    float2 coord = float2(0.5 * NDC.x + 0.5, 0.5 - 0.5 * NDC.y);
+    return coord * float2(outputWidth, outputHeight);
+}
+
 void forwardMapping(float2 originCoord, float4 higherNDO, float4 higherMCR)
 {
     float4 lowerNDO = gPackedNDO.SampleLevel(gPointSampler, originCoord, lowerLevel);
@@ -57,7 +65,6 @@ void forwardMapping(float2 originCoord, float4 higherNDO, float4 higherMCR)
 
     float2 coord = float2(0.5 * NDC.x + 0.5, 0.5 - 0.5 * NDC.y);
     uint2 pixel = uint2((uint)floor(coord.x * outputWidth), (uint)floor(coord.y * outputHeight));
-    float4 currentNDO = gMappedNDO[pixel];
     float4 NDO;
     float4 MCR;
     float4 lowerMCR = gPackedMCR.SampleLevel(gPointSampler, originCoord, lowerLevel);
@@ -72,20 +79,21 @@ void forwardMapping(float2 originCoord, float4 higherNDO, float4 higherMCR)
     MCR.x = lowerMCR.x;
 
 #if ENABLE_LOCK
-    uint newDepth = asuint(NDO.z);
-    uint oldDepth;
-    InterlockedCompareExchange(gDepthBuffer[pixel], newDepth, newDepth, oldDepth);
-    if (NDO.z < asfloat(oldDepth) || currentNDO.w == 0)
+    uint old = 1;
+    while (old != 0)
     {
-        gMappedNDO[pixel] = NDO;
-        gMappedMCR[pixel] = MCR;
+        InterlockedCompareExchange(gTexelLock[pixel], 1u, 0u, old);
     }
-#else
+#endif
+    float4 currentNDO = gMappedNDO[pixel];
     if (currentNDO.w == 0 || NDC.z < currentNDO.z)
     {
         gMappedNDO[pixel] = NDO;
         gMappedMCR[pixel] = MCR;
     }
+#if ENABLE_LOCK
+    uint dummy;
+    InterlockedExchange(gTexelLock[pixel], 0u, dummy);
 #endif
 }
 // 调用次数等于higherLevel的像素数
@@ -105,6 +113,7 @@ void main(uint3 dispatchThreadId: SV_DispatchThreadID)
         return;
 
     higherNDO.z = NDC.z;
+
     float2[4] subPixelOffset = { float2(0.f, 0.f), float2(0.5f, 0.f), float2(0.f, 0.5f), float2(0.5f, 0.5f) };
     float2[4] superSamplingOffset = { float2(0.05f, 0.15f), float2(0.35f, 0.05f), float2(0.15f, 0.45f), float2(0.45f, 0.35f) };
 #if ENABLE_SUPERSAMPLING

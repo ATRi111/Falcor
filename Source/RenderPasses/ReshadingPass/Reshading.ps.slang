@@ -98,6 +98,8 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     float3 view = normalize(cameraPosW - posW);
     float2 uv = MCR.yz;
     float opacity = NDO.w;
+    if (opacity == 0)
+        discard;
 
     float3 dpdx = ddx(posW);
     float3 dpdy = ddy(posW);
@@ -131,7 +133,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 #endif
 
     color = ambient + emmision + Shading(view, normal, diff, spec, roughness);
-    color *= opacity;
+    // color *= opacity;
 
     if (NDO.w != 0)
     {
