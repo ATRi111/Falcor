@@ -62,6 +62,7 @@ private:
     ref<Sampler> mpPointSampler;
     uint mImpostorCount;
     float mCurrentLoDLevel;
+    float mDepthThreshold_Mul1000;
     bool mForceLoDLevel;
     float mLoDLevel;
     ref<ComputePass> mpComputePass;

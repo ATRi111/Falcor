@@ -51,6 +51,7 @@ ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& pr
     mEnableLock = false;
     mLoDLevel = mCurrentLoDLevel = 0;
     mForceLoDLevel = false;
+    mDepthThreshold_Mul1000 = 1;
 
     for (const auto& [key, value] : props)
     {
@@ -147,7 +148,10 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             mCurrentLoDLevel = mLoDLevel;
         mCurrentLoDLevel = math::clamp(mCurrentLoDLevel, 0.f, RiLoDMipCount - 1.000001f);
         uint lowerLevel = (uint)math::floor(mCurrentLoDLevel);
+        float t = mCurrentLoDLevel - lowerLevel;
         var["CB"]["GBufferVP"] = GBufferVP;
+        var["CB"]["GBufferV"] = mpCamera->getViewMatrix();
+        var["CB"]["GBufferP"] = mpCamera->getProjMatrix();
         var["gPointSampler"] = mpPointSampler;
         for (size_t i = 0; i < mImpostorCount; i++)
         {
@@ -160,19 +164,23 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             var["CB"]["invOriginVP"] = invVP;
             int width = packedNDO->getWidth();
             int height = packedNDO->getHeight();
+            width = (uint)math::ceil(math::lerp((float)(width >> lowerLevel), (float)(width >> (lowerLevel + 1)), t));
+            height = (uint)math::ceil(math::lerp((float)(height >> lowerLevel), (float)(height >> (lowerLevel + 1)), t));
+
             var["gPackedNDO"] = packedNDO;
             var["gPackedMCR"] = packedMCR;
             var["gMappedNDO"] = mappedNDO;
             var["gMappedMCR"] = mappedMCR;
             var["gTexelLock"] = pTexelLock;
-            var["CB"]["width"] = width >> (lowerLevel + 1);
-            var["CB"]["height"] = height >> (lowerLevel + 1);
+            var["CB"]["width"] = width;
+            var["CB"]["height"] = height;
             var["CB"]["outputWidth"] = RiLoDOutputWidth;
             var["CB"]["outputHeight"] = RiLoDOutputHeight;
             var["CB"]["lowerLevel"] = lowerLevel;
-            var["CB"]["t"] = mCurrentLoDLevel - lowerLevel;
+            var["CB"]["t"] = t;
+            var["CB"]["depthThreshold"] = mDepthThreshold_Mul1000 / 1000.f;
 
-            mpComputePass->execute(pRenderContext, uint3(width >> (lowerLevel + 1), height >> (lowerLevel + 1), 1));
+            mpComputePass->execute(pRenderContext, uint3(width, height, 1));
             pRenderContext->uavBarrier(mappedNDO.get()); // 不同方向不可并行重建
             pRenderContext->uavBarrier(mappedMCR.get());
         }
@@ -186,6 +194,7 @@ void ForwardMappingPass::renderUI(Gui::Widgets& widget)
     widget.checkbox("ForceLoDLevel", mForceLoDLevel);
     widget.var("LoDLevel", mLoDLevel);
     widget.checkbox("EnableLock", mEnableLock);
+    widget.var("DepthThreshold(x1000)", mDepthThreshold_Mul1000);
 }
 
 void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

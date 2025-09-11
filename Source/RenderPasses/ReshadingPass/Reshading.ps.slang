@@ -101,6 +101,12 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     if (opacity == 0)
         discard;
 
+    float3 diff;
+    float3 spec;
+    float roughness;
+    float3 emmision;
+
+    #if DEBUG
     float3 dpdx = ddx(posW);
     float3 dpdy = ddy(posW);
     float2 duvdx = ddx(uv);
@@ -121,11 +127,11 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     let mi = gScene.materials.getMaterialInstance(sd, lod, 0);
     BSDFProperties bsdf = mi.getProperties(sd);
 
-    float3 diff = float3(bsdf.diffuseReflectionAlbedo);
-    float3 spec = float3(bsdf.specularReflectance);
-    float roughness = bsdf.roughness;
-    float3 emmision = bsdf.emission;
-#if DEBUG
+    diff = float3(bsdf.diffuseReflectionAlbedo);
+    spec = float3(bsdf.specularReflectance);
+    roughness = bsdf.roughness;
+    emmision = bsdf.emission;
+#else
     diff = 0.9;
     spec = 0.9;
     roughness = 0.2;
