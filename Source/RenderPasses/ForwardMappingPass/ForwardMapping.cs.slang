@@ -8,7 +8,7 @@ SamplerState gPointSampler;
 
 cbuffer CB
 {
-    float4x4 GBufferVP; // GBuffer的观察投影矩阵
+    float4x4 GBufferVP;   // GBuffer的观察投影矩阵
     float4x4 GBufferV;    // GBuffer的观察矩阵
     float4x4 GBufferP;    // GBuffer的投影矩阵
     float4x4 invOriginVP; // Impostor的观察投影矩阵的逆矩阵
@@ -95,10 +95,15 @@ void forwardMapping(float2 originCoord)
     float4 higherView = originCoordToView(originCoord, higher.NDO.z);
     if (abs(lowerView.z - higherView.z) > depthThreshold)
     {
-        if (lowerView.z < higherView.z)
+        float tail = abs(lowerView.z * 100 - (int)(lowerView.z * 100));
+        if (t < tail && lower.weight != 0)
+        {
             higher.weight = 0;
-        else
+        }
+        else if (t >= tail && higher.weight != 0)
+        {
             lower.weight = 0;
+        }
     }
     float t_weight = (t * higher.weight) / ((1 - t) * lower.weight + t * higher.weight);
 
