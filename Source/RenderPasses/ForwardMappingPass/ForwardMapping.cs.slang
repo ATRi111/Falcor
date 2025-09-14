@@ -9,16 +9,14 @@ SamplerState gPointSampler;
 cbuffer CB
 {
     float4x4 GBufferVP;   // GBuffer的观察投影矩阵
-    float4x4 GBufferV;    // GBuffer的观察矩阵
-    float4x4 GBufferP;    // GBuffer的投影矩阵
     float4x4 invOriginVP; // Impostor的观察投影矩阵的逆矩阵
     uint lowerLevel;
     float t;
-    uint width;           // 水平方向的总采样点个数
-    uint height;          // 垂直方向的总采样点个数
-    uint outputWidth;     // G-Buffer的宽度
-    uint outputHeight;    // G-Buffer的高度
-    float depthThreshold; // 深度差距大于此阈值的纹素间不可混合
+    uint width;              // 水平方向的总采样点个数
+    uint height;             // 垂直方向的总采样点个数
+    uint outputWidth;        // G-Buffer的宽度
+    uint outputHeight;       // G-Buffer的高度
+    float distanceThreshold; // 世界空间下距离大于此阈值的纹素间不可混合
 };
 
 struct SampleOutput
@@ -55,12 +53,41 @@ float4 originCoordToNDC(float2 originCoord, float originDepth)
     return posClip / posClip.w;
 }
 
-float4 originCoordToView(float2 originCoord, float originDepth)
+float4 originCoordToWorld(float4 originNDC)
 {
-    float4 originNDC = float4(2 * originCoord.x - 1, 1 - 2 * originCoord.y, originDepth, 1);
     float4 temp = mul(invOriginVP, originNDC);
-    float4 posWorld = temp / temp.w;
-    return mul(GBufferV, posWorld);
+    return temp / temp.w;
+}
+
+float fixedContinuityCheck(float4 world0, float4 world1)
+{
+    float distance = length(world0 - world1);
+    float tail = abs(distance * 100 - (int)(distance * 100));
+    if (distance > distanceThreshold)
+        return tail;
+    return -1;
+}
+
+float calcExpectedDistance(float4 NDC, float4 world)
+{
+    float4 newNDC = NDC + float4(2 / width, 2 / height, 0, 0); // 向右下方移动一个像素带来的NDC改变
+    float4 newWorld = originCoordToWorld(newNDC);
+    return length(world - newWorld);
+}
+
+float adaptiveContinuityCheck(float4 world0, float4 world1, float3 normal0, float3 normal1, float4 originNDC0, float4 originNDC1)
+{
+    float distance = length(world0 - world1);
+    float tail = abs(distance * 100 - (int)(distance * 100));
+    float cosAngle = dot(normal0, normal1);
+    if (cosAngle < 0)
+        return tail;
+    float expectedDistance0 = calcExpectedDistance(originNDC0, world0);
+    float expectedDistance1 = calcExpectedDistance(originNDC1, world1);
+    float expectedDistance = (expectedDistance0 + expectedDistance1) * 0.5;
+    if (distance > 5 * expectedDistance)
+        return tail;
+    return -1;
 }
 
 SampleOutput sample(float2 originCoord, uint level)
@@ -91,11 +118,22 @@ void forwardMapping(float2 originCoord)
     SampleOutput higher = sample(originCoord, lowerLevel + 1);
     if (lower.weight * higher.weight == 0)
         return;
-    float4 lowerView = originCoordToView(originCoord, lower.NDO.z);
-    float4 higherView = originCoordToView(originCoord, higher.NDO.z);
-    if (abs(lowerView.z - higherView.z) > depthThreshold)
+    float4 lowerNDC = float4(2 * originCoord.x - 1, 1 - 2 * originCoord.y, lower.NDO.z, 1);
+    float4 higherNDC = float4(2 * originCoord.x - 1, 1 - 2 * originCoord.y, higher.NDO.z, 1);
+    float4 lowerWorld = originCoordToWorld(lowerNDC);
+    float4 higherWorld = originCoordToWorld(higherNDC);
+    float3 lowerNormal = octoUVToNormal(lower.NDO.xy);
+    float3 higherNormal = octoUVToNormal(higher.NDO.xy);
+
+    float4 NDO = 0;
+    float4 MCR = 0;
+    float t_weight = 0;
+    float tail;
+    float4 world;
+#if ENABLE_ADAPTIVE_CONTINUITY_CHECK
+    tail = adaptiveContinuityCheck(lowerWorld, higherWorld, lowerNormal, higherNormal, lowerNDC, higherNDC);
+    if (tail >= 0)
     {
-        float tail = abs(lowerView.z * 100 - (int)(lowerView.z * 100));
         if (t < tail && lower.weight != 0)
         {
             higher.weight = 0;
@@ -105,19 +143,34 @@ void forwardMapping(float2 originCoord)
             lower.weight = 0;
         }
     }
-    float t_weight = (t * higher.weight) / ((1 - t) * lower.weight + t * higher.weight);
+    t_weight = (t * higher.weight) / ((1 - t) * lower.weight + t * higher.weight);
+    world = lerp(lowerWorld, higherWorld, t_weight);
+#else
+    t_weight = (t * higher.weight) / ((1 - t) * lower.weight + t * higher.weight); // 人为设置的阈值不可靠,因此仅允许其影响深度混合
+    tail = fixedContinuityCheck(lowerWorld, higherWorld);
+    if (tail >= 0)
+    {
+        if (t < tail && lower.weight != 0)
+        {
+            world = lowerWorld;
+        }
+        else if (t >= tail && higher.weight != 0)
+        {
+            world = higherWorld;
+        }
+    }
+    else
+    {
+        world = lerp(lowerWorld, higherWorld, t_weight);
+    }
 
-    float4 NDO = 0;
-    float4 MCR = 0;
-    float4 view = lerp(lowerView, higherView, t_weight);
-    float4 clip = mul(GBufferP, view);
+#endif
+    float4 clip = mul(GBufferVP, world);
     float4 NDC = clip / clip.w;
     if (any(NDC.xyz < float3(-1, -1, 0)) || any(NDC.xyz > float3(1, 1, 1)))
         return;
     NDO.z = NDC.z; // 深度变换到当前坐标系
 
-    float3 lowerNormal = octoUVToNormal(lower.NDO.xy);
-    float3 higherNormal = octoUVToNormal(higher.NDO.xy);
     float3 normal = normalize(lerp(lowerNormal, higherNormal, t_weight));
     NDO.xy = normalToOctoUV(normal);
     NDO.w = lerp(lower.NDO.w, higher.NDO.w, t_weight);

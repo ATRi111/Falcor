@@ -62,10 +62,11 @@ private:
     ref<Sampler> mpPointSampler;
     uint mImpostorCount;
     float mCurrentLoDLevel;
-    float mDepthThreshold_Mul1000;
+    float mDistanceThreshold_Times1000;
     bool mForceLoDLevel;
     float mLoDLevel;
     ref<ComputePass> mpComputePass;
     bool mEnableSuperSampling;
     bool mEnableLock;
+    bool mEnableAdaptiveContinuityCheck;
 };

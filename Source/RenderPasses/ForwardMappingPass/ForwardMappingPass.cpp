@@ -49,9 +49,10 @@ ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& pr
     mImpostorCount = 1;
     mEnableSuperSampling = true;
     mEnableLock = false;
+    mEnableAdaptiveContinuityCheck = false;
     mLoDLevel = mCurrentLoDLevel = 0;
     mForceLoDLevel = false;
-    mDepthThreshold_Mul1000 = 1;
+    mDistanceThreshold_Times1000 = 1;
 
     for (const auto& [key, value] : props)
     {
@@ -140,6 +141,7 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
 
         mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0");
         mpComputePass->addDefine("ENABLE_LOCK", mEnableLock ? "1" : "0");
+        mpComputePass->addDefine("ENABLE_ADAPTIVE_CONTINUITY_CHECK", mEnableAdaptiveContinuityCheck ? "1" : "0");
         ShaderVar var = mpComputePass->getRootVar();
         float4x4 GBufferVP = mpCamera->getViewProjMatrixNoJitter();
 
@@ -150,8 +152,6 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
         uint lowerLevel = (uint)math::floor(mCurrentLoDLevel);
         float t = mCurrentLoDLevel - lowerLevel;
         var["CB"]["GBufferVP"] = GBufferVP;
-        var["CB"]["GBufferV"] = mpCamera->getViewMatrix();
-        var["CB"]["GBufferP"] = mpCamera->getProjMatrix();
         var["gPointSampler"] = mpPointSampler;
         for (size_t i = 0; i < mImpostorCount; i++)
         {
@@ -178,7 +178,7 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             var["CB"]["outputHeight"] = RiLoDOutputHeight;
             var["CB"]["lowerLevel"] = lowerLevel;
             var["CB"]["t"] = t;
-            var["CB"]["depthThreshold"] = mDepthThreshold_Mul1000 / 1000.f;
+            var["CB"]["distanceThreshold"] = mDistanceThreshold_Times1000 / 1000.f;
 
             mpComputePass->execute(pRenderContext, uint3(width, height, 1));
             pRenderContext->uavBarrier(mappedNDO.get()); // 不同方向不可并行重建
@@ -194,7 +194,8 @@ void ForwardMappingPass::renderUI(Gui::Widgets& widget)
     widget.checkbox("ForceLoDLevel", mForceLoDLevel);
     widget.var("LoDLevel", mLoDLevel);
     widget.checkbox("EnableLock", mEnableLock);
-    widget.var("DepthThreshold(x1000)", mDepthThreshold_Mul1000);
+    widget.var("DistanceThreshold(x1000)", mDistanceThreshold_Times1000);
+    widget.checkbox("EnableAdaptiveContinuityCheck", mEnableAdaptiveContinuityCheck);
 }
 
 void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
