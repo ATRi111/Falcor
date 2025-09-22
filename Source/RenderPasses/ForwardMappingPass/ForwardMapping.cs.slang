@@ -1,21 +1,23 @@
-Texture2D<float4> gPackedNDO;   // Impostor记录的世界空间法线、深度、透明度
-Texture2D<float4> gPackedMCR;   // Impostor记录的纹理ID 、纹理坐标、粗糙度
-RWTexture2D<float4> gMappedNDO; // 映射到GBuffer的世界空间法线、深度、透明度
-RWTexture2D<float4> gMappedMCR; // 映射到GBuffer的纹理ID、纹理坐标、粗糙度
-RWTexture2D<uint> gTexelLock;
+Texture2D<float4> gPackedNDO;     // Impostor记录的世界空间法线、深度、透明度
+Texture2D<float4> gPackedMCR;     // Impostor记录的纹理ID 、纹理坐标、粗糙度
+RWTexture2D<float4> gMappedNDO;   // GBuffer中存储的世界空间法线、深度、透明度
+RWTexture2D<float4> gMappedMCR;   // GBuffer中存储的纹理ID、纹理坐标、粗糙度
+RWTexture2D<uint> gTexelLock;     // 用于避免多个线程同时访问G-Buffer的同一像素
+RWTexture2D<float4> gTexelSource; // 用于区分各个纹素来自哪个Impostor
 
 SamplerState gPointSampler;
 
 cbuffer CB
 {
-    float4x4 GBufferVP;   // GBuffer的观察投影矩阵
-    float4x4 invOriginVP; // Impostor的观察投影矩阵的逆矩阵
-    uint lowerLevel;
-    float t;
+    float4x4 GBufferVP;      // 当前相机的观察投影矩阵
+    float4x4 invOriginVP;    // Impostor生成时所使用相机的观察投影矩阵的逆
+    uint lowerLevel;         // 在Impostor中采样时，选用的较低Mipmap层级
+    float t;                 // 0-1，用于计算两层Mipmap采样结果的插值
     uint width;              // 水平方向的总采样点个数
     uint height;             // 垂直方向的总采样点个数
     uint outputWidth;        // G-Buffer的宽度
     uint outputHeight;       // G-Buffer的高度
+    uint index;              // Impostor的索引号
     float distanceThreshold; // 世界空间下距离大于此阈值的纹素间不可混合
 };
 
@@ -102,7 +104,7 @@ SampleOutput sample(float2 originCoord, uint level)
     float4 NDC = originCoordToNDC(originCoord, NDO.z);
     if (any(NDC.xyz < float3(-1, -1, 0)) || any(NDC.xyz > float3(1, 1, 1)))
         return output;
-    // 暂时不对深度进行坐标变换
+    // 先不对深度进行坐标变换，原始深度后续还要使用
 
     float2 coord = float2(0.5 * NDC.x + 0.5, 0.5 - 0.5 * NDC.y);
     float4 MCR = gPackedMCR.SampleLevel(gPointSampler, originCoord, level);
@@ -192,6 +194,8 @@ void forwardMapping(float2 originCoord)
     {
         gMappedNDO[pixel] = NDO;
         gMappedMCR[pixel] = MCR;
+        uint i = 7 - index;
+        gTexelSource[pixel] = float4((i & 4) >> 2, (i & 2) >> 1, i & 1, 1);
     }
 #if ENABLE_LOCK
     uint dummy;
@@ -199,7 +203,7 @@ void forwardMapping(float2 originCoord)
 #endif
 }
 
-[numthreads(8, 8, 1)]
+[numthreads(16, 16, 1)]
 void main(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
     uint2 originPixel = dispatchThreadId.xy;

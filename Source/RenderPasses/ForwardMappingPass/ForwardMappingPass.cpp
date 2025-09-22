@@ -36,6 +36,7 @@ const std::string kInputPackedMCR = "packedMCR";
 const std::string kImpostorCount = "impostorCount";
 const std::string kOutputMappedNDO = "mappedNDO";
 const std::string kOutputMappedMCR = "mappedMCR";
+const std::string kOutputTexelSource = "texelSource";
 const std::string kTexelLock = "texelLock";
 } // namespace
 
@@ -48,11 +49,13 @@ ForwardMappingPass::ForwardMappingPass(ref<Device> pDevice, const Properties& pr
 {
     mImpostorCount = 1;
     mEnableSuperSampling = true;
-    mEnableLock = false;
-    mEnableAdaptiveContinuityCheck = false;
+    mEnableLock = true;
+    mEnableAdaptiveContinuityCheck = true;
+    mEnableBarrier = true;
     mLoDLevel = mCurrentLoDLevel = 0;
     mForceLoDLevel = false;
     mDistanceThreshold_Times1000 = 1;
+    mMask = 63;
 
     for (const auto& [key, value] : props)
     {
@@ -96,6 +99,11 @@ RenderPassReflection ForwardMappingPass::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
 
+    reflector.addOutput(kOutputTexelSource, "The index of impostor that each texel comes from")
+        .format(ResourceFormat::RGBA32Float)
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .texture2D(RiLoDOutputWidth, RiLoDOutputHeight, 1, 1);
+
     reflector.addInternal(kTexelLock, "Texel lock")
         .format(ResourceFormat::R32Uint)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
@@ -134,10 +142,12 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
         ref<Texture> mappedNDO = renderData.getTexture(kOutputMappedNDO);
         ref<Texture> mappedMCR = renderData.getTexture(kOutputMappedMCR);
         ref<Texture> pTexelLock = renderData.getTexture(kTexelLock);
+        ref<Texture> pTexelSource = renderData.getTexture(kOutputTexelSource);
 
         pRenderContext->clearUAV(mappedNDO->getUAV().get(), float4());
         pRenderContext->clearUAV(mappedMCR->getUAV().get(), float4());
-        pRenderContext->clearUAV(pTexelLock->getUAV().get(), float4(asfloat(1u)));
+        pRenderContext->clearUAV(pTexelLock->getUAV().get(), uint4());
+        pRenderContext->clearUAV(pTexelSource->getUAV().get(), float4());
 
         mpComputePass->addDefine("ENABLE_SUPERSAMPLING", mEnableSuperSampling ? "1" : "0");
         mpComputePass->addDefine("ENABLE_LOCK", mEnableLock ? "1" : "0");
@@ -153,8 +163,12 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
         float t = mCurrentLoDLevel - lowerLevel;
         var["CB"]["GBufferVP"] = GBufferVP;
         var["gPointSampler"] = mpPointSampler;
-        for (size_t i = 0; i < mImpostorCount; i++)
+        var["gTexelLock"] = pTexelLock;
+        var["gTexelSource"] = pTexelSource;
+        for (uint i = 0; i < mImpostorCount; i++)
         {
+            if (((1 << i) & mMask) == 0)
+                continue;
             ref<Buffer> buffer = renderData.getResource(kInputInvVP + std::to_string(i))->asBuffer();
             float4x4 invVP;
             buffer->getBlob(&invVP, 0, sizeof(float4x4));
@@ -171,18 +185,23 @@ void ForwardMappingPass::execute(RenderContext* pRenderContext, const RenderData
             var["gPackedMCR"] = packedMCR;
             var["gMappedNDO"] = mappedNDO;
             var["gMappedMCR"] = mappedMCR;
-            var["gTexelLock"] = pTexelLock;
             var["CB"]["width"] = width;
             var["CB"]["height"] = height;
             var["CB"]["outputWidth"] = RiLoDOutputWidth;
             var["CB"]["outputHeight"] = RiLoDOutputHeight;
             var["CB"]["lowerLevel"] = lowerLevel;
             var["CB"]["t"] = t;
+            var["CB"]["index"] = i;
             var["CB"]["distanceThreshold"] = mDistanceThreshold_Times1000 / 1000.f;
 
             mpComputePass->execute(pRenderContext, uint3(width, height, 1));
-            pRenderContext->uavBarrier(mappedNDO.get()); // 不同方向不可并行重建
-            pRenderContext->uavBarrier(mappedMCR.get());
+            if (mEnableBarrier)
+            {
+                pRenderContext->uavBarrier(mappedNDO.get()); // 不同方向不可并行重建
+                pRenderContext->uavBarrier(mappedMCR.get());
+                pRenderContext->uavBarrier(pTexelLock.get());
+                pRenderContext->uavBarrier(pTexelSource.get());
+            }
         }
     }
 }
@@ -194,8 +213,10 @@ void ForwardMappingPass::renderUI(Gui::Widgets& widget)
     widget.checkbox("ForceLoDLevel", mForceLoDLevel);
     widget.var("LoDLevel", mLoDLevel);
     widget.checkbox("EnableLock", mEnableLock);
+    widget.checkbox("EnableBarrier", mEnableBarrier);
     widget.var("DistanceThreshold(x1000)", mDistanceThreshold_Times1000);
     widget.checkbox("EnableAdaptiveContinuityCheck", mEnableAdaptiveContinuityCheck);
+    widget.var("Mask", mMask);
 }
 
 void ForwardMappingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

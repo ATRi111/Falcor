@@ -61,6 +61,7 @@ private:
     ref<SampleGenerator> mpSampleGenerator;
     ref<Sampler> mpPointSampler;
     uint mImpostorCount;
+    uint mMask;
     float mCurrentLoDLevel;
     float mDistanceThreshold_Times1000;
     bool mForceLoDLevel;
@@ -69,4 +70,5 @@ private:
     bool mEnableSuperSampling;
     bool mEnableLock;
     bool mEnableAdaptiveContinuityCheck;
+    bool mEnableBarrier;
 };
