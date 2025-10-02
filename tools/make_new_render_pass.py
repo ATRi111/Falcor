@@ -45,7 +45,7 @@ def create_project(name):
 
 
 def main():
-    success = create_project("ReshadingPass")
+    success = create_project("RayMarchingPass")
 
     return 0 if success else 1
 

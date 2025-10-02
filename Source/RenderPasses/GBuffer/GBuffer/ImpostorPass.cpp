@@ -111,7 +111,7 @@ void ImpostorPass::compile(RenderContext* pRenderContext, const CompileData& com
 
 void ImpostorPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (mpScene == nullptr)
+    if (!mpScene)
     {
         return;
     }

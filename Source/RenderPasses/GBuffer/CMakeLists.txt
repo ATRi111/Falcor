@@ -21,6 +21,10 @@ target_sources(GBuffer PRIVATE
     GBuffer/ImpostorRaster.3d.slang
     GBuffer/MipmapGenerator.cs.slang
 
+    GBuffer/VoxelizationPass.cpp
+    GBuffer/VoxelizationPass.h
+    GBuffer/Voxelization.3d.slang
+        
     VBuffer/VBufferRaster.3d.slang
     VBuffer/VBufferRaster.cpp
     VBuffer/VBufferRaster.h
