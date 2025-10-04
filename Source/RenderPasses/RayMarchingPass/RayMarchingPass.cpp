@@ -55,7 +55,10 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
 RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kInputOccupancyMap, "Input occupancy map").bindFlags(ResourceBindFlags::ShaderResource).texture3D(0, 0, 0, 1);
+    reflector.addInput(kInputOccupancyMap, "Input occupancy map")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::R32Uint)
+        .texture3D(0, 0, 0, 1);
     reflector.addInput(kInputGridData, "Input grid data")
         .bindFlags(ResourceBindFlags::Constant)
         .format(ResourceFormat::Unknown)

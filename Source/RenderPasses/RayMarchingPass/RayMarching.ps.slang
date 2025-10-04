@@ -1,7 +1,7 @@
 import Scene.SceneTypes;
 __exported import Rendering.Materials.StandardMaterial;
 
-Texture3D<uint2> gOccupancyMap;
+Texture3D<uint> gOccupancyMap;
 
 cbuffer GridData
 {
@@ -20,6 +20,15 @@ struct PsOut
 {
     float4 color : SV_Target0;
 };
+
+uint subVoxelOffsetToMask(float3 offset)
+{
+    uint x = (uint)(offset.x * 4);
+    uint y = (uint)(offset.y * 2);
+    uint z = (uint)(offset.z * 4);
+    uint index = x + (y << 2) + (z << 3);
+    return 1u << index;
+}
 
 float3 screenCoordToCell(float2 screenCoord, float NDCDepth)
 {
@@ -68,14 +77,34 @@ float2 gridClip(float3 from, float3 to)
     return float2(uIn, uOut);
 }
 
-bool sampleWithCell(float3 cell)
+bool sampleWithCell(float3 cell, float3 deltaCell)
 {
     if (all(cell < voxelCount) && all(cell >= 0))
     {
-        int3 cellInt = int3(cell);
-        uint2 occupancy = gOccupancyMap[cellInt];
-        if (occupancy.x != 0 || occupancy.y != 0)
-            return true;
+        int3 cellInt = int3(floor(cell));
+        uint occupancy = gOccupancyMap[cellInt];
+        deltaCell *= 0.1f;
+        float3 current;
+        for (current = cell;; current += deltaCell)
+        {
+            float3 offset = current - cellInt;
+            if (any(offset > 1) || any(offset < 0))
+                break;
+
+            uint mask = subVoxelOffsetToMask(offset);
+            if ((occupancy & mask) != 0)
+                return true;
+        }
+        for (current = cell - deltaCell;; current -= deltaCell)
+        {
+            float3 offset = current - cellInt;
+            if (any(offset > 1) || any(offset < 0))
+                break;
+
+            uint mask = subVoxelOffsetToMask(offset);
+            if ((occupancy & mask) != 0)
+                return true;
+        }
     }
     return false;
 }
@@ -98,7 +127,7 @@ bool rayMarching(float3 from, float3 to)
     float3 deltaCell = step * normalize(v);
     for (uint i = 0; i < n; i++)
     {
-        if (sampleWithCell(cell))
+        if (sampleWithCell(cell, deltaCell))
             return true;
         cell += deltaCell;
     }

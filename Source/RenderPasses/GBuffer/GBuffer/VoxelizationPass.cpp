@@ -30,8 +30,10 @@
 namespace
 {
 const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/Voxelization.3d.slang";
+const std::string kCombineProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/CombineUInt.cs.slang";
 const std::string kOutputOccupancyMap = "occupancyMap";
 const std::string kOutputGridData = "gridData";
+const std::string kOutputColor = "color";
 
 std::string ToString(float3 v)
 {
@@ -55,7 +57,11 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     mGridMin = float3(0);
     mVoxelSize = float3(1.f / mVoxelResolution);
     mVoxelCount = uint3(mVoxelResolution);
+
     mVoxelizationPass.pState = GraphicsState::create(mpDevice);
+    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
+
+    mpFbo = Fbo::create(mpDevice);
 }
 
 RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
@@ -64,12 +70,16 @@ RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
 
     reflector.addOutput(kOutputOccupancyMap, "Output Occupancy Map")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::RG32Uint)
+        .format(ResourceFormat::R32Uint)
         .texture3D(mVoxelCount.x, mVoxelCount.y, mVoxelCount.z, 1);
     reflector.addOutput(kOutputGridData, "Output Grid Data")
         .bindFlags(ResourceBindFlags::Constant)
         .format(ResourceFormat::Unknown)
         .rawBuffer(sizeof(GridData));
+    reflector.addOutput(kOutputColor, "Output Alpha")
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::RGBA32Float)
+        .texture2D(0, 0, 1, 1, 1);
 
     return reflector;
 }
@@ -87,10 +97,13 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
 
     ref<Buffer> pGridData = renderData.getResource(kOutputGridData)->asBuffer();
     ref<Texture> pOccupancyMap = renderData.getTexture(kOutputOccupancyMap);
+    ref<Texture> pAlpha = renderData.getTexture(kOutputColor);
+    pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
 
     updateVoxelGrid();
     GridData data = {mGridMin, mVoxelSize, mVoxelCount};
     pGridData->setBlob(&data, 0, sizeof(GridData));
+    pRenderContext->clearUAV(pOccupancyMap->getUAV().get(), uint4(0));
 
     {
         // Create depth pass program.
@@ -114,9 +127,10 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
         var["GridData"]["voxelSize"] = mVoxelSize;
         var["GridData"]["voxelCount"] = mVoxelCount;
 
+        mpFbo->attachColorTarget(pAlpha, 0);
+        mVoxelizationPass.pState->setFbo(mpFbo);
         mpScene->rasterize(pRenderContext, mVoxelizationPass.pState.get(), mVoxelizationPass.pVars.get(), mCullMode);
     }
-    pRenderContext->clearUAV(pOccupancyMap->getUAV().get(), uint4(1));
 }
 
 void VoxelizationPass::renderUI(Gui::Widgets& widget)

@@ -65,6 +65,8 @@ private:
         ref<ProgramVars> pVars;
     } mVoxelizationPass;
 
+    ref<SampleGenerator> mpSampleGenerator;
+    ref<Fbo> mpFbo;
     ref<Scene> mpScene;
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
     uint3 mVoxelCount;
