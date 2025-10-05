@@ -5,7 +5,7 @@ import Utils.Math.MathHelpers;
 import GBufferHelpers;
 import Rendering.Materials.TexLODHelpers;
 
-RWTexture3D<uint> gOccupancyMap;
+RWTexture3D<uint> gOM;
 
 cbuffer GridData
 {
@@ -47,7 +47,7 @@ PSOut psMain(VSOut vsOut, uint triangleIndex: SV_PrimitiveID, float3 barycentric
     {
         int3 cellInt = int3(floor(cell));
         uint mask = subVoxelOffsetToMask(cell - cellInt);
-        InterlockedOr(gOccupancyMap[cellInt], mask);
+        InterlockedOr(gOM[cellInt], mask);
     }
     psOut.color = float4(1);
     return psOut;

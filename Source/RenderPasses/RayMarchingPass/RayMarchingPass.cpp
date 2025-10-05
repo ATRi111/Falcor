@@ -30,7 +30,8 @@
 namespace
 {
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/RayMarchingPass/RayMarching.ps.slang";
-const std::string kInputOccupancyMap = "occupancyMap";
+const std::string kInputOM = "OM";
+const std::string kInputMipOM = "mipOM";
 const std::string kInputGridData = "gridData";
 const std::string kOutputColor = "color";
 } // namespace
@@ -42,6 +43,8 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 
 RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
+    mStepLength = 0.32f;
+
     mpDevice = pDevice;
     mUpdateScene = false;
 
@@ -55,10 +58,15 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
 RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kInputOccupancyMap, "Input occupancy map")
+    reflector.addInput(kInputOM, "Input occupancy map")
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::R32Uint)
         .texture3D(0, 0, 0, 1);
+    reflector.addInput(kInputMipOM, "Input mipmapped occupancy map")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::R32Uint)
+        .texture3D(0, 0, 0, 1);
+
     reflector.addInput(kInputGridData, "Input grid data")
         .bindFlags(ResourceBindFlags::Constant)
         .format(ResourceFormat::Unknown)
@@ -86,7 +94,8 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mUpdateScene = false;
     }
 
-    ref<Texture> pInputOccupancyMap = renderData.getTexture(kInputOccupancyMap);
+    ref<Texture> pOM = renderData.getTexture(kInputOM);
+    ref<Texture> pMipOM = renderData.getTexture(kInputMipOM);
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
 
     ref<Buffer> pGridData = renderData.getResource(kInputGridData)->asBuffer();
@@ -95,19 +104,28 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
 
     auto var = mpFullScreenPass->getRootVar();
-    var["gOccupancyMap"] = pInputOccupancyMap;
+    var["gOM"] = pOM;
+    var["gMipOM"] = pMipOM;
+
     var["GridData"]["gridMin"] = data.gridMin;
     var["GridData"]["voxelSize"] = data.voxelSize;
     var["GridData"]["voxelCount"] = data.voxelCount;
+    var["GridData"]["mipOMSize"] = data.mipOMSize;
+    var["GridData"]["voxelPerBit"] = data.voxelPerBit;
+
     var["CB"]["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
     var["CB"]["invVP"] = math::inverse(mpScene->getCamera()->getViewProjMatrixNoJitter());
+    var["CB"]["stepLength"] = mStepLength;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
     mpFullScreenPass->execute(pRenderContext, fbo);
 }
 
-void RayMarchingPass::renderUI(Gui::Widgets& widget) {}
+void RayMarchingPass::renderUI(Gui::Widgets& widget)
+{
+    widget.slider("Step Length", mStepLength, 0.04f, 1.0f);
+}
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {

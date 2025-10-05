@@ -37,6 +37,8 @@ struct GridData
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
+    uint3 mipOMSize;
+    uint3 voxelPerBit;
 };
 
 class VoxelizationPass : public GBuffer
@@ -65,6 +67,8 @@ private:
         ref<ProgramVars> pVars;
     } mVoxelizationPass;
 
+    ref<ComputePass> mipOMPass;
+
     ref<SampleGenerator> mpSampleGenerator;
     ref<Fbo> mpFbo;
     ref<Scene> mpScene;
@@ -72,4 +76,8 @@ private:
     uint3 mVoxelCount;
     float3 mVoxelSize;
     float3 mGridMin;
+
+    uint3 mVoxelPerBit; // mipOM的每个体素中的1bit对应OM中mVoxelPerBit个体素
+    uint3 minFactor;    // OM的尺寸必须是minFactor的整数倍
+    uint3 mMipOMSize;
 };

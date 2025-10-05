@@ -37,6 +37,8 @@ struct GridData
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
+    uint3 mipOMSize;
+    uint3 voxelPerBit;
 };
 
 class RayMarchingPass : public RenderPass
@@ -58,4 +60,5 @@ private:
     ref<FullScreenPass> mpFullScreenPass;
     ref<Sampler> mpPointSampler;
     bool mUpdateScene;
+    float mStepLength;
 };

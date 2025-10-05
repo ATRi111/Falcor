@@ -24,7 +24,7 @@ target_sources(GBuffer PRIVATE
     GBuffer/VoxelizationPass.cpp
     GBuffer/VoxelizationPass.h
     GBuffer/Voxelization.3d.slang
-    GBuffer/CombineUInt.cs.slang
+    GBuffer/MipOMGenerator.cs.slang
         
     VBuffer/VBufferRaster.3d.slang
     VBuffer/VBufferRaster.cpp

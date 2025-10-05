@@ -30,8 +30,9 @@
 namespace
 {
 const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/Voxelization.3d.slang";
-const std::string kCombineProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/CombineUInt.cs.slang";
-const std::string kOutputOccupancyMap = "occupancyMap";
+const std::string kMipOMProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/MipOMGenerator.cs.slang";
+const std::string kOutputOM = "OM";
+const std::string kOutputMipOM = "mipOM";
 const std::string kOutputGridData = "gridData";
 const std::string kOutputColor = "color";
 
@@ -54,9 +55,10 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
 {
     mVoxelResolution = 32u;
     mCullMode = RasterizerState::CullMode::None;
-    mGridMin = float3(0);
-    mVoxelSize = float3(1.f / mVoxelResolution);
-    mVoxelCount = uint3(mVoxelResolution);
+    mVoxelPerBit = uint3(4, 4, 4);
+    minFactor = uint3(4, 2, 4) * mVoxelPerBit;
+
+    updateVoxelGrid();
 
     mVoxelizationPass.pState = GraphicsState::create(mpDevice);
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
@@ -68,15 +70,20 @@ RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
 
-    reflector.addOutput(kOutputOccupancyMap, "Output Occupancy Map")
+    reflector.addOutput(kOutputOM, "Occupancy Map")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::R32Uint)
         .texture3D(mVoxelCount.x, mVoxelCount.y, mVoxelCount.z, 1);
-    reflector.addOutput(kOutputGridData, "Output Grid Data")
+    reflector.addOutput(kOutputMipOM, "Mip Occupancy Map")
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .format(ResourceFormat::R32Uint)
+        .texture3D(mMipOMSize.x, mMipOMSize.y, mMipOMSize.z, 1);
+
+    reflector.addOutput(kOutputGridData, "Grid Data")
         .bindFlags(ResourceBindFlags::Constant)
         .format(ResourceFormat::Unknown)
         .rawBuffer(sizeof(GridData));
-    reflector.addOutput(kOutputColor, "Output Alpha")
+    reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
         .texture2D(0, 0, 1, 1, 1);
@@ -96,17 +103,16 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
     }
 
     ref<Buffer> pGridData = renderData.getResource(kOutputGridData)->asBuffer();
-    ref<Texture> pOccupancyMap = renderData.getTexture(kOutputOccupancyMap);
+    ref<Texture> pOM = renderData.getTexture(kOutputOM);
+    ref<Texture> pMipOM = renderData.getTexture(kOutputMipOM);
     ref<Texture> pAlpha = renderData.getTexture(kOutputColor);
     pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
 
-    updateVoxelGrid();
-    GridData data = {mGridMin, mVoxelSize, mVoxelCount};
+    GridData data = {mGridMin, mVoxelSize, mVoxelCount, mMipOMSize, mVoxelPerBit};
     pGridData->setBlob(&data, 0, sizeof(GridData));
-    pRenderContext->clearUAV(pOccupancyMap->getUAV().get(), uint4(0));
+    pRenderContext->clearUAV(pOM->getUAV().get(), uint4(0));
 
     {
-        // Create depth pass program.
         if (!mVoxelizationPass.pProgram)
         {
             ProgramDesc desc;
@@ -122,7 +128,7 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
             mVoxelizationPass.pVars = ProgramVars::create(mpDevice, mVoxelizationPass.pProgram.get());
 
         ShaderVar var = mVoxelizationPass.pVars->getRootVar();
-        var["gOccupancyMap"] = pOccupancyMap;
+        var["gOM"] = pOM;
         var["GridData"]["gridMin"] = mGridMin;
         var["GridData"]["voxelSize"] = mVoxelSize;
         var["GridData"]["voxelCount"] = mVoxelCount;
@@ -130,6 +136,29 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
         mpFbo->attachColorTarget(pAlpha, 0);
         mVoxelizationPass.pState->setFbo(mpFbo);
         mpScene->rasterize(pRenderContext, mVoxelizationPass.pState.get(), mVoxelizationPass.pVars.get(), mCullMode);
+    }
+    {
+        if (!mipOMPass)
+        {
+            ProgramDesc desc;
+            desc.addShaderModules(mpScene->getShaderModules());
+            desc.addShaderLibrary(kMipOMProgramFile).csEntry("main");
+            // desc.addTypeConformances(mpScene->getTypeConformances());
+
+            DefineList defines;
+            defines.add(mpScene->getSceneDefines());
+            defines.add(mpSampleGenerator->getDefines());
+            // defines.add(getShaderDefines(renderData));
+
+            mipOMPass = ComputePass::create(mpDevice, desc, defines, true);
+        }
+        ShaderVar var = mipOMPass->getRootVar();
+        var["gOM"] = pOM;
+        var["gMipOM"] = pMipOM;
+        var["GridData"]["voxelCount"] = mVoxelCount;
+        var["GridData"]["voxelPerBit"] = mVoxelPerBit;
+
+        mipOMPass->execute(pRenderContext, mMipOMSize * uint3(4, 2, 4));
     }
 }
 
@@ -150,6 +179,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
     widget.text("Voxel Size: " + ToString(mVoxelSize));
     widget.text("Voxel Count: " + ToString(float3(mVoxelCount)));
     widget.text("Grid Min: " + ToString(mGridMin));
+    widget.text("MipOM Size: " + ToString(float3(mMipOMSize)));
 }
 
 void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -157,21 +187,38 @@ void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>&
     GBuffer::setScene(pRenderContext, pScene);
     mpScene = pScene;
     recreatePrograms();
+    updateVoxelGrid();
 }
 
 void VoxelizationPass::updateVoxelGrid()
 {
-    if (!mpScene)
-        return;
+    float3 diag;
+    float length;
+    float3 center;
+    if (mpScene)
+    {
+        AABB aabb = mpScene->getSceneBounds();
+        diag = aabb.maxPoint - aabb.minPoint;
+        length = std::max(diag.z, std::max(diag.x, diag.y));
+        center = aabb.center();
+    }
+    else
+    {
+        diag = float3(1);
+        length = 1.f;
+        center = float3(0);
+    }
 
-    AABB aabb = mpScene->getSceneBounds();
-    float3 diag = aabb.maxPoint - aabb.minPoint;
-    float max = std::max(diag.z, std::max(diag.x, diag.y)) / mVoxelResolution;
-    mVoxelSize = float3(max);
+    mVoxelSize = float3(length / mVoxelResolution);
     float3 temp = diag / mVoxelSize;
 
-    mVoxelCount = uint3((uint)math::ceil(temp.x / 4) * 4, (uint)math::ceil(temp.y / 4) * 4, (uint)math::ceil(temp.z / 4) * 4);
-    mGridMin = aabb.center() - mVoxelSize * float3(mVoxelCount) / 2.f;
+    mVoxelCount = uint3(
+        (uint)math::ceil(temp.x / minFactor.x) * minFactor.x,
+        (uint)math::ceil(temp.y / minFactor.y) * minFactor.y,
+        (uint)math::ceil(temp.z / minFactor.z) * minFactor.z
+    );
+    mGridMin = center - 0.5f * mVoxelSize * float3(mVoxelCount);
+    mMipOMSize = mVoxelCount / minFactor;
 }
 
 void VoxelizationPass::recreatePrograms()
