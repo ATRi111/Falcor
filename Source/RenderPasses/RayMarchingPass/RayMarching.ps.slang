@@ -116,9 +116,9 @@ float3 rayMarching(float3 from, float3 to)
         return float3(-1);
 
     float3 v = to - from;
-    float3 direction = normalize(v);
+    float3 direction = normalize(v * voxelCount);
 
-    from = from + inOut.x * v + 1e-5f * direction; // 避免边界处误差
+    from = from + (inOut.x + 1e-5f) * v; // 避免边界处误差
     float3 cell_OM = from * voxelCount;
     int3 cellInt_OM = int3(cell_OM);
     float3 reciprocal_direction = 1.0f / direction;

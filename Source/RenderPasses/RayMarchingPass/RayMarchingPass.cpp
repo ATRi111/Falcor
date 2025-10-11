@@ -117,7 +117,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     var["GridData"]["voxelPerBit"] = data.voxelPerBit;
 
     var["CB"]["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
-    var["CB"]["invVP"] = pCamera->getInvViewProjMatrix();
+    var["CB"]["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
