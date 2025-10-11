@@ -29,6 +29,7 @@
 #include "GBuffer.h"
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
+#include "../CameraParam.h"
 
 using namespace Falcor;
 
@@ -59,7 +60,10 @@ public:
 
 private:
     void updateVoxelGrid();
+    void updateCameraParams();
     void recreatePrograms();
+    float3 mViewDirections[3];
+    CameraParam mCameraParams[3];
     struct
     {
         ref<GraphicsState> pState;
@@ -80,4 +84,7 @@ private:
     uint3 mVoxelPerBit; // mipOM的每个体素中的1bit对应OM中mVoxelPerBit个体素
     uint3 minFactor;    // OM的尺寸必须是minFactor的整数倍
     uint3 mMipOMSize;
+
+    uint mRasterizeResolution;
+    bool mEnableSubVoxel;
 };

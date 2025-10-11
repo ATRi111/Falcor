@@ -3,6 +3,7 @@ add_plugin(GBuffer)
 target_sources(GBuffer PRIVATE
     GBufferBase.cpp
     GBufferBase.h
+    CameraParam.h
 
     GBuffer/DepthPass.3d.slang
     GBuffer/GBuffer.cpp

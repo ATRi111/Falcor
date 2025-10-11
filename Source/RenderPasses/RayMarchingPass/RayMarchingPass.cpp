@@ -43,10 +43,10 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 
 RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
-    mStepLength = 0.32f;
-
     mpDevice = pDevice;
     mUpdateScene = false;
+
+    mShowVoxelIndex = false;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
@@ -93,6 +93,9 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mpFullScreenPass = FullScreenPass::create(mpDevice, desc, mpScene->getSceneDefines());
         mUpdateScene = false;
     }
+    mpFullScreenPass->addDefine("SHOW_VOXEL_INDEX", mShowVoxelIndex ? "1" : "0");
+
+    ref<Camera> pCamera = mpScene->getCamera();
 
     ref<Texture> pOM = renderData.getTexture(kInputOM);
     ref<Texture> pMipOM = renderData.getTexture(kInputMipOM);
@@ -114,8 +117,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     var["GridData"]["voxelPerBit"] = data.voxelPerBit;
 
     var["CB"]["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
-    var["CB"]["invVP"] = math::inverse(mpScene->getCamera()->getViewProjMatrixNoJitter());
-    var["CB"]["stepLength"] = mStepLength;
+    var["CB"]["invVP"] = pCamera->getInvViewProjMatrix();
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
@@ -124,7 +126,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
 void RayMarchingPass::renderUI(Gui::Widgets& widget)
 {
-    widget.slider("Step Length", mStepLength, 0.04f, 1.0f);
+    widget.checkbox("Show Voxel Index", mShowVoxelIndex);
 }
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

@@ -60,5 +60,5 @@ private:
     ref<FullScreenPass> mpFullScreenPass;
     ref<Sampler> mpPointSampler;
     bool mUpdateScene;
-    float mStepLength;
+    bool mShowVoxelIndex;
 };

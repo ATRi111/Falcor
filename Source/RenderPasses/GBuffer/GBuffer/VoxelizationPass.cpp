@@ -53,7 +53,13 @@ std::string ToString(uint3 v)
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props) : GBuffer(pDevice)
 {
-    mVoxelResolution = 32u;
+    mViewDirections[0] = float3(1, 0, 0);
+    mViewDirections[1] = float3(0, 1, 0);
+    mViewDirections[2] = float3(0, 0, 1);
+
+    mVoxelResolution = 128u;
+    mRasterizeResolution = 1024u;
+    mEnableSubVoxel = true;
     mCullMode = RasterizerState::CullMode::None;
     mVoxelPerBit = uint3(4, 4, 4);
     minFactor = uint3(4, 2, 4) * mVoxelPerBit;
@@ -61,6 +67,7 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     updateVoxelGrid();
 
     mVoxelizationPass.pState = GraphicsState::create(mpDevice);
+
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
 
     mpFbo = Fbo::create(mpDevice);
@@ -86,7 +93,7 @@ RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
     reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
-        .texture2D(0, 0, 1, 1, 1);
+        .texture2D(mRasterizeResolution, mRasterizeResolution, 1, 1, 1);
 
     return reflector;
 }
@@ -127,6 +134,8 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
         if (!mVoxelizationPass.pVars)
             mVoxelizationPass.pVars = ProgramVars::create(mpDevice, mVoxelizationPass.pProgram.get());
 
+        mVoxelizationPass.pProgram->addDefine("ENABLE_SUBVOXEL", mEnableSubVoxel ? "1" : "0");
+
         ShaderVar var = mVoxelizationPass.pVars->getRootVar();
         var["gOM"] = pOM;
         var["GridData"]["gridMin"] = mGridMin;
@@ -135,7 +144,19 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
 
         mpFbo->attachColorTarget(pAlpha, 0);
         mVoxelizationPass.pState->setFbo(mpFbo);
-        mpScene->rasterize(pRenderContext, mVoxelizationPass.pState.get(), mVoxelizationPass.pVars.get(), mCullMode);
+
+        ref<Camera> camera = mpScene->getCamera();
+        CameraParam prev = CameraParam::FromCamera(camera);
+
+        for (size_t i = 0; i < 3; i++)
+        {
+            mCameraParams[i].ApplyToCamera(camera);
+            mpScene->update(pRenderContext, 0.);
+            mpScene->rasterize(pRenderContext, mVoxelizationPass.pState.get(), mVoxelizationPass.pVars.get(), mCullMode);
+            pRenderContext->uavBarrier(pOM.get());
+        }
+        prev.ApplyToCamera(camera);
+        mpScene->update(pRenderContext, 0.);
     }
     {
         if (!mipOMPass)
@@ -172,9 +193,17 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
     }
     if (widget.dropdown("Voxel Resolution", list, mVoxelResolution))
     {
+        mRasterizeResolution = mVoxelResolution * 8;
         updateVoxelGrid();
         requestRecompile();
     }
+
+    if (widget.slider("Rasterize Resolution", mRasterizeResolution, 64u, 4096u))
+    {
+        requestRecompile();
+    }
+
+    widget.checkbox("Enable SubVoxel", mEnableSubVoxel);
 
     widget.text("Voxel Size: " + ToString(mVoxelSize));
     widget.text("Voxel Count: " + ToString(float3(mVoxelCount)));
@@ -186,6 +215,7 @@ void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>&
 {
     GBuffer::setScene(pRenderContext, pScene);
     mpScene = pScene;
+    updateCameraParams();
     recreatePrograms();
     updateVoxelGrid();
 }
@@ -201,6 +231,8 @@ void VoxelizationPass::updateVoxelGrid()
         diag = aabb.maxPoint - aabb.minPoint;
         length = std::max(diag.z, std::max(diag.x, diag.y));
         center = aabb.center();
+        diag *= 1.2f;
+        length *= 1.2f;
     }
     else
     {
@@ -219,6 +251,25 @@ void VoxelizationPass::updateVoxelGrid()
     );
     mGridMin = center - 0.5f * mVoxelSize * float3(mVoxelCount);
     mMipOMSize = mVoxelCount / minFactor;
+}
+
+void VoxelizationPass::updateCameraParams()
+{
+    AABB aabb = mpScene->getSceneBounds();
+    float3 center = aabb.center();
+    float3 half = center - aabb.minPoint;
+    for (size_t i = 0; i < 3; i++)
+    {
+        float3 direction = mViewDirections[i];
+        float3 target = center;
+        float3 position = target - 1.2f * math::abs(math::dot(half, direction)) * direction;
+        float3 up = mViewDirections[i].y == 0 ? float3(0, 1, 0) : float3(0, 0, 1);
+        float3 right = math::normalize(math::cross(target - position, up));
+        float3 diag = aabb.maxPoint - aabb.minPoint;
+        float size = math::max(math::max(diag.x, diag.y), diag.z);
+        size *= 1.2f;
+        mCameraParams[i] = {position, target, up, 1.f, 0.f, size * 1000.f, 2.f * size};
+    }
 }
 
 void VoxelizationPass::recreatePrograms()
