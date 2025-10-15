@@ -31,7 +31,7 @@ namespace
 {
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/RayMarchingPass/RayMarching.ps.slang";
 const std::string kInputOM = "OM";
-const std::string kInputMipOM = "mipOM";
+const std::string kInputDiffuse = "diffuse";
 const std::string kInputGridData = "gridData";
 const std::string kOutputColor = "color";
 } // namespace
@@ -50,27 +50,25 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
-        .setAddressingMode(TextureAddressingMode::Border, TextureAddressingMode::Border, TextureAddressingMode::Border)
-        .setBorderColor(float4());
+        .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
     mpPointSampler = mpDevice->createSampler(samplerDesc);
 }
 
 RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kInputOM, "Input occupancy map")
-        .bindFlags(ResourceBindFlags::ShaderResource)
-        .format(ResourceFormat::R32Uint)
-        .texture3D(0, 0, 0, 1);
-    reflector.addInput(kInputMipOM, "Input mipmapped occupancy map")
-        .bindFlags(ResourceBindFlags::ShaderResource)
-        .format(ResourceFormat::R32Uint)
-        .texture3D(0, 0, 0, 1);
-
     reflector.addInput(kInputGridData, "Input grid data")
         .bindFlags(ResourceBindFlags::Constant)
         .format(ResourceFormat::Unknown)
         .rawBuffer(sizeof(GridData));
+    reflector.addInput(kInputOM, "Input occupancy map")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::R32Uint)
+        .texture3D(0, 0, 0, 1);
+    reflector.addInput(kInputDiffuse, "Input occupancy map")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::RGBA32Float)
+        .texture3D(0, 0, 0, 1);
 
     reflector.addOutput(kOutputColor, "Output color")
         .bindFlags(ResourceBindFlags::RenderTarget)
@@ -98,7 +96,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     ref<Camera> pCamera = mpScene->getCamera();
 
     ref<Texture> pOM = renderData.getTexture(kInputOM);
-    ref<Texture> pMipOM = renderData.getTexture(kInputMipOM);
+    ref<Texture> pDiffuse = renderData.getTexture(kInputDiffuse);
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
 
     ref<Buffer> pGridData = renderData.getResource(kInputGridData)->asBuffer();
@@ -108,13 +106,11 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
     auto var = mpFullScreenPass->getRootVar();
     var["gOM"] = pOM;
-    var["gMipOM"] = pMipOM;
+    var["gDiffuse"] = pDiffuse;
 
     var["GridData"]["gridMin"] = data.gridMin;
     var["GridData"]["voxelSize"] = data.voxelSize;
     var["GridData"]["voxelCount"] = data.voxelCount;
-    var["GridData"]["mipOMSize"] = data.mipOMSize;
-    var["GridData"]["voxelPerBit"] = data.voxelPerBit;
 
     var["CB"]["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
     var["CB"]["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());

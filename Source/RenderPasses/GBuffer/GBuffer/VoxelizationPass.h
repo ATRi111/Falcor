@@ -38,8 +38,6 @@ struct GridData
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
-    uint3 mipOMSize;
-    uint3 voxelPerBit;
 };
 
 class VoxelizationPass : public GBuffer
@@ -53,6 +51,7 @@ public:
 
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
@@ -60,31 +59,22 @@ public:
 
 private:
     void updateVoxelGrid();
-    void updateCameraParams();
-    void recreatePrograms();
-    float3 mViewDirections[3];
-    CameraParam mCameraParams[3];
-    struct
-    {
-        ref<GraphicsState> pState;
-        ref<Program> pProgram;
-        ref<ProgramVars> pVars;
-    } mVoxelizationPass;
 
-    ref<ComputePass> mipOMPass;
+    ref<ComputePass> mVoxelizationPass;
 
+    ref<Device> mpDevice;
     ref<SampleGenerator> mpSampleGenerator;
-    ref<Fbo> mpFbo;
+    ref<Sampler> mpSampler;
     ref<Scene> mpScene;
+
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
     uint3 mVoxelCount;
     float3 mVoxelSize;
     float3 mGridMin;
+    uint3 minFactor; // OM的尺寸必须是minFactor的整数倍
 
-    uint3 mVoxelPerBit; // mipOM的每个体素中的1bit对应OM中mVoxelPerBit个体素
-    uint3 minFactor;    // OM的尺寸必须是minFactor的整数倍
-    uint3 mMipOMSize;
+    uint mSamplePointsPerCellFace;
 
-    uint mRasterizeResolution;
-    bool mEnableSubVoxel;
+    bool mDebug;
+    bool mComplete;
 };

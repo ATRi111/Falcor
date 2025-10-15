@@ -29,12 +29,11 @@
 
 namespace
 {
-const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/Voxelization.3d.slang";
+const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/Voxelization.cs.slang";
 const std::string kMipOMProgramFile = "E:/Project/Falcor/Source/RenderPasses/GBuffer/GBuffer/MipOMGenerator.cs.slang";
 const std::string kOutputOM = "OM";
-const std::string kOutputMipOM = "mipOM";
 const std::string kOutputGridData = "gridData";
-const std::string kOutputColor = "color";
+const std::string kOutputDiffuse = "diffuse";
 
 std::string ToString(float3 v)
 {
@@ -53,171 +52,160 @@ std::string ToString(uint3 v)
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props) : GBuffer(pDevice)
 {
-    mViewDirections[0] = float3(1, 0, 0);
-    mViewDirections[1] = float3(0, 1, 0);
-    mViewDirections[2] = float3(0, 0, 1);
-
-    mVoxelResolution = 128u;
-    mRasterizeResolution = 1024u;
-    mEnableSubVoxel = true;
-    mCullMode = RasterizerState::CullMode::None;
-    mVoxelPerBit = uint3(4, 4, 4);
-    minFactor = uint3(4, 2, 4) * mVoxelPerBit;
+    mVoxelResolution = 64u;
+    mSamplePointsPerCellFace = 16u;
+    minFactor = uint3(1, 1, 1);
+    mComplete = false;
+    mDebug = false;
 
     updateVoxelGrid();
 
-    mVoxelizationPass.pState = GraphicsState::create(mpDevice);
-
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
-
-    mpFbo = Fbo::create(mpDevice);
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
+        .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
+    // Sampler::Desc samplerDesc;
+    // samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
+    //     .setAddressingMode(TextureAddressingMode::Clamp, TextureAddressingMode::Clamp, TextureAddressingMode::Clamp);
+    mpSampler = pDevice->createSampler(samplerDesc);
+    mpDevice = pDevice;
 }
 
 RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
 
-    reflector.addOutput(kOutputOM, "Occupancy Map")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::R32Uint)
-        .texture3D(mVoxelCount.x, mVoxelCount.y, mVoxelCount.z, 1);
-    reflector.addOutput(kOutputMipOM, "Mip Occupancy Map")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::R32Uint)
-        .texture3D(mMipOMSize.x, mMipOMSize.y, mMipOMSize.z, 1);
-
     reflector.addOutput(kOutputGridData, "Grid Data")
         .bindFlags(ResourceBindFlags::Constant)
         .format(ResourceFormat::Unknown)
         .rawBuffer(sizeof(GridData));
-    reflector.addOutput(kOutputColor, "Color")
-        .bindFlags(ResourceBindFlags::RenderTarget)
+
+    reflector.addOutput(kOutputOM, "Occupancy Map")
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .format(ResourceFormat::R32Uint)
+        .texture3D(mVoxelCount.x, mVoxelCount.y, mVoxelCount.z, 1);
+
+    reflector.addOutput(kOutputDiffuse, "Diffuse Voxel Texture")
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::RGBA32Float)
-        .texture2D(mRasterizeResolution, mRasterizeResolution, 1, 1, 1);
+        .texture3D(mVoxelCount.x, mVoxelCount.y, mVoxelCount.z, 1);
 
     return reflector;
 }
 
 void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    GBuffer::execute(pRenderContext, renderData);
     if (!mpScene)
         return;
 
-    if (is_set(mpScene->getUpdates(), IScene::UpdateFlags::RecompileNeeded))
-    {
-        recreatePrograms();
-    }
-
     ref<Buffer> pGridData = renderData.getResource(kOutputGridData)->asBuffer();
     ref<Texture> pOM = renderData.getTexture(kOutputOM);
-    ref<Texture> pMipOM = renderData.getTexture(kOutputMipOM);
-    ref<Texture> pAlpha = renderData.getTexture(kOutputColor);
-    pRenderContext->clearFbo(mpFbo.get(), float4(0), 1.f, 0, FboAttachmentType::Color);
-
-    GridData data = {mGridMin, mVoxelSize, mVoxelCount, mMipOMSize, mVoxelPerBit};
+    ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
+    GridData data = {mGridMin, mVoxelSize, mVoxelCount};
     pGridData->setBlob(&data, 0, sizeof(GridData));
+
+    if (mComplete && !mDebug)
+        return;
+
     pRenderContext->clearUAV(pOM->getUAV().get(), uint4(0));
-
+    pRenderContext->clearUAV(pDiffuse->getUAV().get(), float4(0));
+    if (!mVoxelizationPass)
     {
-        if (!mVoxelizationPass.pProgram)
-        {
-            ProgramDesc desc;
-            desc.addShaderModules(mpScene->getShaderModules());
-            desc.addShaderLibrary(kVoxelizationProgramFile).vsEntry("vsMain").psEntry("psMain");
-            desc.addTypeConformances(mpScene->getTypeConformances());
+        ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kVoxelizationProgramFile).csEntry("main");
+        desc.addTypeConformances(mpScene->getTypeConformances());
 
-            mVoxelizationPass.pProgram = Program::create(mpDevice, desc, mpScene->getSceneDefines());
-            mVoxelizationPass.pState->setProgram(mVoxelizationPass.pProgram);
-        }
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
 
-        if (!mVoxelizationPass.pVars)
-            mVoxelizationPass.pVars = ProgramVars::create(mpDevice, mVoxelizationPass.pProgram.get());
-
-        mVoxelizationPass.pProgram->addDefine("ENABLE_SUBVOXEL", mEnableSubVoxel ? "1" : "0");
-
-        ShaderVar var = mVoxelizationPass.pVars->getRootVar();
-        var["gOM"] = pOM;
-        var["GridData"]["gridMin"] = mGridMin;
-        var["GridData"]["voxelSize"] = mVoxelSize;
-        var["GridData"]["voxelCount"] = mVoxelCount;
-
-        mpFbo->attachColorTarget(pAlpha, 0);
-        mVoxelizationPass.pState->setFbo(mpFbo);
-
-        ref<Camera> camera = mpScene->getCamera();
-        CameraParam prev = CameraParam::FromCamera(camera);
-
-        for (size_t i = 0; i < 3; i++)
-        {
-            mCameraParams[i].ApplyToCamera(camera);
-            mpScene->update(pRenderContext, 0.);
-            mpScene->rasterize(pRenderContext, mVoxelizationPass.pState.get(), mVoxelizationPass.pVars.get(), mCullMode);
-            pRenderContext->uavBarrier(pOM.get());
-        }
-        prev.ApplyToCamera(camera);
-        mpScene->update(pRenderContext, 0.);
+        mVoxelizationPass = ComputePass::create(mpDevice, desc, defines, true);
     }
+
+    ShaderVar var = mVoxelizationPass->getRootVar();
+    var["s"] = mpSampler;
+    mpScene->bindShaderData(var["scene"]);
+    var["gOM"] = pOM;
+    var["gDiffuse"] = pDiffuse;
+    auto gridData = var["GridData"];
+    gridData["gridMin"] = mGridMin;
+    gridData["voxelSize"] = mVoxelSize;
+    gridData["voxelCount"] = mVoxelCount;
+    gridData["samplePointsPerCellFace"] = mSamplePointsPerCellFace;
+
+    uint meshCount = mpScene->getMeshCount();
+    for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
     {
-        if (!mipOMPass)
-        {
-            ProgramDesc desc;
-            desc.addShaderModules(mpScene->getShaderModules());
-            desc.addShaderLibrary(kMipOMProgramFile).csEntry("main");
-            // desc.addTypeConformances(mpScene->getTypeConformances());
+        MeshDesc meshDesc = mpScene->getMesh(meshID);
+        uint triangleCount = meshDesc.getTriangleCount();
 
-            DefineList defines;
-            defines.add(mpScene->getSceneDefines());
-            defines.add(mpSampleGenerator->getDefines());
-            // defines.add(getShaderDefines(renderData));
-
-            mipOMPass = ComputePass::create(mpDevice, desc, defines, true);
-        }
-        ShaderVar var = mipOMPass->getRootVar();
-        var["gOM"] = pOM;
-        var["gMipOM"] = pMipOM;
-        var["GridData"]["voxelCount"] = mVoxelCount;
-        var["GridData"]["voxelPerBit"] = mVoxelPerBit;
-
-        mipOMPass->execute(pRenderContext, mMipOMSize * uint3(4, 2, 4));
+        auto meshData = mVoxelizationPass->getRootVar()["MeshData"];
+        meshData["vertexCount"] = meshDesc.vertexCount;
+        meshData["vbOffset"] = meshDesc.vbOffset;
+        meshData["triangleCount"] = triangleCount;
+        meshData["ibOffset"] = meshDesc.ibOffset;
+        meshData["use16BitIndices"] = meshDesc.use16BitIndices();
+        meshData["materialID"] = meshDesc.materialID;
+        mVoxelizationPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
+        pRenderContext->uavBarrier(pOM.get());
+        pRenderContext->uavBarrier(pDiffuse.get());
     }
+    mComplete = true;
+}
+
+void VoxelizationPass::compile(RenderContext* pRenderContext, const CompileData& compileData)
+{
+    GBuffer::compile(pRenderContext, compileData);
 }
 
 void VoxelizationPass::renderUI(Gui::Widgets& widget)
 {
     static const uint resolutions[] = {16, 32, 64, 128, 256, 512};
-    Gui::DropdownList list;
-    for (uint32_t i = 0; i < 6; i++)
     {
-        list.push_back({resolutions[i], std::to_string(resolutions[i])});
-    }
-    if (widget.dropdown("Voxel Resolution", list, mVoxelResolution))
-    {
-        mRasterizeResolution = mVoxelResolution * 8;
-        updateVoxelGrid();
-        requestRecompile();
-    }
-
-    if (widget.slider("Rasterize Resolution", mRasterizeResolution, 64u, 4096u))
-    {
-        requestRecompile();
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < 6; i++)
+        {
+            list.push_back({resolutions[i], std::to_string(resolutions[i])});
+        }
+        if (widget.dropdown("Voxel Resolution", list, mVoxelResolution))
+        {
+            updateVoxelGrid();
+            requestRecompile();
+            mComplete = false;
+        }
     }
 
-    widget.checkbox("Enable SubVoxel", mEnableSubVoxel);
+    static const uint samplePoints[] = {1, 2, 4, 8, 16, 32, 64};
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < 7; i++)
+        {
+            list.push_back({samplePoints[i], std::to_string(samplePoints[i])});
+        }
+        if (widget.dropdown("SamplePoints Per CellFace", list, mSamplePointsPerCellFace))
+        {
+            mComplete = false;
+        }
+    }
+
+    if (widget.checkbox("Debug", mDebug))
+    {
+        mComplete = false;
+    }
 
     widget.text("Voxel Size: " + ToString(mVoxelSize));
     widget.text("Voxel Count: " + ToString(float3(mVoxelCount)));
     widget.text("Grid Min: " + ToString(mGridMin));
-    widget.text("MipOM Size: " + ToString(float3(mMipOMSize)));
 }
 
 void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     GBuffer::setScene(pRenderContext, pScene);
     mpScene = pScene;
-    updateCameraParams();
-    recreatePrograms();
     updateVoxelGrid();
+    mVoxelizationPass = nullptr;
+    mComplete = false;
 }
 
 void VoxelizationPass::updateVoxelGrid()
@@ -250,30 +238,4 @@ void VoxelizationPass::updateVoxelGrid()
         (uint)math::ceil(temp.z / minFactor.z) * minFactor.z
     );
     mGridMin = center - 0.5f * mVoxelSize * float3(mVoxelCount);
-    mMipOMSize = mVoxelCount / minFactor;
-}
-
-void VoxelizationPass::updateCameraParams()
-{
-    AABB aabb = mpScene->getSceneBounds();
-    float3 center = aabb.center();
-    float3 half = center - aabb.minPoint;
-    for (size_t i = 0; i < 3; i++)
-    {
-        float3 direction = mViewDirections[i];
-        float3 target = center;
-        float3 position = target - 1.2f * math::abs(math::dot(half, direction)) * direction;
-        float3 up = mViewDirections[i].y == 0 ? float3(0, 1, 0) : float3(0, 0, 1);
-        float3 right = math::normalize(math::cross(target - position, up));
-        float3 diag = aabb.maxPoint - aabb.minPoint;
-        float size = math::max(math::max(diag.x, diag.y), diag.z);
-        size *= 1.2f;
-        mCameraParams[i] = {position, target, up, 1.f, 0.f, size * 1000.f, 2.f * size};
-    }
-}
-
-void VoxelizationPass::recreatePrograms()
-{
-    mVoxelizationPass.pVars = nullptr;
-    mVoxelizationPass.pProgram = nullptr;
 }

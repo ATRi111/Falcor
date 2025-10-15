@@ -2,21 +2,25 @@ import Scene.SceneTypes;
 __exported import Rendering.Materials.StandardMaterial;
 
 Texture3D<uint> gOM;
-Texture3D<uint> gMipOM;
+Texture3D<float4> gDiffuse;
 
 cbuffer GridData
 {
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
-    uint3 mipOMSize;
-    uint3 voxelPerBit;
 }
 
 cbuffer CB
 {
     uint2 pixelCount;
     float4x4 invVP;
+}
+
+struct HitResult
+{
+    int3 cellInt;
+    float3 cell;
 }
 
 struct PsOut
@@ -65,13 +69,6 @@ float2 clip(float3 minPoint, float3 maxPoint, float3 from, float3 to)
     return float2(uIn, uOut);
 }
 
-uint subVoxelOffsetToBit(float3 offset)
-{
-    uint3 index = uint3(floor(offset * SubDivision));
-    uint temp = index.x + (index.y << 2) + (index.z << 3);
-    return 1u << temp;
-}
-
 float3 leave(float3 cell, int3 directions, float3 direction, float3 reciprocal_direction)
 {
     float3 border = floor(cell + directions * 0.5 + 0.5);
@@ -87,33 +84,14 @@ float3 leave(float3 cell, int3 directions, float3 direction, float3 reciprocal_d
     return cell;
 }
 
-// offset和返回值为体素内的归一化偏移量
-float3 rayMarchingInSubVoxel(float3 offset, float3 direction, uint mask)
-{
-    float3 cell = offset * SubDivision;
-    direction = normalize(float3(direction.x, direction.y * 0.5f, direction.z));
-    float3 reciprocal_direction = 1.0f / direction;
-    int3 directions = int3(sign(direction));
-    uint maxTimes = SubDivision.x + SubDivision.y + SubDivision.z;
-    for (int i = 0; i < maxTimes; i++)
-    {
-        uint bit = subVoxelOffsetToBit(frac(cell));
-        if ((mask & bit) != 0)
-            return (cell + 0.5) / SubDivision;
-        cell = leave(cell, directions, direction, reciprocal_direction);
-        if (any(cell < 0) || any(cell >= SubDivision))
-            break;
-    }
-    return float3(-1);
-}
-
 // 统一用3D纹理坐标表示
-float3 rayMarching(float3 from, float3 to)
+HitResult rayMarching(float3 from, float3 to)
 {
+    HitResult result = { int3(-1), float3(-1) };
     // 计算光线与场景包围盒相交的部分
     float2 inOut = clip(float3(0), float3(1), from, to);
     if (inOut.x < 0)
-        return float3(-1);
+        return result;
 
     float3 v = to - from;
     float3 direction = normalize(v * voxelCount);
@@ -128,20 +106,20 @@ float3 rayMarching(float3 from, float3 to)
     uint maxTimes = voxelCount.x + voxelCount.y + voxelCount.z;
     for (uint i = 0; i < maxTimes; i++)
     {
-        uint mask = gOM[cellInt_OM];
-        if (mask != 0)
+        uint geom = gOM[cellInt_OM];
+        float accumulate = gDiffuse[cellInt_OM].w;
+        if (geom != 0 && accumulate > 0)
         {
-            float3 offset = cell_OM - cellInt_OM;
-            offset = rayMarchingInSubVoxel(offset, direction, mask);
-            if (offset.x >= 0)
-                return (cellInt_OM + offset) / voxelCount;
+            result.cellInt = cellInt_OM;
+            result.cell = cell_OM;
+            return result;
         }
         cell_OM = leave(cell_OM, directions, direction, reciprocal_direction);
         cellInt_OM = int3(cell_OM);
         if (any(cellInt_OM < 0) || any(cellInt_OM >= voxelCount))
             break;
     }
-    return float3(-1);
+    return result;
 }
 
 float3 screenCoordToGridCoord(float2 screenCoord, float NDCDepth)
@@ -174,18 +152,16 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     uint2 pixel = uint2(texCoord * pixelCount);
     float3 from = screenCoordToGridCoord(texCoord, 0);
     float3 to = screenCoordToGridCoord(texCoord, 1);
-    float3 hit = rayMarching(from, to);
-    if (hit.x >= 0)
+    HitResult hit = rayMarching(from, to);
+    if (hit.cellInt.x >= 0)
 #if SHOW_VOXEL_INDEX
     {
-        uint3 cell = uint3(hit * voxelCount);
-        psOut.color = float4(cellToColor(cell), 1);
+        psOut.color = float4(cellToColor(hit.cellInt), 1);
     }
 #else
     {
-        float3 world = hit * voxelSize * voxelCount + gridMin;
-        float3 normal = normalize(world - float3(0, 1, 0));
-        psOut.color = float4(world, 1);
+        float4 diffuse = gDiffuse[hit.cellInt];
+        psOut.color = diffuse / diffuse.w;
     }
 #endif
     else
