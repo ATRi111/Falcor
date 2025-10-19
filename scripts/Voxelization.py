@@ -9,8 +9,8 @@ def render_graph_RasterPass():
     g.addPass(voxel_pass,"VoxelizationPass")
     g.addPass(marching_pass,"RayMarchingPass")
 
-    g.addEdge("VoxelizationPass.OM","RayMarchingPass.OM")
     g.addEdge("VoxelizationPass.diffuse","RayMarchingPass.diffuse")
+    g.addEdge("VoxelizationPass.ellipsoids","RayMarchingPass.ellipsoids")
     g.addEdge("VoxelizationPass.gridData","RayMarchingPass.gridData")
 
     g.markOutput("RayMarchingPass.color")

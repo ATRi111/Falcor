@@ -29,7 +29,6 @@
 #include "GBuffer/GBufferRaster.h"
 #include "GBuffer/GBufferRT.h"
 #include "GBuffer/ImpostorPass.h"
-#include "GBuffer/VoxelizationPass.h"
 #include "VBuffer/VBufferRaster.h"
 #include "VBuffer/VBufferRT.h"
 #include "RenderGraph/RenderPassStandardFlags.h"
@@ -44,7 +43,6 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, VBufferRaster>();
     registry.registerClass<RenderPass, VBufferRT>();
     registry.registerClass<RenderPass, ImpostorPass>();
-    registry.registerClass<RenderPass, VoxelizationPass>();
 }
 
 namespace

@@ -1,8 +1,9 @@
+#include "VoxelizationShared.slang"
 import Scene.SceneTypes;
 __exported import Rendering.Materials.StandardMaterial;
 
-Texture3D<uint> gOM;
 Texture3D<float4> gDiffuse;
+StructuredBuffer<Ellipsoid> gEllipsoids;
 
 cbuffer GridData
 {
@@ -106,9 +107,9 @@ HitResult rayMarching(float3 from, float3 to)
     uint maxTimes = voxelCount.x + voxelCount.y + voxelCount.z;
     for (uint i = 0; i < maxTimes; i++)
     {
-        uint geom = gOM[cellInt_OM];
+        // uint geom = gOM[cellInt_OM];
         float accumulate = gDiffuse[cellInt_OM].w;
-        if (geom != 0 && accumulate > 0)
+        if (accumulate > 0)
         {
             result.cellInt = cellInt_OM;
             result.cell = cell_OM;

@@ -26,37 +26,46 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #pragma once
-#include "Falcor.h"
-#include "RenderGraph/RenderPass.h"
-#include <Core/Pass/FullScreenPass.h>
+#include "VoxelizationBase.h"
 
 using namespace Falcor;
 
-struct GridData
-{
-    float3 gridMin;
-    float3 voxelSize;
-    uint3 voxelCount;
-};
-
-class RayMarchingPass : public RenderPass
+class VoxelizationPass : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(RayMarchingPass, "RayMarchingPass", "Insert pass description here.");
+    FALCOR_PLUGIN_CLASS(VoxelizationPass, "VoxelizationPass", "Insert pass description here.");
 
-    static ref<RayMarchingPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<RayMarchingPass>(pDevice, props); }
+    static ref<VoxelizationPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<VoxelizationPass>(pDevice, props); }
 
-    RayMarchingPass(ref<Device> pDevice, const Properties& props);
+    VoxelizationPass(ref<Device> pDevice, const Properties& props);
 
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
+    virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
+    virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    void updateVoxelGrid();
+
+    ref<ComputePass> mVoxelizationPass;
+
+    ref<Device> mpDevice;
+    ref<SampleGenerator> mpSampleGenerator;
+    ref<Sampler> mpSampler;
     ref<Scene> mpScene;
-    ref<FullScreenPass> mpFullScreenPass;
-    ref<Sampler> mpPointSampler;
-    bool mUpdateScene;
-    bool mShowVoxelIndex;
+
+    uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
+    uint3 mVoxelCount;
+    float3 mVoxelSize;
+    float3 mGridMin;
+    uint3 minFactor; // OM的尺寸必须是minFactor的整数倍
+
+    uint mSampleFrequency; // 体素的一个面范围内的采样点个数
+
+    bool mAutoLoD;
+    bool mDebug;
+    bool mComplete;
 };

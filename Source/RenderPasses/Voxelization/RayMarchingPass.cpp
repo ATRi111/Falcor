@@ -29,17 +29,12 @@
 
 namespace
 {
-const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/RayMarchingPass/RayMarching.ps.slang";
-const std::string kInputOM = "OM";
+const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/RayMarching.ps.slang";
 const std::string kInputDiffuse = "diffuse";
 const std::string kInputGridData = "gridData";
+const std::string kInputEllipsoids = "ellipsoids";
 const std::string kOutputColor = "color";
 } // namespace
-
-extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
-{
-    registry.registerClass<RenderPass, RayMarchingPass>();
-}
 
 RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
@@ -57,20 +52,22 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
 RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kInputGridData, "Input grid data")
+    reflector.addInput(kInputGridData, "Grid data")
         .bindFlags(ResourceBindFlags::Constant)
         .format(ResourceFormat::Unknown)
         .rawBuffer(sizeof(GridData));
-    reflector.addInput(kInputOM, "Input occupancy map")
+
+    reflector.addInput(kInputEllipsoids, "Ellipsoids")
         .bindFlags(ResourceBindFlags::ShaderResource)
-        .format(ResourceFormat::R32Uint)
-        .texture3D(0, 0, 0, 1);
-    reflector.addInput(kInputDiffuse, "Input occupancy map")
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(0);
+
+    reflector.addInput(kInputDiffuse, "Diffuse")
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::RGBA32Float)
         .texture3D(0, 0, 0, 1);
 
-    reflector.addOutput(kOutputColor, "Output color")
+    reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
         .texture2D(0, 0, 1, 1);
@@ -95,8 +92,8 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
     ref<Camera> pCamera = mpScene->getCamera();
 
-    ref<Texture> pOM = renderData.getTexture(kInputOM);
     ref<Texture> pDiffuse = renderData.getTexture(kInputDiffuse);
+    ref<Texture> pEllipsoids = renderData.getTexture(kInputEllipsoids);
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
 
     ref<Buffer> pGridData = renderData.getResource(kInputGridData)->asBuffer();
@@ -105,8 +102,8 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
 
     auto var = mpFullScreenPass->getRootVar();
-    var["gOM"] = pOM;
     var["gDiffuse"] = pDiffuse;
+    var["gEllipsoids"] = pEllipsoids;
 
     var["GridData"]["gridMin"] = data.gridMin;
     var["GridData"]["voxelSize"] = data.voxelSize;
