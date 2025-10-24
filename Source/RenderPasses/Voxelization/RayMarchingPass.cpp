@@ -31,7 +31,6 @@ namespace
 {
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/RayMarching.ps.slang";
 const std::string kInputDiffuse = "diffuse";
-const std::string kInputGridData = "gridData";
 const std::string kInputEllipsoids = "ellipsoids";
 const std::string kOutputColor = "color";
 } // namespace
@@ -42,6 +41,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mUpdateScene = false;
 
     mShowVoxelIndex = false;
+    mCheckEllipsoid = false;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
@@ -52,15 +52,11 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
 RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addInput(kInputGridData, "Grid data")
-        .bindFlags(ResourceBindFlags::Constant)
-        .format(ResourceFormat::Unknown)
-        .rawBuffer(sizeof(GridData));
 
     reflector.addInput(kInputEllipsoids, "Ellipsoids")
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::Unknown)
-        .rawBuffer(0);
+        .rawBuffer(VoxelizationBase::globalGridData.totalVoxelCount() * sizeof(Ellipsoid));
 
     reflector.addInput(kInputDiffuse, "Diffuse")
         .bindFlags(ResourceBindFlags::ShaderResource)
@@ -89,16 +85,16 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mUpdateScene = false;
     }
     mpFullScreenPass->addDefine("SHOW_VOXEL_INDEX", mShowVoxelIndex ? "1" : "0");
+    mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
 
     ref<Camera> pCamera = mpScene->getCamera();
 
     ref<Texture> pDiffuse = renderData.getTexture(kInputDiffuse);
-    ref<Texture> pEllipsoids = renderData.getTexture(kInputEllipsoids);
+    ref<Buffer> pEllipsoids = renderData.getResource(kInputEllipsoids)->asBuffer();
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
 
-    ref<Buffer> pGridData = renderData.getResource(kInputGridData)->asBuffer();
-    GridData data;
-    pGridData->getBlob(&data, 0, sizeof(GridData));
+    GridData& data = VoxelizationBase::globalGridData;
+
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
 
     auto var = mpFullScreenPass->getRootVar();
@@ -120,6 +116,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 void RayMarchingPass::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Show Voxel Index", mShowVoxelIndex);
+    widget.checkbox("Check Ellipsoid", mCheckEllipsoid);
 }
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

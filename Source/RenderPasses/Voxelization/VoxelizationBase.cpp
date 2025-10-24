@@ -7,3 +7,5 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, VoxelizationPass>();
     registry.registerClass<RenderPass, RayMarchingPass>();
 }
+
+GridData VoxelizationBase::globalGridData = {};

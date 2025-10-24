@@ -58,10 +58,7 @@ private:
     ref<Scene> mpScene;
 
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
-    uint3 mVoxelCount;
-    float3 mVoxelSize;
-    float3 mGridMin;
-    uint3 minFactor; // OM的尺寸必须是minFactor的整数倍
+    uint3 minFactor;       // OM的尺寸必须是minFactor的整数倍
 
     uint mSampleFrequency; // 体素的一个面范围内的采样点个数
 

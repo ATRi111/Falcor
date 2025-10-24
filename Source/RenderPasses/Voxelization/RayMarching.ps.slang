@@ -85,6 +85,16 @@ float3 leave(float3 cell, int3 directions, float3 direction, float3 reciprocal_d
     return cell;
 }
 
+float checkEllipsoid(Ellipsoid ellipsoid, float3 subVoxelOffset, float3 direction)
+{
+    float3 from = subVoxelOffset;
+    float3 to = from + 2 * direction;
+    float2 u12 = clip(ellipsoid.min, ellipsoid.max, from, to);
+    if (u12.x >= 0)
+        return ellipsoid.alpha;
+    return 0;
+}
+
 // 统一用3D纹理坐标表示
 HitResult rayMarching(float3 from, float3 to)
 {
@@ -107,13 +117,20 @@ HitResult rayMarching(float3 from, float3 to)
     uint maxTimes = voxelCount.x + voxelCount.y + voxelCount.z;
     for (uint i = 0; i < maxTimes; i++)
     {
-        // uint geom = gOM[cellInt_OM];
         float accumulate = gDiffuse[cellInt_OM].w;
         if (accumulate > 0)
         {
             result.cellInt = cellInt_OM;
             result.cell = cell_OM;
+#if CHECK_ELLIPSOID
+            int index = CellToIndex(cellInt_OM, voxelCount);
+            Ellipsoid ellipsoid = gEllipsoids[index];
+            float alpha = checkEllipsoid(ellipsoid, cell_OM - cellInt_OM, direction);
+            if (alpha > 0)
+                return result;
+#else
             return result;
+#endif
         }
         cell_OM = leave(cell_OM, directions, direction, reciprocal_direction);
         cellInt_OM = int3(cell_OM);
@@ -155,18 +172,15 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     float3 to = screenCoordToGridCoord(texCoord, 1);
     HitResult hit = rayMarching(from, to);
     if (hit.cellInt.x >= 0)
+    {
 #if SHOW_VOXEL_INDEX
-    {
         psOut.color = float4(cellToColor(hit.cellInt), 1);
-    }
 #else
-    {
         float4 diffuse = gDiffuse[hit.cellInt];
         psOut.color = diffuse / diffuse.w;
-    }
 #endif
+    }
     else
         psOut.color = float4(0, 0, 0, 1);
-
     return psOut;
 }

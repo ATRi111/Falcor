@@ -49,6 +49,8 @@ private:
     ref<Scene> mpScene;
     ref<FullScreenPass> mpFullScreenPass;
     ref<Sampler> mpPointSampler;
+
     bool mUpdateScene;
     bool mShowVoxelIndex;
+    bool mCheckEllipsoid;
 };

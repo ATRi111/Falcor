@@ -9,7 +9,7 @@ import Rendering.Materials.TexLODHelpers;
 import Scene.Material.BasicMaterialData;
 
 ParameterBlock<Scene> scene;
-StructuredBuffer<Ellipsoid> gEllipsoids;
+RWStructuredBuffer<Ellipsoid> gEllipsoids;
 RWTexture3D<float4> gDiffuse;
 SamplerState s;
 
@@ -41,6 +41,22 @@ void sampleMaterial(float3 position, float2 texCoord, float2 dduv, uint triangle
 #else
     ITextureSampler lod = ExplicitLodTextureSampler(0);
 #endif
+
+    int index = CellToIndex(p, voxelCount);
+    Ellipsoid ellipsoid = gEllipsoids[index];
+    if (gDiffuse[p].w == 0)
+    {
+        ellipsoid.min = frac(position);
+        ellipsoid.max = frac(position);
+        ellipsoid.alpha = 1;
+    }
+    else
+    {
+        ellipsoid.min = min(frac(position), ellipsoid.min);
+        ellipsoid.max = max(frac(position), ellipsoid.max);
+    }
+    gEllipsoids[index] = ellipsoid;
+
     switch (type)
     {
     case MaterialType::Standard:
@@ -88,7 +104,7 @@ void sampleTriangle(float3[3] positions, float2[3] texCoords, uint triangleId)
         for (float b = deltaB; b < 1; b += deltaB)
         {
             if (a + b > 1)
-                continue;
+                break;
             float3 pos = positions[0] * a + positions[1] * b + positions[2] * (1 - a - b);
             float2 texCoord = frac(texCoords[0] * a + texCoords[1] * b + texCoords[2] * (1 - a - b));
             sampleMaterial(pos, texCoord, deltaUV, triangleId);
