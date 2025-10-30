@@ -12,6 +12,10 @@ target_sources(Voxelization PRIVATE
     RayMarchingPass.cpp
     RayMarchingPass.h
     RayMarching.ps.slang
+    
+    LoadMeshPass.cpp
+    LoadMeshPass.h
+    LoadMesh.cs.slang
 )
 target_copy_shaders(Voxelization RenderPasses/Voxelization)
 target_source_group(Voxelization "RenderPasses")
