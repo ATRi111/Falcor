@@ -10,4 +10,5 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, LoadMeshPass>();
 }
 
-GridData VoxelizationBase::globalGridData = {};
+GridData VoxelizationBase::GlobalGridData = {};
+uint3 VoxelizationBase::MinFactor = uint3(1, 1, 1);

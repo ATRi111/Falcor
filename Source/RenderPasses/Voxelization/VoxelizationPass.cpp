@@ -52,12 +52,11 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
 {
     mVoxelResolution = 256u;
     mSampleFrequency = 16u;
-    minFactor = uint3(1, 1, 1);
     mAutoLoD = true;
     mComplete = false;
     mDebug = false;
 
-    updateVoxelGrid();
+    VoxelizationBase::updateVoxelGrid(nullptr, mVoxelResolution);
 
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
     Sampler::Desc samplerDesc;
@@ -74,7 +73,7 @@ RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
 
-    GridData& data = VoxelizationBase::globalGridData;
+    GridData& data = VoxelizationBase::GlobalGridData;
     reflector.addOutput(kOutputDiffuse, "Diffuse Voxel Texture")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::RGBA32Float)
@@ -97,7 +96,7 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
 
     ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
     ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
-    GridData& data = VoxelizationBase::globalGridData;
+    GridData& data = VoxelizationBase::GlobalGridData;
 
     // std::vector<Ellipsoid> initData(data.totalVoxelCount());
 
@@ -173,7 +172,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         }
         if (widget.dropdown("Voxel Resolution", list, mVoxelResolution))
         {
-            updateVoxelGrid();
+            VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
             requestRecompile();
             mComplete = false;
         }
@@ -197,7 +196,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
     if (widget.checkbox("Debug", mDebug))
         mComplete = false;
 
-    GridData& data = VoxelizationBase::globalGridData;
+    GridData& data = VoxelizationBase::GlobalGridData;
     widget.text("Voxel Size: " + ToString(data.voxelSize));
     widget.text("Voxel Count: " + ToString(data.voxelCount));
     widget.text("Grid Min: " + ToString(data.gridMin));
@@ -206,40 +205,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
 void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
-    updateVoxelGrid();
+    VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
     mVoxelizationPass = nullptr;
     mComplete = false;
-}
-
-void VoxelizationPass::updateVoxelGrid()
-{
-    float3 diag;
-    float length;
-    float3 center;
-    if (mpScene)
-    {
-        AABB aabb = mpScene->getSceneBounds();
-        diag = aabb.maxPoint - aabb.minPoint;
-        length = std::max(diag.z, std::max(diag.x, diag.y));
-        center = aabb.center();
-        diag *= 1.2f;
-        length *= 1.2f;
-    }
-    else
-    {
-        diag = float3(1);
-        length = 1.f;
-        center = float3(0);
-    }
-    GridData& data = VoxelizationBase::globalGridData;
-
-    data.voxelSize = float3(length / mVoxelResolution);
-    float3 temp = diag / data.voxelSize;
-
-    data.voxelCount = uint3(
-        (uint)math::ceil(temp.x / minFactor.x) * minFactor.x,
-        (uint)math::ceil(temp.y / minFactor.y) * minFactor.y,
-        (uint)math::ceil(temp.z / minFactor.z) * minFactor.z
-    );
-    data.gridMin = center - 0.5f * data.voxelSize * float3(data.voxelCount);
 }

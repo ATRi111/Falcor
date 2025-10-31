@@ -50,15 +50,15 @@ std::string ToString(uint3 v)
 
 LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
-    mComplete = false;
+    mComplete = true;
     mDebug = false;
+    mVoxelResolution = 256u;
+
+    VoxelizationBase::updateVoxelGrid(nullptr, mVoxelResolution);
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
         .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
-    // Sampler::Desc samplerDesc;
-    // samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
-    //     .setAddressingMode(TextureAddressingMode::Clamp, TextureAddressingMode::Clamp, TextureAddressingMode::Clamp);
     mpDevice = pDevice;
 }
 
@@ -180,6 +180,21 @@ void LoadMeshPass::compile(RenderContext* pRenderContext, const CompileData& com
 
 void LoadMeshPass::renderUI(Gui::Widgets& widget)
 {
+    static const uint resolutions[] = {16, 32, 64, 128, 256, 512};
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < 6; i++)
+        {
+            list.push_back({resolutions[i], std::to_string(resolutions[i])});
+        }
+        if (widget.dropdown("Voxel Resolution", list, mVoxelResolution))
+        {
+            VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
+            requestRecompile();
+            mComplete = false;
+        }
+    }
+
     if (widget.checkbox("Debug", mDebug))
         mComplete = false;
 }

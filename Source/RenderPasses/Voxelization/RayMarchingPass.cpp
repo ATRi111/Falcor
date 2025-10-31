@@ -56,7 +56,7 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
     reflector.addInput(kInputEllipsoids, "Ellipsoids")
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::Unknown)
-        .rawBuffer(VoxelizationBase::globalGridData.totalVoxelCount() * sizeof(Ellipsoid));
+        .rawBuffer(VoxelizationBase::GlobalGridData.totalVoxelCount() * sizeof(Ellipsoid));
 
     reflector.addInput(kInputDiffuse, "Diffuse")
         .bindFlags(ResourceBindFlags::ShaderResource)
@@ -93,7 +93,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     ref<Buffer> pEllipsoids = renderData.getResource(kInputEllipsoids)->asBuffer();
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
 
-    GridData& data = VoxelizationBase::globalGridData;
+    GridData& data = VoxelizationBase::GlobalGridData;
 
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
 
