@@ -5,11 +5,27 @@
 #include "VoxelizationShared.slang"
 using namespace Falcor;
 
+inline std::string ToString(float3 v)
+{
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(4);
+    oss << "(" << v.x << ", " << v.y << ", " << v.z << ")";
+    return oss.str();
+}
+inline std::string ToString(uint3 v)
+{
+    std::ostringstream oss;
+    oss << "(" << v.x << ", " << v.y << ", " << v.z << ")";
+    return oss.str();
+}
+
 class VoxelizationBase
 {
 public:
     static GridData GlobalGridData;
     static uint3 MinFactor; // 网格的分辨率必须是此值的整数倍
+    static bool FileUpdated;
+    static std::string ResourceFolder;
 
     static void updateVoxelGrid(ref<Scene> scene, uint voxelResolution)
     {

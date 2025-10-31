@@ -26,32 +26,16 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "LoadMeshPass.h"
-#include <fstream>
+#include "MeshSampler.h"
 
 namespace
 {
 const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/LoadMesh.cs.slang";
-const std::string kOutputColor = "color";
-
-std::string ToString(float3 v)
-{
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(4);
-    oss << "(" << v.x << ", " << v.y << ", " << v.z << ")";
-    return oss.str();
-}
-std::string ToString(uint3 v)
-{
-    std::ostringstream oss;
-    oss << "(" << v.x << ", " << v.y << ", " << v.z << ")";
-    return oss.str();
-}
 }; // namespace
 
 LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     mComplete = true;
-    mDebug = false;
     mVoxelResolution = 256u;
 
     VoxelizationBase::updateVoxelGrid(nullptr, mVoxelResolution);
@@ -65,7 +49,7 @@ LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : Rende
 RenderPassReflection LoadMeshPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-    reflector.addOutput(kOutputColor, "Color")
+    reflector.addOutput("dummy", "Dummy")
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
         .texture2D(0, 0, 1, 1);
@@ -144,29 +128,15 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
     pRenderContext->copyResource(cpuTriangles.get(), triangles.get());
     mpDevice->wait();
 
-    float3* posPtr = reinterpret_cast<float3*>(cpuPositions->map());
-    float2* uvPtr = reinterpret_cast<float2*>(cpuTexCoords->map());
-    uint3* triPtr = reinterpret_cast<uint3*>(cpuTriangles->map());
+    float3* pPos = reinterpret_cast<float3*>(cpuPositions->map());
+    float2* pUV = reinterpret_cast<float2*>(cpuTexCoords->map());
+    uint3* pTri = reinterpret_cast<uint3*>(cpuTriangles->map());
+    SceneHeader header = {meshCount, vertexCount, triangleCount};
 
-    try
     {
-        std::ofstream f;
-        f.open("E:/Project/Falcor/resource/scene.bat", std::ios::binary);
-
-        SceneHeader header = {meshCount, vertexCount, triangleCount};
-
-        f.write(reinterpret_cast<char*>(&header), sizeof(header));
-        f.write(reinterpret_cast<char*>(meshList.data()), sizeof(MeshHeader) * meshCount);
-
-        f.write(reinterpret_cast<char*>(posPtr), positionBytes);
-        f.write(reinterpret_cast<char*>(uvPtr), texCoordBytes);
-        f.write(reinterpret_cast<char*>(triPtr), triangleBytes);
-
-        f.flush();
-    }
-    catch (const std::exception& e)
-    {
-        logError(e.what());
+        MeshSampler meshSampler = {};
+        meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
+        meshSampler.write();
     }
 
     cpuPositions->unmap();
@@ -191,11 +161,10 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         {
             VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
             requestRecompile();
-            mComplete = false;
         }
     }
 
-    if (widget.checkbox("Debug", mDebug))
+    if (widget.button("Generate"))
         mComplete = false;
 }
 
@@ -204,4 +173,5 @@ void LoadMeshPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
     mpScene = pScene;
     mLoadMeshPass = nullptr;
     mComplete = false;
+    VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
 }

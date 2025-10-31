@@ -27,18 +27,19 @@
  **************************************************************************/
 #pragma once
 #include "VoxelizationBase.h"
+#include <filesystem>
 
 using namespace Falcor;
 
-class VoxelizationPass : public RenderPass
+class ReadVoxelPass : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(VoxelizationPass, "VoxelizationPass", "Insert pass description here.");
+    FALCOR_PLUGIN_CLASS(ReadVoxelPass, "ReadVoxelPass", "Insert pass description here.");
 
-    static ref<VoxelizationPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<VoxelizationPass>(pDevice, props); }
+    static ref<ReadVoxelPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<ReadVoxelPass>(pDevice, props); }
 
-    VoxelizationPass(ref<Device> pDevice, const Properties& props);
-
+    ReadVoxelPass(ref<Device> pDevice, const Properties& props);
+    ~ReadVoxelPass();
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
@@ -48,19 +49,11 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
-    ref<ComputePass> mVoxelizationPass;
-
-    ref<Device> mpDevice;
-    ref<SampleGenerator> mpSampleGenerator;
-    ref<Sampler> mpSampler;
-    ref<Scene> mpScene;
-
     GridData& gridData;
-    uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
+    ref<Device> mpDevice;
+    std::vector<std::filesystem::path> filePaths;
+    uint selectedFile;
+    float4* diffuseBuffer;
 
-    uint mSampleFrequency; // 体素的一个面范围内的采样点个数
-
-    bool mAutoLoD;
-    bool mDebug;
     bool mComplete;
 };

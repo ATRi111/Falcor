@@ -33,22 +33,10 @@ const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPas
 const std::string kOutputDiffuse = "diffuse";
 const std::string kOutputEllipsoids = "ellipsoids";
 
-std::string ToString(float3 v)
-{
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(4);
-    oss << "(" << v.x << ", " << v.y << ", " << v.z << ")";
-    return oss.str();
-}
-std::string ToString(uint3 v)
-{
-    std::ostringstream oss;
-    oss << "(" << v.x << ", " << v.y << ", " << v.z << ")";
-    return oss.str();
-}
 }; // namespace
 
-VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
+VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
+    : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mVoxelResolution = 256u;
     mSampleFrequency = 16u;
@@ -73,16 +61,15 @@ RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
 
-    GridData& data = VoxelizationBase::GlobalGridData;
     reflector.addOutput(kOutputDiffuse, "Diffuse Voxel Texture")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::RGBA32Float)
-        .texture3D(data.voxelCount.x, data.voxelCount.y, data.voxelCount.z, 1);
+        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
 
     reflector.addOutput(kOutputEllipsoids, "Ellipsoids")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::Unknown)
-        .rawBuffer(data.totalVoxelCount() * sizeof(Ellipsoid));
+        .rawBuffer(gridData.totalVoxelCount() * sizeof(Ellipsoid));
     return reflector;
 }
 
@@ -96,21 +83,7 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
 
     ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
     ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
-    GridData& data = VoxelizationBase::GlobalGridData;
 
-    // std::vector<Ellipsoid> initData(data.totalVoxelCount());
-
-    // for (size_t i = 0; i < initData.size(); ++i)
-    //{
-    //     initData[i].min = float16_t3(1.0f, 1.0f, 1.0f);
-    //     initData[i].max = float16_t3(0.0f, 0.0f, 0.0f);
-    //     initData[i].alpha = float16_t(0.0f);
-    // }
-    // pEllipsoids->setBlob(initData.data(), 0, data.totalVoxelCount() * sizeof(Ellipsoid));
-
-    // ref<Buffer> covariance =
-    //     mpDevice->createBuffer(mVoxelCount.x * mVoxelCount.y * mVoxelCount.z * sizeof(Covariance),
-    //     ResourceBindFlags::UnorderedAccess);
     pRenderContext->clearUAV(pDiffuse->getUAV().get(), float4(0));
     if (!mVoxelizationPass)
     {
@@ -133,11 +106,11 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
     var["gDiffuse"] = pDiffuse;
     var["gEllipsoids"] = pEllipsoids;
 
-    auto gridData = var["GridData"];
-    gridData["gridMin"] = data.gridMin;
-    gridData["voxelSize"] = data.voxelSize;
-    gridData["voxelCount"] = data.voxelCount;
-    gridData["sampleFrequency"] = mSampleFrequency;
+    auto cb_grid = var["GridData"];
+    cb_grid["gridMin"] = gridData.gridMin;
+    cb_grid["voxelSize"] = gridData.voxelSize;
+    cb_grid["voxelCount"] = gridData.voxelCount;
+    cb_grid["sampleFrequency"] = mSampleFrequency;
 
     uint meshCount = mpScene->getMeshCount();
     for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
@@ -145,13 +118,13 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
         MeshDesc meshDesc = mpScene->getMesh(meshID);
         uint triangleCount = meshDesc.getTriangleCount();
 
-        auto meshData = mVoxelizationPass->getRootVar()["MeshData"];
-        meshData["vertexCount"] = meshDesc.vertexCount;
-        meshData["vbOffset"] = meshDesc.vbOffset;
-        meshData["triangleCount"] = triangleCount;
-        meshData["ibOffset"] = meshDesc.ibOffset;
-        meshData["use16BitIndices"] = meshDesc.use16BitIndices();
-        meshData["materialID"] = meshDesc.materialID;
+        auto cb_mesh = mVoxelizationPass->getRootVar()["MeshData"];
+        cb_mesh["vertexCount"] = meshDesc.vertexCount;
+        cb_mesh["vbOffset"] = meshDesc.vbOffset;
+        cb_mesh["triangleCount"] = triangleCount;
+        cb_mesh["ibOffset"] = meshDesc.ibOffset;
+        cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
+        cb_mesh["materialID"] = meshDesc.materialID;
         mVoxelizationPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
         pRenderContext->uavBarrier(pDiffuse.get());
         pRenderContext->uavBarrier(pEllipsoids.get());
@@ -196,10 +169,9 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
     if (widget.checkbox("Debug", mDebug))
         mComplete = false;
 
-    GridData& data = VoxelizationBase::GlobalGridData;
-    widget.text("Voxel Size: " + ToString(data.voxelSize));
-    widget.text("Voxel Count: " + ToString(data.voxelCount));
-    widget.text("Grid Min: " + ToString(data.gridMin));
+    widget.text("Voxel Size: " + ToString(gridData.voxelSize));
+    widget.text("Voxel Count: " + ToString(gridData.voxelCount));
+    widget.text("Grid Min: " + ToString(gridData.gridMin));
 }
 
 void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

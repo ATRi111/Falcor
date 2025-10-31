@@ -18,6 +18,8 @@ target_sources(Voxelization PRIVATE
     LoadMesh.cs.slang
 
     MeshSampler.h
+    ReadVoxelPass.cpp
+    ReadVoxelPass.h
 )
 target_copy_shaders(Voxelization RenderPasses/Voxelization)
 target_source_group(Voxelization "RenderPasses")
