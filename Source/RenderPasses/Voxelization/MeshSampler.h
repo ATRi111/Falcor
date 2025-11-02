@@ -1,25 +1,28 @@
 #pragma once
 #include "VoxelizationBase.h"
+#include "ImageLoader.h"
 #include <fstream>
 
 class MeshSampler
 {
 private:
     GridData& gridData;
+    Image* currentBaseColor;
 
 public:
+    ImageLoader loader;
     uint sampleFrequency;
     float4* diffuseBuffer;
     std::string fileName;
 
-    MeshSampler() : gridData(VoxelizationBase::GlobalGridData)
+    MeshSampler(uint sampleFrequency) : gridData(VoxelizationBase::GlobalGridData), sampleFrequency(sampleFrequency)
     {
-        sampleFrequency = 16;
-        fileName = ToString(gridData.voxelCount) + ".bin";
+        currentBaseColor = nullptr;
+        fileName = ToString(gridData.voxelCount) + "_" + std::to_string(sampleFrequency) + ".bin";
         diffuseBuffer = reinterpret_cast<float4*>(malloc(gridData.totalVoxelCount() * sizeof(float4)));
         for (size_t i = 0; i < gridData.totalVoxelCount(); i++)
         {
-            diffuseBuffer[i] = float4();
+            diffuseBuffer[i] = float4(0);
         }
     }
 
@@ -28,8 +31,9 @@ public:
     void sampleMaterial(float3 position, float2 texCoord, float2 dduv)
     {
         int3 p = int3(position);
-        int index = CellToIndex(p, gridData.voxelSize);
-        diffuseBuffer[index] = float4(1);
+        int index = CellToIndex(p, gridData.voxelCount);
+        float4 baseColor = currentBaseColor->Sample(texCoord);
+        diffuseBuffer[index] = float4(baseColor.xyz(), 1);
     }
 
     void sampleTriangle(float3 positions[3], float2 texCoords[3])
@@ -62,9 +66,10 @@ public:
 
     void sampleMesh(MeshHeader mesh, float3* pPos, float2* pUV, uint3* pTri)
     {
+        currentBaseColor = loader.loadImage(mesh.materialID, BaseColor);
         for (size_t tid = 0; tid < mesh.triangleCount; tid++)
         {
-            uint3 triangle = pTri[tid];
+            uint3 triangle = pTri[tid + mesh.triangleOffset];
             float3 positions[3] = {pPos[triangle.x], pPos[triangle.y], pPos[triangle.z]};
             // 世界坐标处理成网格坐标
             for (int i = 0; i < 3; i++)

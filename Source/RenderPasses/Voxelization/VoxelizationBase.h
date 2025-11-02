@@ -72,4 +72,5 @@ struct MeshHeader
     uint materialID;
     uint vertexCount;
     uint triangleCount;
+    uint triangleOffset;
 };

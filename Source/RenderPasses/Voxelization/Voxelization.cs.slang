@@ -114,7 +114,7 @@ void sampleTriangle(float3[3] positions, float2[3] texCoords, uint triangleId)
 
 void voxelizeTriangle(uint triangleId)
 {
-    // 不可删除此if，原因不明
+    // 实际启动的线程数是线程组大小的整数倍，因此此语句必不可少
     if (triangleId >= triangleCount)
         return;
     uint3 vtxIndices = scene.getLocalIndices(ibOffset, triangleId, use16BitIndices);

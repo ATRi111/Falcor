@@ -5,6 +5,7 @@ target_sources(Falcor PRIVATE
     Falcor.manifest
 
     Falcor.h
+    stb_image.h
     GlobalState.cpp
     GlobalState.h
 

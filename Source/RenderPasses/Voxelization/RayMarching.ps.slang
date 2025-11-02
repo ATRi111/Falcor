@@ -70,19 +70,30 @@ float2 clip(float3 minPoint, float3 maxPoint, float3 from, float3 to)
     return float2(uIn, uOut);
 }
 
-float3 leave(float3 cell, int3 directions, float3 direction, float3 reciprocal_direction)
+HitResult leave(HitResult current, int3 directions, float3 direction, float3 reciprocal_direction)
 {
-    float3 border = floor(cell + directions * 0.5 + 0.5);
-    float3 t = (border - cell) * reciprocal_direction;
-    float tMin = 1.733f;
-    if (t.x > 0)
-        tMin = min(tMin, t.x);
-    if (t.y > 0)
-        tMin = min(tMin, t.y);
-    if (t.z > 0)
-        tMin = min(tMin, t.z);
-    cell += (tMin + 1e-5f) * direction; // 避免返回整数坐标
-    return cell;
+    float3 border = current.cellInt + (directions + 1) / 2;
+    float3 t = (border - current.cell) * reciprocal_direction;
+    float tMin = 2.0f;
+    int3 selectedDirection = 0;
+    if (direction.x != 0 && t.x < tMin)
+    {
+        tMin = t.x;
+        selectedDirection = uint3(directions.x, 0, 0);
+    }
+    if (direction.y != 0 && t.y < tMin)
+    {
+        tMin = t.y;
+        selectedDirection = uint3(0, directions.y, 0);
+    }
+    if (direction.z != 0 && t.z < tMin)
+    {
+        tMin = t.z;
+        selectedDirection = uint3(0, 0, directions.z);
+    }
+    current.cell += tMin * direction;
+    current.cellInt += selectedDirection;
+    return current;
 }
 
 float checkEllipsoid(Ellipsoid ellipsoid, float3 subVoxelOffset, float3 direction)
@@ -98,18 +109,18 @@ float checkEllipsoid(Ellipsoid ellipsoid, float3 subVoxelOffset, float3 directio
 // 统一用3D纹理坐标表示
 HitResult rayMarching(float3 from, float3 to)
 {
-    HitResult result = { int3(-1), float3(-1) };
+    HitResult current = { int3(-1), float3(-1) };
     // 计算光线与场景包围盒相交的部分
     float2 inOut = clip(float3(0), float3(1), from, to);
     if (inOut.x < 0)
-        return result;
+        return current;
 
     float3 v = to - from;
     float3 direction = normalize(v * voxelCount);
 
     from = from + (inOut.x + 1e-5f) * v; // 避免边界处误差
-    float3 cell_OM = from * voxelCount;
-    int3 cellInt_OM = int3(cell_OM);
+    current.cell = from * voxelCount;
+    current.cellInt = int3(current.cell);
     float3 reciprocal_direction = 1.0f / direction;
     // 可选的前进方向
     int3 directions = int3(sign(direction));
@@ -117,27 +128,24 @@ HitResult rayMarching(float3 from, float3 to)
     uint maxTimes = voxelCount.x + voxelCount.y + voxelCount.z;
     for (uint i = 0; i < maxTimes; i++)
     {
-        float accumulate = gDiffuse[cellInt_OM].w;
+        float accumulate = gDiffuse[current.cellInt].w;
         if (accumulate > 0)
         {
-            result.cellInt = cellInt_OM;
-            result.cell = cell_OM;
 #if CHECK_ELLIPSOID
-            int index = CellToIndex(cellInt_OM, voxelCount);
+            int index = CellToIndex(current.cellInt, voxelCount);
             Ellipsoid ellipsoid = gEllipsoids[index];
-            float alpha = checkEllipsoid(ellipsoid, cell_OM - cellInt_OM, direction);
+            float alpha = checkEllipsoid(ellipsoid, current.cell - current.cellInt, direction);
             if (alpha > 0)
-                return result;
+                return current;
 #else
-            return result;
+            return current;
 #endif
         }
-        cell_OM = leave(cell_OM, directions, direction, reciprocal_direction);
-        cellInt_OM = int3(cell_OM);
-        if (any(cellInt_OM < 0) || any(cellInt_OM >= voxelCount))
+        current = leave(current, directions, direction, reciprocal_direction);
+        if (any(current.cellInt < 0) || any(current.cellInt >= voxelCount))
             break;
     }
-    return result;
+    return current;
 }
 
 float3 screenCoordToGridCoord(float2 screenCoord, float NDCDepth)

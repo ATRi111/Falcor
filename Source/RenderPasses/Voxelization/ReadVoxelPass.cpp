@@ -110,11 +110,15 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     if (widget.button("Read"))
     {
         std::ifstream f;
-        f.open(filePaths[selectedFile]);
+        f.open(filePaths[selectedFile], std::ios::binary | std::ios::ate);
+        f.seekg(0, std::ios::beg);
         f.read(reinterpret_cast<char*>(&gridData), sizeof(GridData));
+
         if (diffuseBuffer)
             free(diffuseBuffer);
         diffuseBuffer = reinterpret_cast<float4*>(malloc(gridData.totalVoxelCount() * sizeof(float4)));
+
+        f.seekg(sizeof(GridData), std::ios::beg);
         f.read(reinterpret_cast<char*>(diffuseBuffer), gridData.totalVoxelCount() * sizeof(float4));
         f.close();
 

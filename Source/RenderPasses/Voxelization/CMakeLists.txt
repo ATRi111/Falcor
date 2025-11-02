@@ -17,6 +17,9 @@ target_sources(Voxelization PRIVATE
     LoadMeshPass.h
     LoadMesh.cs.slang
 
+    Image.h
+    ImageLoader.cpp
+    ImageLoader.h
     MeshSampler.h
     ReadVoxelPass.cpp
     ReadVoxelPass.h

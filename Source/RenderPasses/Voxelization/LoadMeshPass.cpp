@@ -36,6 +36,7 @@ const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPas
 LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     mComplete = true;
+    mSampleFrequency = 16u;
     mVoxelResolution = 256u;
 
     VoxelizationBase::updateVoxelGrid(nullptr, mVoxelResolution);
@@ -105,10 +106,11 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
     var["positions"] = positions;
     var["texCoords"] = texCoords;
     var["triangles"] = triangles;
+    uint triangleOffset = 0;
     for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
     {
         MeshDesc meshDesc = mpScene->getMesh(meshID);
-        MeshHeader mesh = {meshDesc.materialID, meshDesc.vertexCount, meshDesc.getTriangleCount()};
+        MeshHeader mesh = {meshDesc.materialID, meshDesc.vertexCount, meshDesc.getTriangleCount(), triangleOffset};
         meshList.push_back(mesh);
 
         auto meshData = mLoadMeshPass->getRootVar()["MeshData"];
@@ -116,11 +118,14 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
         meshData["vbOffset"] = meshDesc.vbOffset;
         meshData["triangleCount"] = meshDesc.getTriangleCount();
         meshData["ibOffset"] = meshDesc.ibOffset;
+        meshData["triOffset"] = triangleOffset;
         meshData["use16BitIndices"] = meshDesc.use16BitIndices();
         mLoadMeshPass->execute(pRenderContext, uint3(meshDesc.getTriangleCount(), 1, 1));
         pRenderContext->uavBarrier(positions.get());
         pRenderContext->uavBarrier(texCoords.get());
         pRenderContext->uavBarrier(triangles.get());
+
+        triangleOffset += meshDesc.getTriangleCount();
     }
 
     pRenderContext->copyResource(cpuPositions.get(), positions.get());
@@ -134,7 +139,7 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
     SceneHeader header = {meshCount, vertexCount, triangleCount};
 
     {
-        MeshSampler meshSampler = {};
+        MeshSampler meshSampler = {mSampleFrequency};
         meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
         meshSampler.write();
     }
@@ -164,6 +169,16 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         }
     }
 
+    static const uint samplePoints[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < 9; i++)
+        {
+            list.push_back({samplePoints[i], std::to_string(samplePoints[i])});
+        }
+        widget.dropdown("Sample Frequency", list, mSampleFrequency);
+    }
+
     if (widget.button("Generate"))
         mComplete = false;
 }
@@ -172,6 +187,5 @@ void LoadMeshPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
 {
     mpScene = pScene;
     mLoadMeshPass = nullptr;
-    mComplete = false;
     VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
 }

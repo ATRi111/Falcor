@@ -17,6 +17,7 @@ cbuffer MeshData
     uint triangleCount;
     uint vbOffset;
     uint ibOffset;
+    uint triOffset;
     bool use16BitIndices;
 };
 
@@ -26,7 +27,7 @@ void loadTriangle(uint triangleId)
         return;
     uint3 triangle = scene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     triangle += vbOffset;
-    triangles[triangleId] = triangle;
+    triangles[triangleId + triOffset] = triangle;
     uint[3] indices = { triangle.x, triangle.y, triangle.z };
     for (uint i = 0; i < 3; i++)
     {
