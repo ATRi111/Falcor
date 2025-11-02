@@ -50,9 +50,6 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
         .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
-    // Sampler::Desc samplerDesc;
-    // samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
-    //     .setAddressingMode(TextureAddressingMode::Clamp, TextureAddressingMode::Clamp, TextureAddressingMode::Clamp);
     mpSampler = pDevice->createSampler(samplerDesc);
     mpDevice = pDevice;
 }

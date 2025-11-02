@@ -41,22 +41,6 @@ void sampleMaterial(float3 position, float2 texCoord, float2 dduv, uint triangle
 #else
     ITextureSampler lod = ExplicitLodTextureSampler(0);
 #endif
-
-    int index = CellToIndex(p, voxelCount);
-    Ellipsoid ellipsoid = gEllipsoids[index];
-    if (gDiffuse[p].w == 0)
-    {
-        ellipsoid.min = frac(position);
-        ellipsoid.max = frac(position);
-        ellipsoid.alpha = 1;
-    }
-    else
-    {
-        ellipsoid.min = min(frac(position), ellipsoid.min);
-        ellipsoid.max = max(frac(position), ellipsoid.max);
-    }
-    gEllipsoids[index] = ellipsoid;
-
     switch (type)
     {
     case MaterialType::Standard:

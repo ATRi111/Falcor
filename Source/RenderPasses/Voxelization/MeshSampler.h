@@ -8,32 +8,66 @@ class MeshSampler
 private:
     GridData& gridData;
     Image* currentBaseColor;
+    uint voxelCount;
 
 public:
     ImageLoader loader;
     uint sampleFrequency;
     float4* diffuseBuffer;
+    Ellipsoid* ellipsoids;
+    std::vector<std::vector<float3>> pointsInVoxels;
     std::string fileName;
 
     MeshSampler(uint sampleFrequency) : gridData(VoxelizationBase::GlobalGridData), sampleFrequency(sampleFrequency)
     {
+        voxelCount = gridData.totalVoxelCount();
         currentBaseColor = nullptr;
         fileName = ToString(gridData.voxelCount) + "_" + std::to_string(sampleFrequency) + ".bin";
-        diffuseBuffer = reinterpret_cast<float4*>(malloc(gridData.totalVoxelCount() * sizeof(float4)));
-        for (size_t i = 0; i < gridData.totalVoxelCount(); i++)
+        diffuseBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
+        ellipsoids = reinterpret_cast<Ellipsoid*>(malloc(voxelCount * sizeof(Ellipsoid)));
+        pointsInVoxels.resize(voxelCount);
+        for (uint i = 0; i < voxelCount; i++)
         {
             diffuseBuffer[i] = float4(0);
         }
     }
 
-    ~MeshSampler() { free(diffuseBuffer); }
+    ~MeshSampler()
+    {
+        free(diffuseBuffer);
+        free(ellipsoids);
+    }
+
+    Ellipsoid fitEllipsoid(std::vector<float3>& points, float coverage = 1.0f, float ridge = 1e-6f)
+    {
+        Ellipsoid e;
+        float3 sum = float3(0);
+        for (size_t i = 0; i < points.size(); i++)
+        {
+            sum += points[i];
+        }
+        e.alpha = 1;
+        e.center = sum / (float)points.size();
+        e.shape = float3x3();
+        return e;
+    }
+
+    void sumPoints()
+    {
+        for (uint i = 0; i < voxelCount; i++)
+        {
+            Ellipsoid e = fitEllipsoid(pointsInVoxels[i]);
+            ellipsoids[i] = e;
+        }
+    }
 
     void sampleMaterial(float3 position, float2 texCoord, float2 dduv)
     {
         int3 p = int3(position);
         int index = CellToIndex(p, gridData.voxelCount);
         float4 baseColor = currentBaseColor->Sample(texCoord);
-        diffuseBuffer[index] = float4(baseColor.xyz(), 1);
+        diffuseBuffer[index] += float4(baseColor.xyz(), 1);
+        // pointsInVoxels[index].push_back(math::saturate(position));
     }
 
     void sampleTriangle(float3 positions[3], float2 texCoords[3])
@@ -87,6 +121,7 @@ public:
         {
             sampleMesh(meshList[i], pPos, pUV, pTri);
         }
+        // sumPoints();
     }
 
     void write()
@@ -96,7 +131,8 @@ public:
         f.open(s, std::ios::binary);
 
         f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
-        f.write(reinterpret_cast<char*>(diffuseBuffer), gridData.totalVoxelCount() * sizeof(float4));
+        f.write(reinterpret_cast<char*>(diffuseBuffer), voxelCount * sizeof(float4));
+        // f.write(reinterpret_cast<char*>(ellipsoids), voxelCount * sizeof(Ellipsoid));
 
         f.close();
         VoxelizationBase::FileUpdated = true;

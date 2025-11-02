@@ -100,10 +100,10 @@ float checkEllipsoid(Ellipsoid ellipsoid, float3 subVoxelOffset, float3 directio
 {
     float3 from = subVoxelOffset;
     float3 to = from + 2 * direction;
-    float2 u12 = clip(ellipsoid.min, ellipsoid.max, from, to);
-    if (u12.x >= 0)
-        return ellipsoid.alpha;
-    return 0;
+    // float2 u12 = clip(ellipsoid.min, ellipsoid.max, from, to);
+    // if (u12.x >= 0)
+    //     return ellipsoid.alpha;
+    return 1;
 }
 
 // 统一用3D纹理坐标表示

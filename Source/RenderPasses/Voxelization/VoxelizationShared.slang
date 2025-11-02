@@ -5,9 +5,9 @@ BEGIN_NAMESPACE_FALCOR
 
 struct Ellipsoid
 {
-    float16_t3 min;
-    float16_t alpha;
-    float16_t3 max;
+    float3 center;
+    float alpha;
+    float3x3 shape;
 };
 
 struct GridData
