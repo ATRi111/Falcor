@@ -27,6 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "VoxelizationBase.h"
+#include <fstream>
 #include <filesystem>
 
 using namespace Falcor;
@@ -49,11 +50,14 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    void reset(uint voxelCount);
+    bool tryRead(std::ifstream& f, uint& offset, uint bytes, void* dst, uint fileSize);
     GridData& gridData;
     ref<Device> mpDevice;
     std::vector<std::filesystem::path> filePaths;
     uint selectedFile;
     float4* diffuseBuffer;
+    Ellipsoid* ellipsoids;
 
     bool mComplete;
 };

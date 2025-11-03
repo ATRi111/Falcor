@@ -96,14 +96,52 @@ HitResult leave(HitResult current, int3 directions, float3 direction, float3 rec
     return current;
 }
 
+float2 ellipsoidClip(Ellipsoid e, float3 from, float3 to)
+{
+    float3 v = to - from;
+    from -= e.center;
+    // quadratic equation
+    float a = dot(v, mul(e.shape, v));
+    float b = 2.f * dot(v, mul(e.shape, from));
+    float c = dot(from, mul(e.shape, from)) - 1.f;
+    float d = b * b - 4 * a * c;
+    if (d < 0)
+        return float2(-1, -1);
+    float uIn = 0, uOut = 1;
+    float s = sqrt(d);
+    if (a >= 0)
+    {
+        uIn = max(uIn, (-b - s) / 2 / a);
+        uOut = min(uOut, (-b + s) / 2 / a);
+    }
+    else
+    {
+        uIn = max(uIn, (-b + s) / 2 / a);
+        uOut = min(uOut, (-b - s) / 2 / a);
+    }
+    if (uIn > uOut)
+        return float2(-1, -1);
+    return float2(uIn, uOut);
+}
+
 float checkEllipsoid(Ellipsoid ellipsoid, float3 subVoxelOffset, float3 direction)
 {
     float3 from = subVoxelOffset;
-    float3 to = from + 2 * direction;
-    // float2 u12 = clip(ellipsoid.min, ellipsoid.max, from, to);
-    // if (u12.x >= 0)
-    //     return ellipsoid.alpha;
-    return 1;
+    int3 directions = int3(sign(direction));
+    float3 border = (directions + 1) / 2;
+    float3 t = (border - subVoxelOffset) / direction;
+    float tMin = 2.0f;
+    if (direction.x != 0 && t.x < tMin)
+        tMin = t.x;
+    if (direction.y != 0 && t.y < tMin)
+        tMin = t.y;
+    if (direction.z != 0 && t.z < tMin)
+        tMin = t.z;
+    float3 to = from + tMin * direction;
+    float2 u12 = ellipsoidClip(ellipsoid, from, to);
+    if (u12.x >= 0)
+        return ellipsoid.alpha;
+    return 0;
 }
 
 // 统一用3D纹理坐标表示

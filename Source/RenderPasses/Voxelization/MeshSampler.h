@@ -38,17 +38,59 @@ public:
         free(ellipsoids);
     }
 
-    Ellipsoid fitEllipsoid(std::vector<float3>& points, float coverage = 1.0f, float ridge = 1e-6f)
+    Ellipsoid fitEllipsoid(std::vector<float3>& points)
     {
         Ellipsoid e;
         float3 sum = float3(0);
-        for (size_t i = 0; i < points.size(); i++)
+        uint n = points.size();
+        if (n == 0)
+        {
+            e.center = float3(0.5f);
+            e.shape = float3x3::identity();
+            e.alpha = 0.0f;
+            return e;
+        }
+
+        for (uint i = 0; i < n; i++)
         {
             sum += points[i];
         }
+        e.center = sum / (float)n;
+        // 二次方程
+        float3x3 cov = float3x3::zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
+        for (uint i = 0; i < n; i++)
+        {
+            float3 v = points[i] - e.center;
+            cov[0][0] += v.x * v.x;
+            cov[0][1] += v.x * v.y;
+            cov[0][2] += v.x * v.z;
+            cov[1][0] += v.y * v.x;
+            cov[1][1] += v.y * v.y;
+            cov[1][2] += v.y * v.z;
+            cov[2][0] += v.z * v.x;
+            cov[2][1] += v.z * v.y;
+            cov[2][2] += v.z * v.z;
+        }
+        cov = cov * (1.f / n);
+
+        cov = (math::transpose(cov) + cov) * 0.5f;
+        // 避免出现奇异矩阵
+        float tr = cov[0][0] + cov[1][1] + cov[2][2];
+        float lam = 1e-6f * std::max(tr, 1e-6f);
+        cov[0][0] += lam;
+        cov[1][1] += lam;
+        cov[2][2] += lam;
+
+        float3x3 inv = math::inverse(cov);
+        float maxDot = 1e-12f;
+        for (uint i = 0; i < n; i++)
+        {
+            float3 v = points[i] - e.center;
+            float dot = math::dot(v, mul(inv, v));
+            maxDot = std::max(maxDot, dot);
+        }
+        e.shape = inv * (1.0f / maxDot);
         e.alpha = 1;
-        e.center = sum / (float)points.size();
-        e.shape = float3x3();
         return e;
     }
 
@@ -67,7 +109,7 @@ public:
         int index = CellToIndex(p, gridData.voxelCount);
         float4 baseColor = currentBaseColor->Sample(texCoord);
         diffuseBuffer[index] += float4(baseColor.xyz(), 1);
-        // pointsInVoxels[index].push_back(math::saturate(position));
+        pointsInVoxels[index].push_back(math::frac(position));
     }
 
     void sampleTriangle(float3 positions[3], float2 texCoords[3])
@@ -121,10 +163,10 @@ public:
         {
             sampleMesh(meshList[i], pPos, pUV, pTri);
         }
-        // sumPoints();
+        sumPoints();
     }
 
-    void write()
+    void write() const
     {
         std::ofstream f;
         std::string s = VoxelizationBase::ResourceFolder + fileName;
@@ -132,7 +174,7 @@ public:
 
         f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
         f.write(reinterpret_cast<char*>(diffuseBuffer), voxelCount * sizeof(float4));
-        // f.write(reinterpret_cast<char*>(ellipsoids), voxelCount * sizeof(Ellipsoid));
+        f.write(reinterpret_cast<char*>(ellipsoids), voxelCount * sizeof(Ellipsoid));
 
         f.close();
         VoxelizationBase::FileUpdated = true;

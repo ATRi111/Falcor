@@ -26,7 +26,6 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "ReadVoxelPass.h"
-#include <fstream>
 
 namespace
 {
@@ -40,6 +39,7 @@ ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : Ren
 {
     mComplete = true;
     diffuseBuffer = nullptr;
+    ellipsoids = nullptr;
     selectedFile = 0;
     mpDevice = pDevice;
 }
@@ -80,7 +80,8 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
 
     pDiffuse->setSubresourceBlob(0, diffuseBuffer, gridData.totalVoxelCount() * sizeof(float4));
-
+    if (gridData.totalVoxelCount() * sizeof(Ellipsoid) <= pEllipsoids->getElementCount())
+        pEllipsoids->setBlob(ellipsoids, 0, gridData.totalVoxelCount() * sizeof(Ellipsoid));
     mComplete = true;
 }
 
@@ -110,16 +111,22 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     if (widget.button("Read"))
     {
         std::ifstream f;
+        uint offset = 0;
+
         f.open(filePaths[selectedFile], std::ios::binary | std::ios::ate);
-        f.seekg(0, std::ios::beg);
-        f.read(reinterpret_cast<char*>(&gridData), sizeof(GridData));
+        if (!f.is_open())
+            return;
 
-        if (diffuseBuffer)
-            free(diffuseBuffer);
-        diffuseBuffer = reinterpret_cast<float4*>(malloc(gridData.totalVoxelCount() * sizeof(float4)));
+        uint fileSize = std::filesystem::file_size(filePaths[selectedFile]);
 
-        f.seekg(sizeof(GridData), std::ios::beg);
-        f.read(reinterpret_cast<char*>(diffuseBuffer), gridData.totalVoxelCount() * sizeof(float4));
+        tryRead(f, offset, sizeof(GridData), &gridData, fileSize);
+        uint voxelCount = gridData.totalVoxelCount();
+        reset(voxelCount);
+
+        tryRead(f, offset, voxelCount * sizeof(float4), diffuseBuffer, fileSize);
+
+        tryRead(f, offset, voxelCount * sizeof(Ellipsoid), ellipsoids, fileSize);
+
         f.close();
 
         requestRecompile();
@@ -133,3 +140,21 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 }
 
 void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) {}
+
+void ReadVoxelPass::reset(uint voxelCount)
+{
+    free(diffuseBuffer);
+    diffuseBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
+    free(ellipsoids);
+    ellipsoids = reinterpret_cast<Ellipsoid*>(malloc(voxelCount * sizeof(Ellipsoid)));
+}
+
+bool ReadVoxelPass::tryRead(std::ifstream& f, uint& offset, uint bytes, void* dst, uint fileSize)
+{
+    if (offset + bytes > fileSize)
+        return false;
+    f.seekg(offset, std::ios::beg);
+    f.read(reinterpret_cast<char*>(dst), bytes);
+    offset += bytes;
+    return true;
+}
