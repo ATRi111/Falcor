@@ -140,7 +140,7 @@ float checkEllipsoid(Ellipsoid ellipsoid, float3 subVoxelOffset, float3 directio
     float3 to = from + tMin * direction;
     float2 u12 = ellipsoidClip(ellipsoid, from, to);
     if (u12.x >= 0)
-        return ellipsoid.alpha;
+        return 1;
     return 0;
 }
 

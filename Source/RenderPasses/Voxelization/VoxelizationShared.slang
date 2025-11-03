@@ -6,7 +6,6 @@ BEGIN_NAMESPACE_FALCOR
 struct Ellipsoid
 {
     float3 center;
-    float alpha;
     float3x3 shape;
 };
 

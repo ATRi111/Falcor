@@ -47,7 +47,6 @@ public:
         {
             e.center = float3(0.5f);
             e.shape = float3x3::identity();
-            e.alpha = 0.0f;
             return e;
         }
 
@@ -90,7 +89,6 @@ public:
             maxDot = std::max(maxDot, dot);
         }
         e.shape = inv * (1.0f / maxDot);
-        e.alpha = 1;
         return e;
     }
 
