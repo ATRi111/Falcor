@@ -38,8 +38,8 @@ public:
             diag = aabb.maxPoint - aabb.minPoint;
             length = std::max(diag.z, std::max(diag.x, diag.y));
             center = aabb.center();
-            diag *= 1.2f;
-            length *= 1.2f;
+            diag *= 1.02f;
+            length *= 1.02f;
         }
         else
         {
