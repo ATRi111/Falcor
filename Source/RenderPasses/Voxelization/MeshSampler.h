@@ -47,7 +47,7 @@ public:
         free(ellipsoids);
     }
 
-    Ellipsoid fitEllipsoid(std::vector<float3>& points)
+    Ellipsoid fitEllipsoid(std::vector<float3>& points, int3 cellInt)
     {
         Ellipsoid e;
         float3 sum = float3(0);
@@ -98,6 +98,7 @@ public:
             maxDot = std::max(maxDot, dot);
         }
         e.shape = inv * (1.0f / maxDot);
+        e.center -= float3(cellInt);
         return e;
     }
 
@@ -105,24 +106,26 @@ public:
     {
         for (uint i = 0; i < voxelCount; i++)
         {
-            Ellipsoid e = fitEllipsoid(pointsInVoxels[i]);
+            if (pointsInVoxels[i].size() < 3 && diffuseBuffer[i].w > 0)
+            {
+                std::cout << "Too few points to fit ellipsoid" << std::endl;
+            }
+            int3 cellInt = IndexToCell(i, gridData.voxelCount);
+            Ellipsoid e = fitEllipsoid(pointsInVoxels[i], cellInt);
             ellipsoids[i] = e;
         }
     }
 
-    void sampleMaterial(float3 position, float2 texCoord, float2 dduv)
+    void sampleMaterial(float3 position, float2 uv, int index)
     {
-        int3 p = int3(position);
-        int index = CellToIndex(p, gridData.voxelCount);
-
         // StandardMaterial.slang
         float IoR = 1.5f;
         float f = (IoR - 1.f) / (IoR + 1.f);
         float F0 = f * f;
-        float3 baseColor = currentBaseColor->Sample(texCoord).xyz();
+        float3 baseColor = currentBaseColor->Sample(uv).xyz();
         float4 spec;
         if (currentSpecular)
-            spec = currentSpecular->Sample(texCoord);
+            spec = currentSpecular->Sample(uv);
         else
             spec = float4(0, 0, 0, 0);
         // d.roughness = spec.g;
@@ -130,13 +133,20 @@ public:
 
         diffuseBuffer[index] += float4(lerp(baseColor, float3(0), spec.b), 1);
         specularBuffer[index] += float4(lerp(float3(F0), baseColor, spec.b), 1);
-        pointsInVoxels[index].push_back(math::frac(position));
+        pointsInVoxels[index].push_back(position);
     }
 
-    void sampleTriangle(float3 positions[3], float2 texCoords[3])
+    void sampleMaterial(float3 position, float2 uv)
     {
-        float3 BC = positions[2] - positions[1];
-        float3 AC = positions[2] - positions[0];
+        int3 p = int3(position);
+        int index = CellToIndex(p, gridData.voxelCount);
+        sampleMaterial(position, uv, index);
+    }
+
+    void sampleTriangle(float3 tri[3], float2 uvs[3])
+    {
+        float3 BC = tri[2] - tri[1];
+        float3 AC = tri[2] - tri[0];
         float k = length(BC) / length(AC);
         float S = 0.5f * length(cross(BC, AC));
         float sampleCount = sampleFrequency * S;
@@ -146,7 +156,6 @@ public:
 
         float deltaA = 1.0f / (aCount + 1);
         float deltaB = 1.0f / (bCount + 1);
-        float2 deltaUV = abs(texCoords[0] * deltaA + texCoords[1] * deltaB + texCoords[2] * (-deltaA - deltaB));
 
         for (float a = deltaA; a < 1; a += deltaA)
         {
@@ -154,9 +163,49 @@ public:
             {
                 if (a + b > 1)
                     break;
-                float3 pos = positions[0] * a + positions[1] * b + positions[2] * (1 - a - b);
-                float2 texCoord = frac(texCoords[0] * a + texCoords[1] * b + texCoords[2] * (1 - a - b));
-                sampleMaterial(pos, texCoord, deltaUV);
+                float3 pos = tri[0] * a + tri[1] * b + tri[2] * (1 - a - b);
+                float2 uv = uvs[0] * a + uvs[1] * b + uvs[2] * (1 - a - b);
+                sampleMaterial(pos, uv);
+            }
+        }
+    }
+
+    void sampleArea(float3 tri[3], float2 uvs[3], std::vector<float3>& points, int3 cellInt)
+    {
+        int index = CellToIndex(cellInt, gridData.voxelCount);
+        for (size_t i = 0; i < points.size(); i++)
+        {
+            float3 coord = VoxelizationUtility::BarycentricCoordinates(tri[0], tri[1], tri[2], points[i]);
+            float2 uv = uvs[0] * coord.x + uvs[1] * coord.y + uvs[2] * coord.z;
+            sampleMaterial(points[i], uv, index);
+        }
+    }
+
+    void calcTriangle(float3 tri[3], float2 uvs[3])
+    {
+        int xMin, yMin, zMin, xMax, yMax, zMax;
+        xMin = yMin = zMin = voxelCount;
+        xMax = yMax = zMax = 0;
+        for (size_t i = 0; i < 3; i++)
+        {
+            xMin = std::min(xMin, (int)math::floor(tri[i].x));
+            yMin = std::min(yMin, (int)math::floor(tri[i].y));
+            zMin = std::min(zMin, (int)math::floor(tri[i].z));
+            xMax = std::max(xMax, (int)math::floor(tri[i].x));
+            yMax = std::max(yMax, (int)math::floor(tri[i].y));
+            zMax = std::max(zMax, (int)math::floor(tri[i].z));
+        }
+        for (int z = zMin; z <= zMax; z++)
+        {
+            for (int y = yMin; y <= yMax; y++)
+            {
+                for (int x = xMin; x <= xMax; x++)
+                {
+                    int3 cellInt = int3(x, y, z);
+                    float3 minPoint = float3(cellInt);
+                    std::vector<float3> points = VoxelizationUtility::BoxClip(minPoint, minPoint + 1.f, tri);
+                    sampleArea(tri, uvs, points, cellInt);
+                }
             }
         }
     }
@@ -175,8 +224,11 @@ public:
             {
                 positions[i] = (positions[i] - gridData.gridMin) / gridData.voxelSize;
             }
-            float2 texCoords[3] = {pUV[triangle.x], pUV[triangle.y], pUV[triangle.z]};
-            sampleTriangle(positions, texCoords);
+            float2 uvs[3] = {pUV[triangle.x], pUV[triangle.y], pUV[triangle.z]};
+            if (sampleFrequency == 0)
+                calcTriangle(positions, uvs);
+            else
+                sampleTriangle(positions, uvs);
         }
     }
 

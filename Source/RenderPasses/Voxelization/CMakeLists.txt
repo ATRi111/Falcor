@@ -1,6 +1,9 @@
 add_plugin(Voxelization)
 
 target_sources(Voxelization PRIVATE
+    VoxelizationUtility.h
+    MaterialUtility.h
+
     VoxelizationShared.slang
     VoxelizationBase.h
     VoxelizationBase.cpp

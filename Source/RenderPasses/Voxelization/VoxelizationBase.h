@@ -3,6 +3,7 @@
 #include "RenderGraph/RenderPass.h"
 #include "RenderGraph/RenderPassHelpers.h"
 #include "VoxelizationShared.slang"
+#include "VoxelizationUtility.h"
 using namespace Falcor;
 
 inline std::string ToString(float3 v)

@@ -169,10 +169,10 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         }
     }
 
-    static const uint samplePoints[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
+    static const uint samplePoints[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256};
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < 9; i++)
+        for (uint32_t i = 0; i < 10; i++)
         {
             list.push_back({samplePoints[i], std::to_string(samplePoints[i])});
         }
