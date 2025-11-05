@@ -51,6 +51,5 @@ private:
     ref<Sampler> mpPointSampler;
 
     bool mUpdateScene;
-    bool mShowVoxelIndex;
     bool mCheckEllipsoid;
 };

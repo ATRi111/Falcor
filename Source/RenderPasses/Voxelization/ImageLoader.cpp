@@ -38,9 +38,10 @@ Image* ImageLoader::loadImage(uint materialId, TextureType type)
     int w, h, c;
     float* pixels = stbi_loadf(filePath.c_str(), &w, &h, &c, 4);
     if (!pixels)
-        throw new Exception("Can not load image at:" + filePath);
+        return nullptr;
     Image* image = new Image(reinterpret_cast<float4*>(pixels), uint2(w, h));
     image->name = filePath;
+    imageCache[filePath] = image;
 
     stbi_image_free(pixels);
     return image;

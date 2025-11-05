@@ -31,6 +31,7 @@ namespace
 {
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/RayMarching.ps.slang";
 const std::string kInputDiffuse = "diffuse";
+const std::string kInputSpecular = "specular";
 const std::string kInputEllipsoids = "ellipsoids";
 const std::string kOutputColor = "color";
 } // namespace
@@ -40,8 +41,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mpDevice = pDevice;
     mUpdateScene = false;
 
-    mShowVoxelIndex = false;
-    mCheckEllipsoid = false;
+    mCheckEllipsoid = true;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
@@ -59,6 +59,11 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
         .rawBuffer(VoxelizationBase::GlobalGridData.totalVoxelCount() * sizeof(Ellipsoid));
 
     reflector.addInput(kInputDiffuse, "Diffuse")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::RGBA32Float)
+        .texture3D(0, 0, 0, 1);
+
+    reflector.addInput(kInputSpecular, "Specular")
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::RGBA32Float)
         .texture3D(0, 0, 0, 1);
@@ -84,12 +89,12 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mpFullScreenPass = FullScreenPass::create(mpDevice, desc, mpScene->getSceneDefines());
         mUpdateScene = false;
     }
-    mpFullScreenPass->addDefine("SHOW_VOXEL_INDEX", mShowVoxelIndex ? "1" : "0");
     mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
 
     ref<Camera> pCamera = mpScene->getCamera();
 
     ref<Texture> pDiffuse = renderData.getTexture(kInputDiffuse);
+    ref<Texture> pSpecular = renderData.getTexture(kInputSpecular);
     ref<Buffer> pEllipsoids = renderData.getResource(kInputEllipsoids)->asBuffer();
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
 
@@ -99,6 +104,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
     auto var = mpFullScreenPass->getRootVar();
     var["gDiffuse"] = pDiffuse;
+    var["gSpecular"] = pSpecular;
     var["gEllipsoids"] = pEllipsoids;
 
     var["GridData"]["gridMin"] = data.gridMin;
@@ -115,7 +121,6 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
 void RayMarchingPass::renderUI(Gui::Widgets& widget)
 {
-    widget.checkbox("Show Voxel Index", mShowVoxelIndex);
     widget.checkbox("Check Ellipsoid", mCheckEllipsoid);
 }
 

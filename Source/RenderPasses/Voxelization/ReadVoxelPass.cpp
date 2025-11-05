@@ -31,6 +31,7 @@ namespace
 {
 const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/Voxelization.cs.slang";
 const std::string kOutputDiffuse = "diffuse";
+const std::string kOutputSpecular = "specular";
 const std::string kOutputEllipsoids = "ellipsoids";
 
 }; // namespace
@@ -38,6 +39,7 @@ const std::string kOutputEllipsoids = "ellipsoids";
 ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mComplete = true;
+    specularBuffer = nullptr;
     diffuseBuffer = nullptr;
     ellipsoids = nullptr;
     selectedFile = 0;
@@ -64,6 +66,11 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Float)
         .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
 
+    reflector.addOutput(kOutputSpecular, "Specular Voxel Texture")
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .format(ResourceFormat::RGBA32Float)
+        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
+
     reflector.addOutput(kOutputEllipsoids, "Ellipsoids")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::Unknown)
@@ -77,9 +84,11 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         return;
 
     ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
+    ref<Texture> pSpecular = renderData.getTexture(kOutputSpecular);
     ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
 
     pDiffuse->setSubresourceBlob(0, diffuseBuffer, gridData.totalVoxelCount() * sizeof(float4));
+    pSpecular->setSubresourceBlob(0, specularBuffer, gridData.totalVoxelCount() * sizeof(float4));
     if (gridData.totalVoxelCount() * sizeof(Ellipsoid) <= pEllipsoids->getElementCount())
         pEllipsoids->setBlob(ellipsoids, 0, gridData.totalVoxelCount() * sizeof(Ellipsoid));
     mComplete = true;
@@ -125,6 +134,8 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 
         tryRead(f, offset, voxelCount * sizeof(float4), diffuseBuffer, fileSize);
 
+        tryRead(f, offset, voxelCount * sizeof(float4), specularBuffer, fileSize);
+
         tryRead(f, offset, voxelCount * sizeof(Ellipsoid), ellipsoids, fileSize);
 
         f.close();
@@ -145,6 +156,8 @@ void ReadVoxelPass::reset(uint voxelCount)
 {
     free(diffuseBuffer);
     diffuseBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
+    free(specularBuffer);
+    specularBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
     free(ellipsoids);
     ellipsoids = reinterpret_cast<Ellipsoid*>(malloc(voxelCount * sizeof(Ellipsoid)));
 }

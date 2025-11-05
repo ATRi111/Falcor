@@ -1,6 +1,7 @@
 #pragma once
 #include "VoxelizationBase.h"
 #include "ImageLoader.h"
+#include "Profiler.h"
 #include <fstream>
 
 class MeshSampler
@@ -8,12 +9,15 @@ class MeshSampler
 private:
     GridData& gridData;
     Image* currentBaseColor;
+    Image* currentSpecular;
+    Image* currentNormal;
     uint voxelCount;
 
 public:
     ImageLoader loader;
     uint sampleFrequency;
     float4* diffuseBuffer;
+    float4* specularBuffer;
     Ellipsoid* ellipsoids;
     std::vector<std::vector<float3>> pointsInVoxels;
     std::string fileName;
@@ -22,19 +26,24 @@ public:
     {
         voxelCount = gridData.totalVoxelCount();
         currentBaseColor = nullptr;
+        currentNormal = nullptr;
+        currentSpecular = nullptr;
         fileName = ToString(gridData.voxelCount) + "_" + std::to_string(sampleFrequency) + ".bin";
         diffuseBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
+        specularBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
         ellipsoids = reinterpret_cast<Ellipsoid*>(malloc(voxelCount * sizeof(Ellipsoid)));
         pointsInVoxels.resize(voxelCount);
         for (uint i = 0; i < voxelCount; i++)
         {
             diffuseBuffer[i] = float4(0);
+            specularBuffer[i] = float4(0);
         }
     }
 
     ~MeshSampler()
     {
         free(diffuseBuffer);
+        free(specularBuffer);
         free(ellipsoids);
     }
 
@@ -105,8 +114,22 @@ public:
     {
         int3 p = int3(position);
         int index = CellToIndex(p, gridData.voxelCount);
-        float4 baseColor = currentBaseColor->Sample(texCoord);
-        diffuseBuffer[index] += float4(baseColor.xyz(), 1);
+
+        // StandardMaterial.slang
+        float IoR = 1.5f;
+        float f = (IoR - 1.f) / (IoR + 1.f);
+        float F0 = f * f;
+        float3 baseColor = currentBaseColor->Sample(texCoord).xyz();
+        float4 spec;
+        if (currentSpecular)
+            spec = currentSpecular->Sample(texCoord);
+        else
+            spec = float4(0, 0, 0, 0);
+        // d.roughness = spec.g;
+        // d.metallic = spec.b;
+
+        diffuseBuffer[index] += float4(lerp(baseColor, float3(0), spec.b), 1);
+        specularBuffer[index] += float4(lerp(float3(F0), baseColor, spec.b), 1);
         pointsInVoxels[index].push_back(math::frac(position));
     }
 
@@ -141,6 +164,8 @@ public:
     void sampleMesh(MeshHeader mesh, float3* pPos, float2* pUV, uint3* pTri)
     {
         currentBaseColor = loader.loadImage(mesh.materialID, BaseColor);
+        currentSpecular = loader.loadImage(mesh.materialID, Specular);
+        currentNormal = loader.loadImage(mesh.materialID, Normal);
         for (size_t tid = 0; tid < mesh.triangleCount; tid++)
         {
             uint3 triangle = pTri[tid + mesh.triangleOffset];
@@ -157,11 +182,17 @@ public:
 
     void sampleAll(SceneHeader scene, std::vector<MeshHeader> meshList, float3* pPos, float2* pUV, uint3* pTri)
     {
+        Tools::Profiler::BeginSample("Mesh Sampling");
         for (size_t i = 0; i < meshList.size(); i++)
         {
             sampleMesh(meshList[i], pPos, pUV, pTri);
         }
         sumPoints();
+        Tools::Profiler::EndSample("Mesh Sampling");
+        Tools::Profiler::Print();
+        std::cout << "TIME PER VOXEL: " << std::chrono::duration<double>(Tools::Profiler::timeDict["Mesh Sampling"]).count() / voxelCount
+                  << " s" << std::endl;
+        Tools::Profiler::Reset();
     }
 
     void write() const
@@ -172,6 +203,7 @@ public:
 
         f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
         f.write(reinterpret_cast<char*>(diffuseBuffer), voxelCount * sizeof(float4));
+        f.write(reinterpret_cast<char*>(specularBuffer), voxelCount * sizeof(float4));
         f.write(reinterpret_cast<char*>(ellipsoids), voxelCount * sizeof(Ellipsoid));
 
         f.close();

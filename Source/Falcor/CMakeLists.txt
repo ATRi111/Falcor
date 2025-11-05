@@ -6,6 +6,7 @@ target_sources(Falcor PRIVATE
 
     Falcor.h
     stb_image.h
+    Profiler.h
     GlobalState.cpp
     GlobalState.h
 

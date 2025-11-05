@@ -57,6 +57,7 @@ private:
     std::vector<std::filesystem::path> filePaths;
     uint selectedFile;
     float4* diffuseBuffer;
+    float4* specularBuffer;
     Ellipsoid* ellipsoids;
 
     bool mComplete;

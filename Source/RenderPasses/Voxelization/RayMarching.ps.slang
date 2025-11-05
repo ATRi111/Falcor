@@ -3,6 +3,7 @@ import Scene.SceneTypes;
 __exported import Rendering.Materials.StandardMaterial;
 
 Texture3D<float4> gDiffuse;
+Texture3D<float4> gSpecular;
 StructuredBuffer<Ellipsoid> gEllipsoids;
 
 cbuffer GridData
@@ -195,21 +196,6 @@ float3 screenCoordToGridCoord(float2 screenCoord, float NDCDepth)
     return cell / voxelCount;
 }
 
-float3 cellToColor(uint3 cell)
-{
-    static float3 palette[6] = {
-        float3(1.0, 0.0, 0.0), // 红
-        float3(0.0, 1.0, 0.0), // 绿
-        float3(0.0, 0.0, 1.0), // 蓝
-        float3(1.0, 1.0, 0.0), // 黄
-        float3(1.0, 0.0, 1.0), // 紫
-        float3(0.0, 1.0, 1.0), // 青
-    };
-    uint h = (cell.x * 73856093) ^ (cell.y * 19349663) ^ (cell.z * 83492791);
-    h %= 6;
-    return palette[h];
-}
-
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
     PsOut psOut = {};
@@ -219,12 +205,9 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     HitResult hit = rayMarching(from, to);
     if (hit.cellInt.x >= 0)
     {
-#if SHOW_VOXEL_INDEX
-        psOut.color = float4(cellToColor(hit.cellInt), 1);
-#else
         float4 diffuse = gDiffuse[hit.cellInt];
-        psOut.color = diffuse / diffuse.w;
-#endif
+        float4 specular = gSpecular[hit.cellInt];
+        psOut.color = diffuse / diffuse.w + specular / specular.w;
     }
     else
         psOut.color = float4(0, 0, 0, 1);
