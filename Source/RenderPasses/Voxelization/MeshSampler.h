@@ -8,13 +8,13 @@ class MeshSampler
 {
 private:
     GridData& gridData;
+    ImageLoader& loader;
     Image* currentBaseColor;
     Image* currentSpecular;
     Image* currentNormal;
     uint voxelCount;
 
 public:
-    ImageLoader loader;
     uint sampleFrequency;
     float4* diffuseBuffer;
     float4* specularBuffer;
@@ -22,7 +22,8 @@ public:
     std::vector<std::vector<float3>> pointsInVoxels;
     std::string fileName;
 
-    MeshSampler(uint sampleFrequency) : gridData(VoxelizationBase::GlobalGridData), sampleFrequency(sampleFrequency)
+    MeshSampler(uint sampleFrequency = 0)
+        : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance()), sampleFrequency(sampleFrequency)
     {
         voxelCount = gridData.totalVoxelCount();
         currentBaseColor = nullptr;
@@ -106,10 +107,6 @@ public:
     {
         for (uint i = 0; i < voxelCount; i++)
         {
-            if (pointsInVoxels[i].size() < 3 && diffuseBuffer[i].w > 0)
-            {
-                std::cout << "Too few points to fit ellipsoid" << std::endl;
-            }
             int3 cellInt = IndexToCell(i, gridData.voxelCount);
             Ellipsoid e = fitEllipsoid(pointsInVoxels[i], cellInt);
             ellipsoids[i] = e;
@@ -118,21 +115,16 @@ public:
 
     void sampleMaterial(float3 position, float2 uv, int index)
     {
-        // StandardMaterial.slang
-        float IoR = 1.5f;
-        float f = (IoR - 1.f) / (IoR + 1.f);
-        float F0 = f * f;
         float3 baseColor = currentBaseColor->Sample(uv).xyz();
         float4 spec;
         if (currentSpecular)
             spec = currentSpecular->Sample(uv);
         else
             spec = float4(0, 0, 0, 0);
-        // d.roughness = spec.g;
-        // d.metallic = spec.b;
-
-        diffuseBuffer[index] += float4(lerp(baseColor, float3(0), spec.b), 1);
-        specularBuffer[index] += float4(lerp(float3(F0), baseColor, spec.b), 1);
+        ABSDFInput input = {baseColor, spec};
+        ABSDF absdf = MaterialUtility::CalcABSDF(input);
+        diffuseBuffer[index] += absdf.diffuse;
+        specularBuffer[index] += absdf.specular;
         pointsInVoxels[index].push_back(position);
     }
 
@@ -143,7 +135,7 @@ public:
         sampleMaterial(position, uv, index);
     }
 
-    void sampleTriangle(float3 tri[3], float2 uvs[3])
+    void sampleTriangle(float3 tri[3], float2 triuv[3])
     {
         float3 BC = tri[2] - tri[1];
         float3 AC = tri[2] - tri[0];
@@ -164,24 +156,42 @@ public:
                 if (a + b > 1)
                     break;
                 float3 pos = tri[0] * a + tri[1] * b + tri[2] * (1 - a - b);
-                float2 uv = uvs[0] * a + uvs[1] * b + uvs[2] * (1 - a - b);
+                float2 uv = triuv[0] * a + triuv[1] * b + triuv[2] * (1 - a - b);
                 sampleMaterial(pos, uv);
             }
         }
     }
 
-    void sampleArea(float3 tri[3], float2 uvs[3], std::vector<float3>& points, int3 cellInt)
+    void sampleArea(float3 tri[3], float2 triuv[3], std::vector<float3>& points, int3 cellInt)
     {
+        if (points.size() == 0)
+            return;
+        if (points.size() < 3)
+            std::cout << "Less than 3 intersection points in voxel!" << std::endl;
+
         int index = CellToIndex(cellInt, gridData.voxelCount);
-        for (size_t i = 0; i < points.size(); i++)
+        std::vector<float2> uvs;
+        for (uint i = 0; i < points.size(); i++)
         {
             float3 coord = VoxelizationUtility::BarycentricCoordinates(tri[0], tri[1], tri[2], points[i]);
-            float2 uv = uvs[0] * coord.x + uvs[1] * coord.y + uvs[2] * coord.z;
-            sampleMaterial(points[i], uv, index);
+            float2 uv = triuv[0] * coord.x + triuv[1] * coord.y + triuv[2] * coord.z;
+            uvs.push_back(uv);
+            pointsInVoxels[index].push_back(points[i]);
         }
+
+        float3 baseColor = currentBaseColor->SampleArea(uvs).xyz();
+        float4 spec;
+        if (currentSpecular)
+            spec = currentSpecular->SampleArea(uvs);
+        else
+            spec = float4(0, 0, 0, 0);
+        ABSDFInput input = {baseColor, spec};
+        ABSDF absdf = MaterialUtility::CalcABSDF(input);
+        diffuseBuffer[index] += absdf.diffuse;
+        specularBuffer[index] += absdf.specular;
     }
 
-    void calcTriangle(float3 tri[3], float2 uvs[3])
+    void calcTriangle(float3 tri[3], float2 triuv[3])
     {
         int xMin, yMin, zMin, xMax, yMax, zMax;
         xMin = yMin = zMin = voxelCount;
@@ -204,7 +214,7 @@ public:
                     int3 cellInt = int3(x, y, z);
                     float3 minPoint = float3(cellInt);
                     std::vector<float3> points = VoxelizationUtility::BoxClip(minPoint, minPoint + 1.f, tri);
-                    sampleArea(tri, uvs, points, cellInt);
+                    sampleArea(tri, triuv, points, cellInt);
                 }
             }
         }
@@ -224,11 +234,11 @@ public:
             {
                 positions[i] = (positions[i] - gridData.gridMin) / gridData.voxelSize;
             }
-            float2 uvs[3] = {pUV[triangle.x], pUV[triangle.y], pUV[triangle.z]};
+            float2 triuv[3] = {pUV[triangle.x], pUV[triangle.y], pUV[triangle.z]};
             if (sampleFrequency == 0)
-                calcTriangle(positions, uvs);
+                calcTriangle(positions, triuv);
             else
-                sampleTriangle(positions, uvs);
+                sampleTriangle(positions, triuv);
         }
     }
 

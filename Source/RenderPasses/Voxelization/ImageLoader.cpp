@@ -18,6 +18,19 @@ ImageLoader::ImageLoader()
         idToName_Arcade[4] = "Chair_Blue";
         idToName_Arcade[5] = "Cabinet";
     }
+    // 提前生成缓存
+    for (uint i = 0; i < idToName_Arcade.size(); i++)
+    {
+        loadImage(i, BaseColor);
+        loadImage(i, Specular);
+        loadImage(i, Normal);
+    }
+}
+
+ImageLoader& ImageLoader::Instance()
+{
+    static ImageLoader imageLoader;
+    return imageLoader;
 }
 
 ImageLoader::~ImageLoader()
@@ -39,7 +52,18 @@ Image* ImageLoader::loadImage(uint materialId, TextureType type)
     float* pixels = stbi_loadf(filePath.c_str(), &w, &h, &c, 4);
     if (!pixels)
         return nullptr;
-    Image* image = new Image(reinterpret_cast<float4*>(pixels), uint2(w, h));
+
+    FilterFunction filterFunction;
+    switch (type)
+    {
+    case Normal:
+        filterFunction = FilterFunction::Normalize;
+        break;
+    default:
+        filterFunction = FilterFunction::Average;
+        break;
+    }
+    Image* image = new Image(reinterpret_cast<float4*>(pixels), uint2(w, h), filterFunction);
     image->name = filePath;
     imageCache[filePath] = image;
 

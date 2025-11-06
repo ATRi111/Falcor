@@ -19,8 +19,10 @@ private:
 
     std::unordered_map<std::string, Image*> imageCache;
 
-public:
     ImageLoader();
     ~ImageLoader();
+
+public:
+    static ImageLoader& Instance();
     Image* loadImage(uint materialId, TextureType type);
 };
