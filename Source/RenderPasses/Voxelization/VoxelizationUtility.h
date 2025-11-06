@@ -1,5 +1,6 @@
 #pragma once
 #include "Falcor.h"
+#include "Profiler.h"
 #include <unordered_set>
 using namespace Falcor;
 
@@ -109,6 +110,79 @@ private:
     }
 
 public:
+    static float PolygonArea(std::vector<float3>& points)
+    {
+        const size_t n = points.size();
+        if (n < 3)
+            return 0.0f;
+
+        float3 s = float3(0);
+        for (size_t i = 0; i < n; ++i)
+        {
+            float3 a = points[i];
+            float3 b = points[(i + 1) % n];
+            float3 c = cross(a, b); // a × b
+            s += c;
+        }
+        return 0.5f * std::sqrt(s.x * s.x + s.y * s.y + s.z * s.z);
+    }
+
+    static float PolygonArea(std::vector<float2>& points)
+    {
+        const size_t n = points.size();
+        if (n < 3)
+            return 0.0f;
+        float area = 0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            float2 a = points[i];
+            float2 b = points[(i + 1) % n];
+            area += a.x * b.y - a.y * b.x;
+        }
+        area = 0.5f * abs(area);
+        return area;
+    }
+
+    static float3x3 BuildTBN(float3 tri[3], float2 triuv[3])
+    {
+        float3 e1 = tri[1] - tri[0];
+        float3 e2 = tri[2] - tri[0];
+        float2 duv1 = triuv[1] - triuv[0];
+        float2 duv2 = triuv[2] - triuv[0];
+
+        float D = duv1.x * duv2.y - duv1.y * duv2.x;
+        float3 N = normalize(cross(e1, e2));
+
+        float3x3 ret;
+        if (abs(D) < 1e-8)
+        {
+            float3 T = normalize(e1 - N * dot(N, e1));
+            float3 B = normalize(cross(N, T));
+            ret.setCol(0, T);
+            ret.setCol(1, B);
+            ret.setCol(2, N);
+            return ret;
+        }
+
+        float r = 1.0 / D;
+        float3 Tp = (e1 * duv2.y - e2 * duv1.y) * r;
+        float3 Bp = (e2 * duv1.x - e1 * duv2.x) * r;
+
+        float3 T = normalize(Tp - N * dot(N, Tp));
+        float3 B = normalize(Bp - N * dot(N, Bp));
+        ret.setCol(0, T);
+        ret.setCol(1, B);
+        ret.setCol(2, N);
+        return ret;
+    }
+
+    static float3 CalcNormal(float3x3 TBN, float3 normalMapColor)
+    {
+        float3 normal = normalMapColor * 2.f - 1.f;
+        normal = math::normalize(math::mul(TBN, normal));
+        return normal;
+    }
+
     /// <summary>
     /// 计算重心坐标
     /// </summary>
@@ -217,23 +291,58 @@ public:
         return polygon;
     }
 
-    static float polygonArea(const std::vector<float3>& points)
+    static Ellipsoid FitEllipsoid(std::vector<float3>& points, int3 cellInt)
     {
-        const size_t n = points.size();
-        if (n < 3)
-            return 0.f;
-
-        float sx = 0.f, sy = 0.f, sz = 0.f;
-        for (size_t i = 0; i < n; ++i)
+        Ellipsoid e;
+        float3 sum = float3(0);
+        uint n = points.size();
+        if (n == 0)
         {
-            float3 a = points[i];
-            float3 b = points[(i + 1) % n];
-            float3 s = cross(a, b); // a × b
-            sx += s.x;
-            sy += s.y;
-            sz += s.z;
+            e.center = float3(0.5f);
+            e.shape = float3x3::identity();
+            return e;
         }
-        const float len = std::sqrt(sx * sx + sy * sy + sz * sz);
-        return 0.5f * len;
+
+        for (uint i = 0; i < n; i++)
+        {
+            sum += points[i];
+        }
+        e.center = sum / (float)n;
+        // 二次方程
+        float3x3 cov = float3x3::zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
+        for (uint i = 0; i < n; i++)
+        {
+            float3 v = points[i] - e.center;
+            cov[0][0] += v.x * v.x;
+            cov[0][1] += v.x * v.y;
+            cov[0][2] += v.x * v.z;
+            cov[1][0] += v.y * v.x;
+            cov[1][1] += v.y * v.y;
+            cov[1][2] += v.y * v.z;
+            cov[2][0] += v.z * v.x;
+            cov[2][1] += v.z * v.y;
+            cov[2][2] += v.z * v.z;
+        }
+        cov = cov * (1.f / n);
+
+        cov = (math::transpose(cov) + cov) * 0.5f;
+        // 避免出现奇异矩阵
+        float tr = cov[0][0] + cov[1][1] + cov[2][2];
+        float lam = 1e-6f * std::max(tr, 1e-6f);
+        cov[0][0] += lam;
+        cov[1][1] += lam;
+        cov[2][2] += lam;
+
+        float3x3 inv = math::inverse(cov);
+        float maxDot = 1e-12f;
+        for (uint i = 0; i < n; i++)
+        {
+            float3 v = points[i] - e.center;
+            float dot = math::dot(v, mul(inv, v));
+            maxDot = std::max(maxDot, dot);
+        }
+        e.shape = inv * (1.0f / maxDot);
+        e.center -= float3(cellInt);
+        return e;
     }
 };

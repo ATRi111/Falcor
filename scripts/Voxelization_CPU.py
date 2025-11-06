@@ -16,6 +16,7 @@ def render_graph_RasterPass():
     g.addEdge("ReadVoxelPass.diffuse","RayMarchingPass.diffuse")
     g.addEdge("ReadVoxelPass.specular","RayMarchingPass.specular")
     g.addEdge("ReadVoxelPass.ellipsoids","RayMarchingPass.ellipsoids")
+    g.addEdge("ReadVoxelPass.NDFLobes","RayMarchingPass.NDFLobes")
 
     g.markOutput("RayMarchingPass.color")
     

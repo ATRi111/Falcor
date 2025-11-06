@@ -4,6 +4,7 @@ __exported import Rendering.Materials.StandardMaterial;
 
 Texture3D<float4> gDiffuse;
 Texture3D<float4> gSpecular;
+StructuredBuffer<NDF> gNDFLobes;
 StructuredBuffer<Ellipsoid> gEllipsoids;
 
 cbuffer GridData
@@ -30,7 +31,26 @@ struct PsOut
     float4 color : SV_Target0;
 };
 
-static const uint3 SubDivision = uint3(4, 2, 4);
+float weightedCos(NDF ndf, float3 direction)
+{
+    float sum = 0;
+    float weightSum = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        float3 n = normalize(ndf.weightedNormals[i].xyz);
+        float w = ndf.weightedNormals[i].w;
+        if (w > 0)
+        {
+            float cosTheta = dot(n, direction);
+            if (cosTheta > 0)
+            {
+                sum += cosTheta * w;
+                weightSum += w;
+            }
+        }
+    }
+    return weightSum > 0 ? sum / weightSum : 0;
+}
 
 float2 intersect(float p1, float p2, float p0, float q)
 {

@@ -28,7 +28,7 @@ void loadTriangle(uint triangleId)
     uint3 triangle = scene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     triangle += vbOffset;
     triangles[triangleId + triOffset] = triangle;
-    uint[3] indices = { triangle.x, triangle.y, triangle.z };
+    uint indices[3] = { triangle.x, triangle.y, triangle.z };
     for (uint i = 0; i < 3; i++)
     {
         uint index = indices[i];

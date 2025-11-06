@@ -12,6 +12,7 @@ private:
     Image* currentBaseColor;
     Image* currentSpecular;
     Image* currentNormal;
+    float3x3 currentTBN;
     uint voxelCount;
 
 public:
@@ -34,115 +35,13 @@ public:
         pointsInVoxels.resize(voxelCount);
     }
 
-    Ellipsoid fitEllipsoid(std::vector<float3>& points, int3 cellInt)
-    {
-        Ellipsoid e;
-        float3 sum = float3(0);
-        uint n = points.size();
-        if (n == 0)
-        {
-            e.center = float3(0.5f);
-            e.shape = float3x3::identity();
-            return e;
-        }
-
-        for (uint i = 0; i < n; i++)
-        {
-            sum += points[i];
-        }
-        e.center = sum / (float)n;
-        // 二次方程
-        float3x3 cov = float3x3::zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
-        for (uint i = 0; i < n; i++)
-        {
-            float3 v = points[i] - e.center;
-            cov[0][0] += v.x * v.x;
-            cov[0][1] += v.x * v.y;
-            cov[0][2] += v.x * v.z;
-            cov[1][0] += v.y * v.x;
-            cov[1][1] += v.y * v.y;
-            cov[1][2] += v.y * v.z;
-            cov[2][0] += v.z * v.x;
-            cov[2][1] += v.z * v.y;
-            cov[2][2] += v.z * v.z;
-        }
-        cov = cov * (1.f / n);
-
-        cov = (math::transpose(cov) + cov) * 0.5f;
-        // 避免出现奇异矩阵
-        float tr = cov[0][0] + cov[1][1] + cov[2][2];
-        float lam = 1e-6f * std::max(tr, 1e-6f);
-        cov[0][0] += lam;
-        cov[1][1] += lam;
-        cov[2][2] += lam;
-
-        float3x3 inv = math::inverse(cov);
-        float maxDot = 1e-12f;
-        for (uint i = 0; i < n; i++)
-        {
-            float3 v = points[i] - e.center;
-            float dot = math::dot(v, mul(inv, v));
-            maxDot = std::max(maxDot, dot);
-        }
-        e.shape = inv * (1.0f / maxDot);
-        e.center -= float3(cellInt);
-        return e;
-    }
-
     void sumPoints()
     {
         for (uint i = 0; i < voxelCount; i++)
         {
             int3 cellInt = IndexToCell(i, gridData.voxelCount);
-            Ellipsoid e = fitEllipsoid(pointsInVoxels[i], cellInt);
+            Ellipsoid e = VoxelizationUtility::FitEllipsoid(pointsInVoxels[i], cellInt);
             ellipsoidBuffer[i] = e;
-        }
-    }
-
-    void sampleMaterial(float3 position, float2 uv, int index)
-    {
-        float3 baseColor = currentBaseColor->Sample(uv).xyz();
-        float4 spec;
-        if (currentSpecular)
-            spec = currentSpecular->Sample(uv);
-        else
-            spec = float4(0, 0, 0, 0);
-        ABSDFInput input = {baseColor, spec, 1};
-        MaterialUtility::Accumulate(ABSDFBuffer[index], input);
-        pointsInVoxels[index].push_back(position);
-    }
-
-    void sampleMaterial(float3 position, float2 uv)
-    {
-        int3 p = int3(position);
-        int index = CellToIndex(p, gridData.voxelCount);
-        sampleMaterial(position, uv, index);
-    }
-
-    void sampleTriangle(float3 tri[3], float2 triuv[3])
-    {
-        float3 BC = tri[2] - tri[1];
-        float3 AC = tri[2] - tri[0];
-        float k = length(BC) / length(AC);
-        float S = 0.5f * length(cross(BC, AC));
-        float sampleCount = sampleFrequency * S;
-        float temp = sqrt(2 * sampleCount / k);
-        uint aCount = (uint)ceil(temp);
-        uint bCount = (uint)ceil(temp * k);
-
-        float deltaA = 1.0f / (aCount + 1);
-        float deltaB = 1.0f / (bCount + 1);
-
-        for (float a = deltaA; a < 1; a += deltaA)
-        {
-            for (float b = deltaB; b < 1; b += deltaB)
-            {
-                if (a + b > 1)
-                    break;
-                float3 pos = tri[0] * a + tri[1] * b + tri[2] * (1 - a - b);
-                float2 uv = triuv[0] * a + triuv[1] * b + triuv[2] * (1 - a - b);
-                sampleMaterial(pos, uv);
-            }
         }
     }
 
@@ -163,14 +62,13 @@ public:
             pointsInVoxels[index].push_back(points[i]);
         }
 
-        float area = 0;
-        float3 baseColor = currentBaseColor->SampleArea(uvs, area).xyz();
-        float4 spec;
-        if (currentSpecular)
-            spec = currentSpecular->SampleArea(uvs, area);
-        else
-            spec = float4(0, 0, 0, 0);
-        ABSDFInput input = {baseColor, spec, area};
+        float area = VoxelizationUtility::PolygonArea(points);
+        float3 baseColor = currentBaseColor->SampleArea(uvs).xyz();
+        float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0, 0, 0);
+        float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0, 0, 1);
+        normal = math::normalize(normal);
+        normal = VoxelizationUtility::CalcNormal(currentTBN, normal);
+        ABSDFInput input = {baseColor, spec, normal, area};
         MaterialUtility::Accumulate(ABSDFBuffer[index], input);
     }
 
@@ -211,17 +109,15 @@ public:
         for (size_t tid = 0; tid < mesh.triangleCount; tid++)
         {
             uint3 triangle = pTri[tid + mesh.triangleOffset];
-            float3 positions[3] = {pPos[triangle.x], pPos[triangle.y], pPos[triangle.z]};
+            float3 tri[3] = {pPos[triangle.x], pPos[triangle.y], pPos[triangle.z]};
             // 世界坐标处理成网格坐标
             for (int i = 0; i < 3; i++)
             {
-                positions[i] = (positions[i] - gridData.gridMin) / gridData.voxelSize;
+                tri[i] = (tri[i] - gridData.gridMin) / gridData.voxelSize;
             }
             float2 triuv[3] = {pUV[triangle.x], pUV[triangle.y], pUV[triangle.z]};
-            if (sampleFrequency == 0)
-                calcTriangle(positions, triuv);
-            else
-                sampleTriangle(positions, triuv);
+            currentTBN = VoxelizationUtility::BuildTBN(tri, triuv);
+            calcTriangle(tri, triuv);
         }
     }
 
@@ -247,10 +143,55 @@ public:
         f.open(s, std::ios::binary);
 
         f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
-        f.write(reinterpret_cast<const char*>(ABSDFBuffer.data()), voxelCount * sizeof(ABSDF));
+        f.write(reinterpret_cast<const char*>(ABSDFBuffer.data()), (size_t)voxelCount * sizeof(ABSDF));
         f.write(reinterpret_cast<const char*>(ellipsoidBuffer.data()), voxelCount * sizeof(Ellipsoid));
 
         f.close();
         VoxelizationBase::FileUpdated = true;
     }
 };
+
+//    void sampleMaterial(float3 position, float2 uv, int index)
+//{
+//    float3 baseColor = currentBaseColor->Sample(uv).xyz();
+//    float4 spec = currentSpecular ? currentSpecular->Sample(uv) : float4(0, 0, 0, 0);
+//    float3 normal = currentNormal ? currentNormal->Sample(uv).xyz() : float3(0, 0, 1);
+//    normal = VoxelizationUtility::CalcNormal(currentTBN, normal);
+//    ABSDFInput input = {baseColor, spec, normal, 1};
+//    MaterialUtility::Accumulate(ABSDFBuffer[index], input);
+//    pointsInVoxels[index].push_back(position);
+//}
+//
+// void sampleMaterial(float3 position, float2 uv)
+//{
+//    int3 p = int3(position);
+//    int index = CellToIndex(p, gridData.voxelCount);
+//    sampleMaterial(position, uv, index);
+//}
+//
+// void sampleTriangle(float3 tri[3], float2 triuv[3])
+//{
+//    float3 BC = tri[2] - tri[1];
+//    float3 AC = tri[2] - tri[0];
+//    float k = length(BC) / length(AC);
+//    float S = 0.5f * length(cross(BC, AC));
+//    float sampleCount = sampleFrequency * S;
+//    float temp = sqrt(2 * sampleCount / k);
+//    uint aCount = (uint)ceil(temp);
+//    uint bCount = (uint)ceil(temp * k);
+//
+//    float deltaA = 1.0f / (aCount + 1);
+//    float deltaB = 1.0f / (bCount + 1);
+//
+//    for (float a = deltaA; a < 1; a += deltaA)
+//    {
+//        for (float b = deltaB; b < 1; b += deltaB)
+//        {
+//            if (a + b > 1)
+//                break;
+//            float3 pos = tri[0] * a + tri[1] * b + tri[2] * (1 - a - b);
+//            float2 uv = triuv[0] * a + triuv[1] * b + triuv[2] * (1 - a - b);
+//            sampleMaterial(pos, uv);
+//        }
+//    }
+//}

@@ -33,6 +33,7 @@ const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPas
 const std::string kOutputDiffuse = "diffuse";
 const std::string kOutputSpecular = "specular";
 const std::string kOutputEllipsoids = "ellipsoids";
+const std::string kOutputNDFLobes = "NDFLobes";
 
 }; // namespace
 
@@ -66,6 +67,12 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::Unknown)
         .rawBuffer(gridData.totalVoxelCount() * sizeof(Ellipsoid));
+
+    reflector.addOutput(kOutputNDFLobes, "NDF Lobes")
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.totalVoxelCount() * sizeof(NDF));
+
     return reflector;
 }
 
@@ -76,23 +83,28 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
     ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
     ref<Texture> pSpecular = renderData.getTexture(kOutputSpecular);
+    ref<Buffer> pNDFLobes = renderData.getResource(kOutputNDFLobes)->asBuffer();
     ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
 
-    float4* diffuseBuffer = (float4*)malloc(gridData.totalVoxelCount() * sizeof(float4));
-    float4* specularBuffer = (float4*)malloc(gridData.totalVoxelCount() * sizeof(float4));
+    float4* diffuseBuffer = new float4[gridData.totalVoxelCount()];
+    float4* specularBuffer = new float4[gridData.totalVoxelCount()];
+    NDF* NDFLobesBuffer = new NDF[gridData.totalVoxelCount()];
 
-    for (uint i = 0; i < ABSDFBuffer.size(); i++)
+    for (size_t i = 0; i < gridData.totalVoxelCount(); i++)
     {
         diffuseBuffer[i] = ABSDFBuffer[i].diffuse;
         specularBuffer[i] = ABSDFBuffer[i].specular;
+        NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
     }
 
     pDiffuse->setSubresourceBlob(0, diffuseBuffer, gridData.totalVoxelCount() * sizeof(float4));
     pSpecular->setSubresourceBlob(0, specularBuffer, gridData.totalVoxelCount() * sizeof(float4));
+    pNDFLobes->setBlob(NDFLobesBuffer, 0, gridData.totalVoxelCount() * sizeof(NDF));
     pEllipsoids->setBlob(ellipsoidBuffer.data(), 0, gridData.totalVoxelCount() * sizeof(Ellipsoid));
 
-    free(diffuseBuffer);
-    free(specularBuffer);
+    delete[] diffuseBuffer;
+    delete[] specularBuffer;
+    delete[] NDFLobesBuffer;
     reset(0);
 
     mComplete = true;

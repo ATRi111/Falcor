@@ -176,14 +176,9 @@ public:
         }
         return borderColor;
     }
-    /// <summary>
-    /// 采样多边形区域，并计算面积
-    /// </summary>
-    /// <param name="uvs">多边形各顶点的纹理坐标（必须按逆时针或顺时针顺序）</param>
-    /// <param name="area">多边形面积（以纹素数为单位）</param>
-    float4 SampleArea(std::vector<float2>& uvs, float& area) const
+
+    float4 SampleArea(std::vector<float2>& uvs) const
     {
-        area = 0;
         switch (uvs.size())
         {
         case 0:
@@ -199,13 +194,7 @@ public:
                 center += uvs[i];
             }
             center /= (float)uvs.size();
-            for (size_t i = 0; i < uvs.size(); ++i)
-            {
-                float2 a = uvs[i];
-                float2 b = uvs[(i + 1) % uvs.size()];
-                area += a.x * b.y - a.y * b.x;
-            }
-            area = 0.5f * abs(area);
+            float area = VoxelizationUtility::PolygonArea(uvs);
             area *= mipLevels[0].size.x * mipLevels[0].size.y;
             float lod = 0.5f * math::log2(area);
             return SampleTrilinear(center, lod);

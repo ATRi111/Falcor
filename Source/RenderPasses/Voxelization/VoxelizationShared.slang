@@ -3,6 +3,11 @@
 
 BEGIN_NAMESPACE_FALCOR
 
+struct NDF
+{
+    float4 weightedNormals[8];
+};
+
 struct Ellipsoid
 {
     float3 center;
@@ -15,7 +20,7 @@ struct GridData
     float3 voxelSize;
     uint3 voxelCount;
 
-    uint totalVoxelCount() { return voxelCount.x * voxelCount.y * voxelCount.z; }
+    size_t totalVoxelCount() { return (size_t)voxelCount.x * (size_t)voxelCount.y * (size_t)voxelCount.z; }
 };
 
 // TODO:Z-Order Curve

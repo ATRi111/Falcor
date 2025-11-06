@@ -155,7 +155,7 @@ void LoadMeshPass::compile(RenderContext* pRenderContext, const CompileData& com
 
 void LoadMeshPass::renderUI(Gui::Widgets& widget)
 {
-    static const uint resolutions[] = {16, 32, 64, 128, 256, 400};
+    static const uint resolutions[] = {16, 32, 64, 128, 256, 360};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < 6; i++)

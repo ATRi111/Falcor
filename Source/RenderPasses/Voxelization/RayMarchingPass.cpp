@@ -34,6 +34,7 @@ const std::string kInputDiffuse = "diffuse";
 const std::string kInputSpecular = "specular";
 const std::string kInputEllipsoids = "ellipsoids";
 const std::string kOutputColor = "color";
+const std::string kInputNDFLobes = "NDFLobes";
 } // namespace
 
 RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
@@ -53,11 +54,6 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
 
-    reflector.addInput(kInputEllipsoids, "Ellipsoids")
-        .bindFlags(ResourceBindFlags::ShaderResource)
-        .format(ResourceFormat::Unknown)
-        .rawBuffer(VoxelizationBase::GlobalGridData.totalVoxelCount() * sizeof(Ellipsoid));
-
     reflector.addInput(kInputDiffuse, "Diffuse")
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::RGBA32Float)
@@ -67,6 +63,16 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::RGBA32Float)
         .texture3D(0, 0, 0, 1);
+
+    reflector.addInput(kInputNDFLobes, "NDF Lobes")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(VoxelizationBase::GlobalGridData.totalVoxelCount() * sizeof(NDF));
+
+    reflector.addInput(kInputEllipsoids, "Ellipsoids")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(VoxelizationBase::GlobalGridData.totalVoxelCount() * sizeof(Ellipsoid));
 
     reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
@@ -95,6 +101,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
     ref<Texture> pDiffuse = renderData.getTexture(kInputDiffuse);
     ref<Texture> pSpecular = renderData.getTexture(kInputSpecular);
+    ref<Buffer> pNDFLobes = renderData.getResource(kInputNDFLobes)->asBuffer();
     ref<Buffer> pEllipsoids = renderData.getResource(kInputEllipsoids)->asBuffer();
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
 
@@ -105,6 +112,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     auto var = mpFullScreenPass->getRootVar();
     var["gDiffuse"] = pDiffuse;
     var["gSpecular"] = pSpecular;
+    var["gNDFLobes"] = pNDFLobes;
     var["gEllipsoids"] = pEllipsoids;
 
     var["GridData"]["gridMin"] = data.gridMin;

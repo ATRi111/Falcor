@@ -24,6 +24,7 @@ inline std::string ToString(uint3 v)
 class VoxelizationBase
 {
 public:
+    static const int NDFLobeCount = 8;
     static GridData GlobalGridData;
     static uint3 MinFactor; // 网格的分辨率必须是此值的整数倍
     static bool FileUpdated;
