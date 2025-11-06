@@ -176,9 +176,14 @@ public:
         }
         return borderColor;
     }
-
-    float4 SampleArea(std::vector<float2>& uvs) const
+    /// <summary>
+    /// 采样多边形区域，并计算面积
+    /// </summary>
+    /// <param name="uvs">多边形各顶点的纹理坐标（必须按逆时针或顺时针顺序）</param>
+    /// <param name="area">多边形面积（以纹素数为单位）</param>
+    float4 SampleArea(std::vector<float2>& uvs, float& area) const
     {
+        area = 0;
         switch (uvs.size())
         {
         case 0:
@@ -194,7 +199,6 @@ public:
                 center += uvs[i];
             }
             center /= (float)uvs.size();
-            float area = 0;
             for (size_t i = 0; i < uvs.size(); ++i)
             {
                 float2 a = uvs[i];

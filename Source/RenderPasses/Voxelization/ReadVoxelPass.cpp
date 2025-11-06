@@ -39,17 +39,8 @@ const std::string kOutputEllipsoids = "ellipsoids";
 ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mComplete = true;
-    specularBuffer = nullptr;
-    diffuseBuffer = nullptr;
-    ellipsoids = nullptr;
     selectedFile = 0;
     mpDevice = pDevice;
-}
-
-ReadVoxelPass::~ReadVoxelPass()
-{
-    if (diffuseBuffer)
-        free(diffuseBuffer);
 }
 
 RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
@@ -80,17 +71,30 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
 
 void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (mComplete || !diffuseBuffer)
+    if (mComplete || ABSDFBuffer.empty())
         return;
 
     ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
     ref<Texture> pSpecular = renderData.getTexture(kOutputSpecular);
     ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
 
+    float4* diffuseBuffer = (float4*)malloc(gridData.totalVoxelCount() * sizeof(float4));
+    float4* specularBuffer = (float4*)malloc(gridData.totalVoxelCount() * sizeof(float4));
+
+    for (uint i = 0; i < ABSDFBuffer.size(); i++)
+    {
+        diffuseBuffer[i] = ABSDFBuffer[i].diffuse;
+        specularBuffer[i] = ABSDFBuffer[i].specular;
+    }
+
     pDiffuse->setSubresourceBlob(0, diffuseBuffer, gridData.totalVoxelCount() * sizeof(float4));
     pSpecular->setSubresourceBlob(0, specularBuffer, gridData.totalVoxelCount() * sizeof(float4));
-    if (gridData.totalVoxelCount() * sizeof(Ellipsoid) <= pEllipsoids->getElementCount())
-        pEllipsoids->setBlob(ellipsoids, 0, gridData.totalVoxelCount() * sizeof(Ellipsoid));
+    pEllipsoids->setBlob(ellipsoidBuffer.data(), 0, gridData.totalVoxelCount() * sizeof(Ellipsoid));
+
+    free(diffuseBuffer);
+    free(specularBuffer);
+    reset(0);
+
     mComplete = true;
 }
 
@@ -132,11 +136,9 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
         uint voxelCount = gridData.totalVoxelCount();
         reset(voxelCount);
 
-        tryRead(f, offset, voxelCount * sizeof(float4), diffuseBuffer, fileSize);
+        tryRead(f, offset, voxelCount * sizeof(ABSDF), ABSDFBuffer.data(), fileSize);
 
-        tryRead(f, offset, voxelCount * sizeof(float4), specularBuffer, fileSize);
-
-        tryRead(f, offset, voxelCount * sizeof(Ellipsoid), ellipsoids, fileSize);
+        tryRead(f, offset, voxelCount * sizeof(Ellipsoid), ellipsoidBuffer.data(), fileSize);
 
         f.close();
 
@@ -154,12 +156,10 @@ void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
 
 void ReadVoxelPass::reset(uint voxelCount)
 {
-    free(diffuseBuffer);
-    diffuseBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
-    free(specularBuffer);
-    specularBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
-    free(ellipsoids);
-    ellipsoids = reinterpret_cast<Ellipsoid*>(malloc(voxelCount * sizeof(Ellipsoid)));
+    ABSDFBuffer.resize(voxelCount);
+    ABSDFBuffer.reserve(voxelCount);
+    ellipsoidBuffer.resize(voxelCount);
+    ellipsoidBuffer.reserve(voxelCount);
 }
 
 bool ReadVoxelPass::tryRead(std::ifstream& f, uint& offset, uint bytes, void* dst, uint fileSize)

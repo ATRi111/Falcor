@@ -40,7 +40,6 @@ public:
     static ref<ReadVoxelPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<ReadVoxelPass>(pDevice, props); }
 
     ReadVoxelPass(ref<Device> pDevice, const Properties& props);
-    ~ReadVoxelPass();
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
@@ -55,10 +54,9 @@ private:
     GridData& gridData;
     ref<Device> mpDevice;
     std::vector<std::filesystem::path> filePaths;
+    std::vector<ABSDF> ABSDFBuffer;
+    std::vector<Ellipsoid> ellipsoidBuffer;
     uint selectedFile;
-    float4* diffuseBuffer;
-    float4* specularBuffer;
-    Ellipsoid* ellipsoids;
 
     bool mComplete;
 };

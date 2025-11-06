@@ -207,7 +207,8 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     {
         float4 diffuse = gDiffuse[hit.cellInt];
         float4 specular = gSpecular[hit.cellInt];
-        psOut.color = diffuse / diffuse.w + specular / specular.w;
+        // psOut.color = diffuse / diffuse.w + specular / specular.w;
+        psOut.color = diffuse / diffuse.w;
     }
     else
         psOut.color = float4(0, 0, 0, 1);

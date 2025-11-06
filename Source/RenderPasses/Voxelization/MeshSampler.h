@@ -16,9 +16,8 @@ private:
 
 public:
     uint sampleFrequency;
-    float4* diffuseBuffer;
-    float4* specularBuffer;
-    Ellipsoid* ellipsoids;
+    std::vector<ABSDF> ABSDFBuffer;
+    std::vector<Ellipsoid> ellipsoidBuffer;
     std::vector<std::vector<float3>> pointsInVoxels;
     std::string fileName;
 
@@ -30,22 +29,9 @@ public:
         currentNormal = nullptr;
         currentSpecular = nullptr;
         fileName = ToString(gridData.voxelCount) + "_" + std::to_string(sampleFrequency) + ".bin";
-        diffuseBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
-        specularBuffer = reinterpret_cast<float4*>(malloc(voxelCount * sizeof(float4)));
-        ellipsoids = reinterpret_cast<Ellipsoid*>(malloc(voxelCount * sizeof(Ellipsoid)));
+        ABSDFBuffer.resize(voxelCount);
+        ellipsoidBuffer.resize(voxelCount);
         pointsInVoxels.resize(voxelCount);
-        for (uint i = 0; i < voxelCount; i++)
-        {
-            diffuseBuffer[i] = float4(0);
-            specularBuffer[i] = float4(0);
-        }
-    }
-
-    ~MeshSampler()
-    {
-        free(diffuseBuffer);
-        free(specularBuffer);
-        free(ellipsoids);
     }
 
     Ellipsoid fitEllipsoid(std::vector<float3>& points, int3 cellInt)
@@ -109,7 +95,7 @@ public:
         {
             int3 cellInt = IndexToCell(i, gridData.voxelCount);
             Ellipsoid e = fitEllipsoid(pointsInVoxels[i], cellInt);
-            ellipsoids[i] = e;
+            ellipsoidBuffer[i] = e;
         }
     }
 
@@ -121,10 +107,8 @@ public:
             spec = currentSpecular->Sample(uv);
         else
             spec = float4(0, 0, 0, 0);
-        ABSDFInput input = {baseColor, spec};
-        ABSDF absdf = MaterialUtility::CalcABSDF(input);
-        diffuseBuffer[index] += absdf.diffuse;
-        specularBuffer[index] += absdf.specular;
+        ABSDFInput input = {baseColor, spec, 1};
+        MaterialUtility::Accumulate(ABSDFBuffer[index], input);
         pointsInVoxels[index].push_back(position);
     }
 
@@ -179,16 +163,15 @@ public:
             pointsInVoxels[index].push_back(points[i]);
         }
 
-        float3 baseColor = currentBaseColor->SampleArea(uvs).xyz();
+        float area = 0;
+        float3 baseColor = currentBaseColor->SampleArea(uvs, area).xyz();
         float4 spec;
         if (currentSpecular)
-            spec = currentSpecular->SampleArea(uvs);
+            spec = currentSpecular->SampleArea(uvs, area);
         else
             spec = float4(0, 0, 0, 0);
-        ABSDFInput input = {baseColor, spec};
-        ABSDF absdf = MaterialUtility::CalcABSDF(input);
-        diffuseBuffer[index] += absdf.diffuse;
-        specularBuffer[index] += absdf.specular;
+        ABSDFInput input = {baseColor, spec, area};
+        MaterialUtility::Accumulate(ABSDFBuffer[index], input);
     }
 
     void calcTriangle(float3 tri[3], float2 triuv[3])
@@ -264,9 +247,8 @@ public:
         f.open(s, std::ios::binary);
 
         f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
-        f.write(reinterpret_cast<char*>(diffuseBuffer), voxelCount * sizeof(float4));
-        f.write(reinterpret_cast<char*>(specularBuffer), voxelCount * sizeof(float4));
-        f.write(reinterpret_cast<char*>(ellipsoids), voxelCount * sizeof(Ellipsoid));
+        f.write(reinterpret_cast<const char*>(ABSDFBuffer.data()), voxelCount * sizeof(ABSDF));
+        f.write(reinterpret_cast<const char*>(ellipsoidBuffer.data()), voxelCount * sizeof(Ellipsoid));
 
         f.close();
         VoxelizationBase::FileUpdated = true;
