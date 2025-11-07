@@ -6,6 +6,7 @@ import Rendering.Materials.StandardMaterial;
 ParameterBlock<Scene> scene;
 Texture3D<float4> gDiffuse;
 Texture3D<float4> gSpecular;
+Texture3D<float> gArea;
 StructuredBuffer<NDF> gNDFLobes;
 StructuredBuffer<Ellipsoid> gEllipsoids;
 
@@ -194,8 +195,7 @@ HitResult rayMarching(float3 from, float3 to)
     {
         if (any(current.cellInt < 0) || any(current.cellInt >= voxelCount))
             break;
-        float accumulate = gDiffuse[current.cellInt].w;
-        if (accumulate > 0)
+        if (gArea[current.cellInt] > 0)
         {
 #if CHECK_ELLIPSOID
             int index = CellToIndex(current.cellInt, voxelCount);
@@ -282,13 +282,16 @@ float3 shading(float4 diffuse, float4 specular, NDF ndf, HitResult hit, LightDat
         break;
     }
     float cosTerm = weightedCos(ndf, l);
+#if FLAT_SHADING
+    return cosTerm * visibility;
+#endif
     float3 diffuseColor = lightColor * diffuse.xyz / diffuse.w * cosTerm * visibility;
     return diffuseColor;
 }
 
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
-    PsOut psOut = { float4(0) };
+    PsOut psOut = { float4(1, 0, 1, 1) };
     uint2 pixel = uint2(texCoord * pixelCount);
     float3 from = screenCoordToGridCoord(texCoord, 0);
     float3 to = screenCoordToGridCoord(texCoord, 1);

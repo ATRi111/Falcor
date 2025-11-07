@@ -255,38 +255,19 @@ public:
         polygon.push_back(points[2]);
 
         // 依次对六个面裁剪
-        planeClip(polygon, temp, 0, minPoint.x, true);
-        polygon.swap(temp);
-        if (polygon.empty())
-            return polygon;
-
-        planeClip(polygon, temp, 0, maxPoint.x, false);
-        polygon.swap(temp);
-        if (polygon.empty())
-            return polygon;
-
-        planeClip(polygon, temp, 1, minPoint.y, true);
-        polygon.swap(temp);
-        if (polygon.empty())
-            return polygon;
-
-        planeClip(polygon, temp, 1, maxPoint.y, false);
-        polygon.swap(temp);
-        if (polygon.empty())
-            return polygon;
-
-        planeClip(polygon, temp, 2, minPoint.z, true);
-        polygon.swap(temp);
-        if (polygon.empty())
-            return polygon;
-
-        planeClip(polygon, temp, 2, maxPoint.z, false);
-        polygon.swap(temp);
+        float bounds[6] = {minPoint.x, maxPoint.x, minPoint.y, maxPoint.y, minPoint.z, maxPoint.z};
+        bool greater = true;
+        for (uint i = 0; i < 6; i++)
+        {
+            planeClip(polygon, temp, i >> 1, bounds[i], greater);
+            polygon.swap(temp);
+            if (polygon.empty())
+                return polygon;
+            greater = !greater;
+        }
 
         if (polygon.size() >= 3)
-        {
             removeRepeatPoints(polygon);
-        }
 
         return polygon;
     }

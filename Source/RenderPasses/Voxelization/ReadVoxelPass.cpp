@@ -32,6 +32,7 @@ namespace
 const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/Voxelization.cs.slang";
 const std::string kOutputDiffuse = "diffuse";
 const std::string kOutputSpecular = "specular";
+const std::string kOutputArea = "area";
 const std::string kOutputEllipsoids = "ellipsoids";
 const std::string kOutputNDFLobes = "NDFLobes";
 
@@ -53,14 +54,19 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Float)
         .texture2D(0, 0, 1, 1);
 
-    reflector.addOutput(kOutputDiffuse, "Diffuse Voxel Texture")
+    reflector.addOutput(kOutputDiffuse, "Diffuse")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::RGBA32Float)
         .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
 
-    reflector.addOutput(kOutputSpecular, "Specular Voxel Texture")
+    reflector.addOutput(kOutputSpecular, "Specular")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::RGBA32Float)
+        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
+
+    reflector.addOutput(kOutputArea, "Area")
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .format(ResourceFormat::R32Float)
         .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
 
     reflector.addOutput(kOutputEllipsoids, "Ellipsoids")
@@ -83,11 +89,13 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
     ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
     ref<Texture> pSpecular = renderData.getTexture(kOutputSpecular);
+    ref<Texture> pArea = renderData.getTexture(kOutputArea);
     ref<Buffer> pNDFLobes = renderData.getResource(kOutputNDFLobes)->asBuffer();
     ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
 
     float4* diffuseBuffer = new float4[gridData.totalVoxelCount()];
     float4* specularBuffer = new float4[gridData.totalVoxelCount()];
+    float* areaBuffer = new float[gridData.totalVoxelCount()];
     NDF* NDFLobesBuffer = new NDF[gridData.totalVoxelCount()];
 
     for (size_t i = 0; i < gridData.totalVoxelCount(); i++)
@@ -95,15 +103,18 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         diffuseBuffer[i] = ABSDFBuffer[i].diffuse;
         specularBuffer[i] = ABSDFBuffer[i].specular;
         NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
+        areaBuffer[i] = ABSDFBuffer[i].area;
     }
 
     pDiffuse->setSubresourceBlob(0, diffuseBuffer, gridData.totalVoxelCount() * sizeof(float4));
     pSpecular->setSubresourceBlob(0, specularBuffer, gridData.totalVoxelCount() * sizeof(float4));
+    pArea->setSubresourceBlob(0, areaBuffer, gridData.totalVoxelCount() * sizeof(float));
     pNDFLobes->setBlob(NDFLobesBuffer, 0, gridData.totalVoxelCount() * sizeof(NDF));
     pEllipsoids->setBlob(ellipsoidBuffer.data(), 0, gridData.totalVoxelCount() * sizeof(Ellipsoid));
 
     delete[] diffuseBuffer;
     delete[] specularBuffer;
+    delete[] areaBuffer;
     delete[] NDFLobesBuffer;
     reset(0);
 

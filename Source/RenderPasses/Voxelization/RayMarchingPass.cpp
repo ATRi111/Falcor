@@ -32,6 +32,7 @@ namespace
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/RayMarching.ps.slang";
 const std::string kInputDiffuse = "diffuse";
 const std::string kInputSpecular = "specular";
+const std::string kInputArea = "area";
 const std::string kInputEllipsoids = "ellipsoids";
 const std::string kOutputColor = "color";
 const std::string kInputNDFLobes = "NDFLobes";
@@ -44,6 +45,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mUpdateScene = false;
     mCheckEllipsoid = true;
     mCheckVisibility = true;
+    mFlatShading = false;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
@@ -63,6 +65,11 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
     reflector.addInput(kInputSpecular, "Specular")
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::RGBA32Float)
+        .texture3D(0, 0, 0, 1);
+
+    reflector.addInput(kInputArea, "Area")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::R32Float)
         .texture3D(0, 0, 0, 1);
 
     reflector.addInput(kInputNDFLobes, "NDF Lobes")
@@ -98,11 +105,13 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     }
     mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
     mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
+    mpFullScreenPass->addDefine("FLAT_SHADING", mFlatShading ? "1" : "0");
 
     ref<Camera> pCamera = mpScene->getCamera();
 
     ref<Texture> pDiffuse = renderData.getTexture(kInputDiffuse);
     ref<Texture> pSpecular = renderData.getTexture(kInputSpecular);
+    ref<Texture> pArea = renderData.getTexture(kInputArea);
     ref<Buffer> pNDFLobes = renderData.getResource(kInputNDFLobes)->asBuffer();
     ref<Buffer> pEllipsoids = renderData.getResource(kInputEllipsoids)->asBuffer();
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
@@ -115,6 +124,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     mpScene->bindShaderData(var["scene"]);
     var["gDiffuse"] = pDiffuse;
     var["gSpecular"] = pSpecular;
+    var["gArea"] = pArea;
     var["gNDFLobes"] = pNDFLobes;
     var["gEllipsoids"] = pEllipsoids;
 
@@ -137,6 +147,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
     widget.checkbox("Check Visibility", mCheckVisibility);
     if (mCheckVisibility)
         widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f);
+    widget.checkbox("Flat Shading", mFlatShading);
 }
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

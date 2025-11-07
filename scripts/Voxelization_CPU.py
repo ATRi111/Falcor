@@ -15,6 +15,7 @@ def render_graph_RasterPass():
     g.addEdge("LoadMeshPass.dummy","ReadVoxelPass.dummy")
     g.addEdge("ReadVoxelPass.diffuse","RayMarchingPass.diffuse")
     g.addEdge("ReadVoxelPass.specular","RayMarchingPass.specular")
+    g.addEdge("ReadVoxelPass.area","RayMarchingPass.area")
     g.addEdge("ReadVoxelPass.ellipsoids","RayMarchingPass.ellipsoids")
     g.addEdge("ReadVoxelPass.NDFLobes","RayMarchingPass.NDFLobes")
 
