@@ -40,8 +40,8 @@ const std::string kInputNDFLobes = "NDFLobes";
 RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     mpDevice = pDevice;
+    mVisibilityBias = 0.5f;
     mUpdateScene = false;
-
     mCheckEllipsoid = true;
 
     Sampler::Desc samplerDesc;
@@ -110,6 +110,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
 
     auto var = mpFullScreenPass->getRootVar();
+    mpScene->bindShaderData(var["scene"]);
     var["gDiffuse"] = pDiffuse;
     var["gSpecular"] = pSpecular;
     var["gNDFLobes"] = pNDFLobes;
@@ -121,6 +122,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
     var["CB"]["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
     var["CB"]["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
+    var["CB"]["visibilityBias"] = mVisibilityBias;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
@@ -130,6 +132,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 void RayMarchingPass::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Check Ellipsoid", mCheckEllipsoid);
+    widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f);
 }
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
