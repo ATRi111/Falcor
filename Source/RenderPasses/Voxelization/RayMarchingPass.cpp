@@ -43,6 +43,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mVisibilityBias = 0.5f;
     mUpdateScene = false;
     mCheckEllipsoid = true;
+    mCheckVisibility = true;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
@@ -96,6 +97,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mUpdateScene = false;
     }
     mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
+    mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
 
     ref<Camera> pCamera = mpScene->getCamera();
 
@@ -132,7 +134,9 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 void RayMarchingPass::renderUI(Gui::Widgets& widget)
 {
     widget.checkbox("Check Ellipsoid", mCheckEllipsoid);
-    widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f);
+    widget.checkbox("Check Visibility", mCheckVisibility);
+    if (mCheckVisibility)
+        widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f);
 }
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

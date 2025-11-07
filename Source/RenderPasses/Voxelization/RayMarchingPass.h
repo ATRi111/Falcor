@@ -53,4 +53,5 @@ private:
     float mVisibilityBias;
     bool mUpdateScene;
     bool mCheckEllipsoid;
+    bool mCheckVisibility;
 };

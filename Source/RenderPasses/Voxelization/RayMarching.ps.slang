@@ -192,6 +192,8 @@ HitResult rayMarching(float3 from, float3 to)
     uint maxTimes = voxelCount.x + voxelCount.y + voxelCount.z;
     for (uint i = 0; i < maxTimes; i++)
     {
+        if (any(current.cellInt < 0) || any(current.cellInt >= voxelCount))
+            break;
         float accumulate = gDiffuse[current.cellInt].w;
         if (accumulate > 0)
         {
@@ -208,8 +210,6 @@ HitResult rayMarching(float3 from, float3 to)
 #endif
         }
         current = leave(current, directions, direction, reciprocal_direction);
-        if (any(current.cellInt < 0) || any(current.cellInt >= voxelCount))
-            break;
     }
     return current;
 }
@@ -223,10 +223,10 @@ float3 screenCoordToGridCoord(float2 screenCoord, float NDCDepth)
     return cell / voxelCount;
 }
 
-float calcVisibility(HitResult hit, float3 direction)
+float calcVisibility(HitResult hit, float3 dirW)
 {
-    HitResult hit = leave(hit, int3(sign(direction)), direction, 1.0f / direction);
-    float3 from = (hit.cell + visibilityBias * direction) / voxelCount;
+    float3 from = (hit.cell + visibilityBias * dirW) / voxelCount; // 世界空间方向和网格空间方向相同
+    float3 direction = normalize(dirW / voxelCount);
     hit = rayMarching(from, from + 2 * direction);
     return hit.hit ? 0.f : 1.f;
 }
@@ -247,11 +247,13 @@ float3 shading(float4 diffuse, float4 specular, NDF ndf, HitResult hit, LightDat
         l = -light.dirW;
         break;
     }
-
-    float3 gridDirection = normalize(l / float3(voxelCount));
-    float visibility = calcVisibility(hit, gridDirection);
+#if CHECK_VISIBILITY
+    float visibility = calcVisibility(hit, l);
     if (visibility <= 0.f)
         return 0;
+#else
+    float visibility = 1.f;
+#endif
 
     switch (light.type)
     {
@@ -273,7 +275,6 @@ float3 shading(float4 diffuse, float4 specular, NDF ndf, HitResult hit, LightDat
             if (light.penumbraAngle <= 0.0f)
                 spot = (cosTheta >= cosOuter) ? 1.0f : 0.0f;
         }
-
         lightColor = light.intensity * spot / sqrDistance;
         break;
     case LightType::Directional:

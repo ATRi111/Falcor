@@ -136,16 +136,16 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     if (widget.button("Read"))
     {
         std::ifstream f;
-        uint offset = 0;
+        size_t offset = 0;
 
         f.open(filePaths[selectedFile], std::ios::binary | std::ios::ate);
         if (!f.is_open())
             return;
 
-        uint fileSize = std::filesystem::file_size(filePaths[selectedFile]);
+        size_t fileSize = std::filesystem::file_size(filePaths[selectedFile]);
 
         tryRead(f, offset, sizeof(GridData), &gridData, fileSize);
-        uint voxelCount = gridData.totalVoxelCount();
+        size_t voxelCount = gridData.totalVoxelCount();
         reset(voxelCount);
 
         tryRead(f, offset, voxelCount * sizeof(ABSDF), ABSDFBuffer.data(), fileSize);
@@ -174,7 +174,7 @@ void ReadVoxelPass::reset(uint voxelCount)
     ellipsoidBuffer.reserve(voxelCount);
 }
 
-bool ReadVoxelPass::tryRead(std::ifstream& f, uint& offset, uint bytes, void* dst, uint fileSize)
+bool ReadVoxelPass::tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize)
 {
     if (offset + bytes > fileSize)
         return false;

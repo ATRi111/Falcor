@@ -50,7 +50,7 @@ public:
 
 private:
     void reset(uint voxelCount);
-    bool tryRead(std::ifstream& f, uint& offset, uint bytes, void* dst, uint fileSize);
+    bool tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize);
     GridData& gridData;
     ref<Device> mpDevice;
     std::vector<std::filesystem::path> filePaths;
