@@ -38,6 +38,50 @@ struct PsOut
     float4 color : SV_Target0;
 };
 
+float GGX(float3 n, float3 h, float rough)
+{
+    float Pi = 3.14159265359;
+    float rough2 = rough * rough;
+    float temp = dot(n, h) * dot(n, h) * (rough2 - 1) + 1;
+    return rough2 / Pi / temp / temp;
+}
+float3 Fresnel(float3 v, float3 h, float3 spec)
+{
+    return spec + (1 - spec) * pow(1 - dot(v, h), 5);
+}
+float SOrM(float3 n, float3 x, float rough)
+{
+    float k = (rough + 1) * (rough + 1) / 8;
+    float temp = dot(n, x);
+    return temp / (temp * (1 - k) + k);
+}
+float3 CookTorrence(float3 l, float3 v, float3 h, float3 n, float3 spec, float rough)
+{
+    float3 specColor = GGX(n, h, rough) * Fresnel(v, h, spec) * SOrM(n, v, rough) * SOrM(n, l, rough) / 4 / max(1e-4, dot(n, v));
+    return specColor;
+}
+float3 weightedCookTorrence(NDF ndf, float3 l, float3 v, float3 spec, float rough)
+{
+    float3 sum = 0;
+    for (int i = 0; i < LOBE_COUNT; i++)
+    {
+        float w = ndf.weightedNormals[i].w;
+        if (w > 0)
+        {
+            float3 n = normalize(ndf.weightedNormals[i].xyz);
+            float cosTerm = dot(n, l);
+            if (cosTerm < 0)
+                n = -n;
+            cosTerm = dot(n, v);
+            if (cosTerm <= 0)
+                continue;
+            float3 h = normalize(l + v);
+            sum += CookTorrence(l, v, h, n, spec, rough) * w;
+        }
+    }
+    return sum; // 未归一化
+}
+
 float weightedDot(NDF ndf, float3 direction)
 {
     float sum = 0;
@@ -47,11 +91,11 @@ float weightedDot(NDF ndf, float3 direction)
         if (w > 0)
         {
             float3 n = normalize(ndf.weightedNormals[i].xyz);
-            float cosTheta = abs(dot(n, direction));
-            sum += cosTheta * w;
+            float cosTerm = abs(dot(n, direction));
+            sum += cosTerm * w;
         }
     }
-    return sum; //未归一化
+    return sum; // 未归一化
 }
 
 float3 getNormal(NDF ndf, float3 v)
@@ -63,8 +107,8 @@ float3 getNormal(NDF ndf, float3 v)
         if (w > 0)
         {
             float3 n = normalize(ndf.weightedNormals[i].xyz);
-            float cosTheta = dot(n, v);
-            sum += sign(cosTheta) * n * w;
+            float cosTerm = dot(n, v);
+            sum += sign(cosTerm) * n * w;
         }
     }
     return normalize(sum);
@@ -270,16 +314,16 @@ float3 shading(HitResult hit, NDF ndf, float3 v, LightData light)
         float spot = 1.0f;
         if (light.openingAngle < 3.1415926f)
         {
-            float cosTheta = dot(light.dirW, -l);
+            float cosTerm = dot(light.dirW, -l);
             float cosOuter = light.cosOpeningAngle;
             float innerAng = max(light.openingAngle - light.penumbraAngle, 0.0f);
             float cosInner = cos(innerAng);
 
-            float t = saturate((cosTheta - cosOuter) / max(cosInner - cosOuter, 1e-6f));
+            float t = saturate((cosTerm - cosOuter) / max(cosInner - cosOuter, 1e-6f));
             spot = t * t * (3.0f - 2.0f * t);
 
             if (light.penumbraAngle <= 0.0f)
-                spot = (cosTheta >= cosOuter) ? 1.0f : 0.0f;
+                spot = (cosTerm >= cosOuter) ? 1.0f : 0.0f;
         }
         lightColor = light.intensity * spot / sqrDistance;
         break;
@@ -287,10 +331,9 @@ float3 shading(HitResult hit, NDF ndf, float3 v, LightData light)
         lightColor = light.intensity;
         break;
     }
-    float cosTerm = weightedDot(ndf, l) / area;
-
-    float3 diffuseColor = lightColor * diffuse.xyz / diffuse.w * cosTerm * visibility;
-    float3 specularColor = specular.xyz / specular.w;
+    float cosTerm = weightedDot(ndf, l);
+    float3 diffuseColor = lightColor * diffuse.xyz / diffuse.w * cosTerm;
+    float3 specularColor = weightedCookTorrence(ndf, l, v, specular.xyz / specular.w, gRoughness[hit.cellInt]);
     float3 result = 0;
     switch (gDrawMode)
     {
@@ -304,8 +347,7 @@ float3 shading(HitResult hit, NDF ndf, float3 v, LightData light)
         result = specularColor;
         break;
     case ABSDFDrawMode::Normal:
-        result = getNormal(ndf, l) * 0.5 + 0.5;
-        break;
+        return getNormal(ndf, l) * 0.5 + 0.5;
     case ABSDFDrawMode::Flat:
         result = cosTerm;
         break;
@@ -313,7 +355,7 @@ float3 shading(HitResult hit, NDF ndf, float3 v, LightData light)
         result = diffuseColor + specularColor;
         break;
     }
-    return visibility * result;
+    return visibility * result / area;
 }
 
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
