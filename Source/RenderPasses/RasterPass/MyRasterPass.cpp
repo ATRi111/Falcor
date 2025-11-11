@@ -148,7 +148,4 @@ void MyRasterPass::renderUI(Gui::Widgets& widget)
 void MyRasterPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
-    ref<Camera> camera = mpScene->getCamera();
-    camera->setFocalLength(0.f);
-    camera->setFrameHeight(4000.f);
 }

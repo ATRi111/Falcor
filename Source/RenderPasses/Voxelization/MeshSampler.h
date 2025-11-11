@@ -65,8 +65,8 @@ public:
         float area = VoxelizationUtility::PolygonArea(points);
         float3 baseColor = currentBaseColor->SampleArea(uvs).xyz();
         float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0, 0, 0);
-        float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0, 0, 1);
-        normal = math::normalize(normal);
+        // float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
+        float3 normal = float3(0.5f, 0.5f, 1.f);
         normal = VoxelizationUtility::CalcNormal(currentTBN, normal);
         ABSDFInput input = {baseColor, spec, normal, area};
         MaterialUtility::Accumulate(ABSDFBuffer[index], input);
@@ -74,6 +74,7 @@ public:
 
     void calcTriangle(float3 tri[3], float2 triuv[3])
     {
+        currentTBN = VoxelizationUtility::BuildTBN(tri, triuv);
         int xMin, yMin, zMin, xMax, yMax, zMax;
         xMin = yMin = zMin = voxelCount;
         xMax = yMax = zMax = 0;
@@ -116,7 +117,6 @@ public:
                 tri[i] = (tri[i] - gridData.gridMin) / gridData.voxelSize;
             }
             float2 triuv[3] = {pUV[triangle.x], pUV[triangle.y], pUV[triangle.z]};
-            currentTBN = VoxelizationUtility::BuildTBN(tri, triuv);
             calcTriangle(tri, triuv);
         }
     }

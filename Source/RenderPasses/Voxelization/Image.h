@@ -22,6 +22,13 @@ enum FilterFunction
 
 struct MipLevel
 {
+    static float4 NormalizeColor(const float4& c)
+    {
+        float3 normal = c.xyz() * 2.f - 1.f;
+        normal = math::normalize(normal);
+        return float4(normal * 0.5f + 0.5f, 1.0f);
+    }
+
     std::vector<float4> pixels;
     uint2 size;
     FilterFunction filterFunction;
@@ -30,23 +37,15 @@ struct MipLevel
 
     float4 Filter(const std::vector<float4>& v) const
     {
-        float4 sum = float4(0);
-        switch (filterFunction)
+        float4 result = float4(0);
+        for (const float4& c : v)
         {
-        case Average:
-            for (const float4& c : v)
-            {
-                sum += c;
-            }
-            return sum * (1.0f / v.size());
-        case Normalize:
-            for (const float4& c : v)
-            {
-                sum += c;
-            }
-            return math::normalize(sum);
+            result += c;
         }
-        return float4(0);
+        result /= (float)v.size();
+        if (filterFunction == Normalize)
+            result = MipLevel::NormalizeColor(result);
+        return result;
     }
 
     void GenerateMipLevel(const std::vector<float4>& higherLevel)
@@ -68,7 +67,7 @@ struct MipLevel
         }
     }
 
-    uint bytes() const { return sizeof(float4) * size.x * size.y; }
+    size_t bytes() const { return sizeof(float4) * (size_t)size.x * size.y; }
 };
 
 class Image
@@ -93,7 +92,6 @@ public:
             mipSize.x >>= 1;
             mipSize.y >>= 1;
         }
-        uint bytes = mipLevels[0].bytes();
         memcpy(mipLevels[0].pixels.data(), data, mipLevels[0].bytes());
         for (uint i = 1; i < mipLevels.size(); i++)
         {
@@ -150,7 +148,10 @@ public:
         float4 c01 = SamplePoint(uv + float2(du, 0), mipLevel);
         float4 c10 = SamplePoint(uv + float2(0, dv), mipLevel);
         float4 c11 = SamplePoint(uv + float2(du, dv), mipLevel);
-        return c00 * w00 + c01 * w01 + c10 * w10 + c11 * w11;
+        float4 result = c00 * w00 + c01 * w01 + c10 * w10 + c11 * w11;
+        if (filterFunction == Normalize)
+            result = MipLevel::NormalizeColor(result);
+        return result;
     }
 
     float4 SampleTrilinear(float2 uv, float mipLevel) const
@@ -162,7 +163,10 @@ public:
         float w0 = 1.0f - w1;
         float4 c0 = Sample(uv, mip0);
         float4 c1 = Sample(uv, mip1);
-        return c0 * w0 + c1 * w1;
+        float4 result = c0 * w0 + c1 * w1;
+        if (filterFunction == Normalize)
+            result = MipLevel::NormalizeColor(result);
+        return result;
     }
 
     float4 Sample(float2 uv, int mipLevel = 0) const

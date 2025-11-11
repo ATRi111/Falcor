@@ -45,7 +45,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mUpdateScene = false;
     mCheckEllipsoid = true;
     mCheckVisibility = true;
-    mFlatShading = false;
+    mDrawMode = 0;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
@@ -105,7 +105,6 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     }
     mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
     mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
-    mpFullScreenPass->addDefine("FLAT_SHADING", mFlatShading ? "1" : "0");
 
     ref<Camera> pCamera = mpScene->getCamera();
 
@@ -128,13 +127,16 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     var["gNDFLobes"] = pNDFLobes;
     var["gEllipsoids"] = pEllipsoids;
 
-    var["GridData"]["gridMin"] = data.gridMin;
-    var["GridData"]["voxelSize"] = data.voxelSize;
-    var["GridData"]["voxelCount"] = data.voxelCount;
+    auto cb_GridData = mpFullScreenPass->getRootVar()["GridData"];
+    cb_GridData["gridMin"] = data.gridMin;
+    cb_GridData["voxelSize"] = data.voxelSize;
+    cb_GridData["voxelCount"] = data.voxelCount;
 
-    var["CB"]["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
-    var["CB"]["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
-    var["CB"]["visibilityBias"] = mVisibilityBias;
+    auto cb = mpFullScreenPass->getRootVar()["CB"];
+    cb["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
+    cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
+    cb["visibilityBias"] = mVisibilityBias;
+    cb["gDrawMode"] = mDrawMode;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
@@ -147,7 +149,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
     widget.checkbox("Check Visibility", mCheckVisibility);
     if (mCheckVisibility)
         widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f);
-    widget.checkbox("Flat Shading", mFlatShading);
+    widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode));
 }
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

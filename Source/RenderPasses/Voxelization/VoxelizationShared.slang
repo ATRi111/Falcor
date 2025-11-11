@@ -37,4 +37,26 @@ inline int3 IndexToCell(int index, uint3 size)
     return int3(x, y, z);
 }
 
+enum class ABSDFDrawMode : uint32_t
+{
+    Default,
+    Diffuse,
+    Specular,
+    BaseColor,
+    Flat,
+    Normal,
+};
+FALCOR_ENUM_INFO(
+    ABSDFDrawMode,
+    {
+        { ABSDFDrawMode::Default, "Default" },
+        { ABSDFDrawMode::Diffuse, "Diffuse" },
+        { ABSDFDrawMode::Specular, "Specular" },
+        { ABSDFDrawMode::BaseColor, "BaseColor" },
+        { ABSDFDrawMode::Flat, "Flat" },
+        { ABSDFDrawMode::Normal, "Normal" },
+    }
+);
+FALCOR_ENUM_REGISTER(ABSDFDrawMode);
+
 END_NAMESPACE_FALCOR

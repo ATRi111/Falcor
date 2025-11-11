@@ -32,6 +32,7 @@ cbuffer CB
     uint2 pixelCount;
     float4x4 invVP;
     float visibilityBias;
+    uint gDrawMode;
 }
 
 struct HitResult
@@ -46,25 +47,40 @@ struct PsOut
     float4 color : SV_Target0;
 };
 
-float weightedCos(NDF ndf, float3 direction)
+float weightedDot(NDF ndf, float3 direction)
 {
     float sum = 0;
     float weightSum = 0;
     for (int i = 0; i < 8; i++)
     {
-        float3 n = normalize(ndf.weightedNormals[i].xyz);
         float w = ndf.weightedNormals[i].w;
         if (w > 0)
         {
+            float3 n = normalize(ndf.weightedNormals[i].xyz);
             float cosTheta = dot(n, direction);
+            weightSum += w;
             if (cosTheta > 0)
-            {
                 sum += cosTheta * w;
-                weightSum += w;
-            }
         }
     }
     return weightSum > 0 ? sum / weightSum : 0;
+}
+
+float3 getNormal(NDF ndf, float3 v)
+{
+    float3 sum = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        float w = ndf.weightedNormals[i].w;
+        if (w > 0)
+        {
+            float3 n = normalize(ndf.weightedNormals[i].xyz);
+            float cosTheta = dot(n, v);
+            if (cosTheta > 0)
+                sum += n * w;
+        }
+    }
+    return normalize(sum);
 }
 
 float2 intersect(float p1, float p2, float p0, float q)
@@ -175,7 +191,7 @@ HitResult checkEllipsoid(Ellipsoid ellipsoid, float3 cell, float3 direction, int
         tMin = t.z;
     float3 to = from + tMin * direction;
     float2 inOut = ellipsoidClip(ellipsoid, from, to);
-    HitResult result = { inOut.x > 0, cellInt, cell + inOut.x * (to - from) };
+    HitResult result = { inOut.x >= 0, cellInt, cell + inOut.x * (to - from) };
     return result;
 }
 
@@ -225,17 +241,16 @@ float3 screenCoordToGridCoord(float2 screenCoord, float NDCDepth)
 
 float calcVisibility(HitResult hit, float3 dirW)
 {
-    float3 from = (hit.cell + visibilityBias * dirW) / voxelCount; // 世界空间方向和网格空间方向相同
+    float3 from = (hit.cell + visibilityBias * dirW) / voxelCount;
     float3 direction = normalize(dirW / voxelCount);
     hit = rayMarching(from, from + 2 * direction);
     return hit.hit ? 0.f : 1.f;
 }
 
-float3 shading(float4 diffuse, float4 specular, NDF ndf, HitResult hit, LightData light)
+float3 shading(float4 diffuse, float4 specular, NDF ndf, HitResult hit, float3 v, LightData light)
 {
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
-    float3 v = normalize(scene.camera.data.posW - posW);
     float3 lightColor = 0;
 
     switch (light.type)
@@ -281,12 +296,33 @@ float3 shading(float4 diffuse, float4 specular, NDF ndf, HitResult hit, LightDat
         lightColor = light.intensity;
         break;
     }
-    float cosTerm = weightedCos(ndf, l);
-#if FLAT_SHADING
-    return cosTerm * visibility;
-#endif
+    float cosTerm = weightedDot(ndf, l);
+
     float3 diffuseColor = lightColor * diffuse.xyz / diffuse.w * cosTerm * visibility;
-    return diffuseColor;
+    float3 specularColor = specular.xyz / specular.w;
+    float3 result = 0;
+    switch (gDrawMode)
+    {
+    case ABSDFDrawMode::BaseColor:
+        result = diffuse.xyz / diffuse.w + specular.xyz / specular.w;
+        break;
+    case ABSDFDrawMode::Diffuse:
+        result = diffuseColor;
+        break;
+    case ABSDFDrawMode::Specular:
+        result = specularColor;
+        break;
+    case ABSDFDrawMode::Normal:
+        result = getNormal(ndf, l) * 0.5 + 0.5;
+        break;
+    case ABSDFDrawMode::Flat:
+        result = cosTerm;
+        break;
+    default:
+        result = diffuseColor + specularColor;
+        break;
+    }
+    return visibility * result;
 }
 
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
@@ -300,8 +336,8 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     if (inOut.x < 0)
         return psOut;
     float3 v = to - from;
-    float3 direction = normalize(v * voxelCount);
-    from = from + (inOut.x + 1e-5f) * v; // 避免边界处误差
+    float3 direction = normalize(v * voxelCount); // 网格/世界空间下的方向
+    from = from + (inOut.x + 1e-5f) * v;          // 避免边界处误差
 
     HitResult hit = rayMarching(from, to); // to足够远即可
     if (hit.hit)
@@ -313,7 +349,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         float3 color = 0;
         for (uint i = 0; i < scene.lightCount; i++)
         {
-            color += shading(diffuse, specular, ndf, hit, scene.lights[i]);
+            color += shading(diffuse, specular, ndf, hit, -direction, scene.lights[i]);
         }
         psOut.color = float4(color, 1);
     }

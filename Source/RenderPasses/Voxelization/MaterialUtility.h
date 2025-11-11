@@ -7,6 +7,7 @@ struct ABSDF
     float4 diffuse;
     float4 specular;
     NDF NDF;
+    float roughness;
     float area;
 };
 
@@ -37,11 +38,9 @@ public:
         float f = (IoR - 1.f) / (IoR + 1.f);
         float F0 = f * f;
 
-        // d.roughness = spec.g;
-        // d.metallic = spec.b;
-
         ABSDF.diffuse += input.area * float4(math::lerp(input.baseColor, float3(0), input.specular.b), 1);
         ABSDF.specular += input.area * float4(math::lerp(float3(F0), input.baseColor, input.specular.b), 1);
+        ABSDF.roughness += input.area * input.specular.g;
 
         uint index = NormalIndex(input.normal);
         ABSDF.NDF.weightedNormals[index] += input.area * float4(input.normal, 1);

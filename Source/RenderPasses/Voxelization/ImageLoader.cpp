@@ -48,21 +48,28 @@ Image* ImageLoader::loadImage(uint materialId, TextureType type)
     if (it != imageCache.end())
         return it->second;
 
+    FilterFunction filterFunction;
+    switch (type)
+    {
+    case BaseColor:
+        filterFunction = FilterFunction::Average;
+        stbi_ldr_to_hdr_gamma(2.2f);
+        break;
+    case Normal:
+        filterFunction = FilterFunction::Normalize;
+        stbi_ldr_to_hdr_gamma(1.0f);
+        break;
+    case Specular:
+        filterFunction = FilterFunction::Average;
+        stbi_ldr_to_hdr_gamma(1.0f);
+        break;
+    }
+
     int w, h, c;
     float* pixels = stbi_loadf(filePath.c_str(), &w, &h, &c, 4);
     if (!pixels)
         return nullptr;
 
-    FilterFunction filterFunction;
-    switch (type)
-    {
-    case Normal:
-        filterFunction = FilterFunction::Normalize;
-        break;
-    default:
-        filterFunction = FilterFunction::Average;
-        break;
-    }
     Image* image = new Image(reinterpret_cast<float4*>(pixels), uint2(w, h), filterFunction);
     image->name = filePath;
     imageCache[filePath] = image;

@@ -50,9 +50,9 @@ private:
     ref<FullScreenPass> mpFullScreenPass;
     ref<Sampler> mpPointSampler;
 
+    uint mDrawMode;
     float mVisibilityBias;
     bool mUpdateScene;
     bool mCheckEllipsoid;
     bool mCheckVisibility;
-    bool mFlatShading;
 };
