@@ -24,10 +24,9 @@ class MaterialUtility
 private:
     static uint NormalIndex(float3 n)
     {
-        uint bx = (n.x >= 0.0f) ? 1u : 0u;   // x≥0 -> 1
-        uint by = (n.y >= 0.0f) ? 1u : 0u;   // y≥0 -> 1
-        uint bz = (n.z >= 0.0f) ? 1u : 0u;   // z≥0 -> 1
-        return (bx) | (by << 1) | (bz << 2); // 0..7
+        uint bx = (n.x >= 0.0f) ? 1u : 0u; // x≥0 -> 1
+        uint bz = (n.z >= 0.0f) ? 1u : 0u; // z≥0 -> 1
+        return (bx) | (bz << 1);
     }
 
 public:
@@ -44,8 +43,6 @@ public:
 
         uint index = NormalIndex(input.normal);
         ABSDF.NDF.weightedNormals[index] += input.area * float4(input.normal, 1);
-        index = NormalIndex(-input.normal);
-        ABSDF.NDF.weightedNormals[index] += input.area * float4(-input.normal, 1);
 
         ABSDF.area += input.area;
     }

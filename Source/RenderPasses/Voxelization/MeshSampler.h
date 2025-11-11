@@ -13,7 +13,7 @@ private:
     Image* currentSpecular;
     Image* currentNormal;
     float3x3 currentTBN;
-    uint voxelCount;
+    size_t voxelCount;
 
 public:
     uint sampleFrequency;
@@ -68,6 +68,8 @@ public:
         // float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
         float3 normal = float3(0.5f, 0.5f, 1.f);
         normal = VoxelizationUtility::CalcNormal(currentTBN, normal);
+        if (normal.y < 0)
+            normal = -normal;
         ABSDFInput input = {baseColor, spec, normal, area};
         MaterialUtility::Accumulate(ABSDFBuffer[index], input);
     }
@@ -143,7 +145,7 @@ public:
         f.open(s, std::ios::binary);
 
         f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
-        f.write(reinterpret_cast<const char*>(ABSDFBuffer.data()), (size_t)voxelCount * sizeof(ABSDF));
+        f.write(reinterpret_cast<const char*>(ABSDFBuffer.data()), voxelCount * sizeof(ABSDF));
         f.write(reinterpret_cast<const char*>(ellipsoidBuffer.data()), voxelCount * sizeof(Ellipsoid));
 
         f.close();

@@ -80,6 +80,20 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         return;
 
     size_t voxelCount = gridData.totalVoxelCount();
+
+    ref<Buffer> pNDFLobes = renderData.getResource(kOutputNDFLobes)->asBuffer();
+    ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
+    NDF* NDFLobesBuffer = new NDF[voxelCount];
+    for (size_t i = 0; i < voxelCount; i++)
+    {
+        NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
+    }
+
+    pNDFLobes->setBlob(NDFLobesBuffer, 0, voxelCount * sizeof(NDF));
+    pEllipsoids->setBlob(ellipsoidBuffer.data(), 0, voxelCount * sizeof(Ellipsoid));
+
+    delete[] NDFLobesBuffer;
+
     const ChannelList& channels = VoxelizationBase::Channels;
     for (uint i_channel = 0; i_channel < channels.size(); i_channel++)
     {
@@ -141,20 +155,8 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         delete[] floatBuffer;
         delete[] float4Buffer;
     }
-
-    ref<Buffer> pNDFLobes = renderData.getResource(kOutputNDFLobes)->asBuffer();
-    ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
-    NDF* NDFLobesBuffer = new NDF[voxelCount];
-    for (size_t i = 0; i < voxelCount; i++)
-    {
-        NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
-    }
-
-    pNDFLobes->setBlob(NDFLobesBuffer, 0, voxelCount * sizeof(NDF));
-    pEllipsoids->setBlob(ellipsoidBuffer.data(), 0, voxelCount * sizeof(Ellipsoid));
-
-    delete[] NDFLobesBuffer;
-    reset(0);
+    ABSDFBuffer.clear();
+    ellipsoidBuffer.clear();
 
     mComplete = true;
 }
@@ -217,10 +219,10 @@ void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
 
 void ReadVoxelPass::reset(uint voxelCount)
 {
-    ABSDFBuffer.resize(voxelCount);
     ABSDFBuffer.reserve(voxelCount);
-    ellipsoidBuffer.resize(voxelCount);
+    ABSDFBuffer.resize(voxelCount);
     ellipsoidBuffer.reserve(voxelCount);
+    ellipsoidBuffer.resize(voxelCount);
 }
 
 bool ReadVoxelPass::tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize)

@@ -3,9 +3,11 @@
 
 BEGIN_NAMESPACE_FALCOR
 
+#define LOBE_COUNT 4
+
 struct NDF
 {
-    float4 weightedNormals[8];
+    float4 weightedNormals[LOBE_COUNT];
 };
 
 struct Ellipsoid

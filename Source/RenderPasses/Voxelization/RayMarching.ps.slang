@@ -41,34 +41,30 @@ struct PsOut
 float weightedDot(NDF ndf, float3 direction)
 {
     float sum = 0;
-    float weightSum = 0;
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < LOBE_COUNT; i++)
     {
         float w = ndf.weightedNormals[i].w;
         if (w > 0)
         {
             float3 n = normalize(ndf.weightedNormals[i].xyz);
-            float cosTheta = dot(n, direction);
-            weightSum += w;
-            if (cosTheta > 0)
-                sum += cosTheta * w;
+            float cosTheta = abs(dot(n, direction));
+            sum += cosTheta * w;
         }
     }
-    return weightSum > 0 ? sum / weightSum : 0;
+    return sum; //未归一化
 }
 
 float3 getNormal(NDF ndf, float3 v)
 {
     float3 sum = 0;
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < LOBE_COUNT; i++)
     {
         float w = ndf.weightedNormals[i].w;
         if (w > 0)
         {
             float3 n = normalize(ndf.weightedNormals[i].xyz);
             float cosTheta = dot(n, v);
-            if (cosTheta > 0)
-                sum += n * w;
+            sum += sign(cosTheta) * n * w;
         }
     }
     return normalize(sum);
@@ -238,8 +234,12 @@ float calcVisibility(HitResult hit, float3 dirW)
     return hit.hit ? 0.f : 1.f;
 }
 
-float3 shading(float4 diffuse, float4 specular, NDF ndf, HitResult hit, float3 v, LightData light)
+float3 shading(HitResult hit, NDF ndf, float3 v, LightData light)
 {
+    float4 diffuse = gDiffuse[hit.cellInt];
+    float4 specular = gSpecular[hit.cellInt];
+    float area = gArea[hit.cellInt];
+
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
     float3 lightColor = 0;
@@ -287,7 +287,7 @@ float3 shading(float4 diffuse, float4 specular, NDF ndf, HitResult hit, float3 v
         lightColor = light.intensity;
         break;
     }
-    float cosTerm = weightedDot(ndf, l);
+    float cosTerm = weightedDot(ndf, l) / area;
 
     float3 diffuseColor = lightColor * diffuse.xyz / diffuse.w * cosTerm * visibility;
     float3 specularColor = specular.xyz / specular.w;
@@ -334,13 +334,11 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     if (hit.hit)
     {
         int index = CellToIndex(hit.cellInt, voxelCount);
-        float4 diffuse = gDiffuse[hit.cellInt];
-        float4 specular = gSpecular[hit.cellInt];
         NDF ndf = gNDFLobes[index];
         float3 color = 0;
         for (uint i = 0; i < scene.lightCount; i++)
         {
-            color += shading(diffuse, specular, ndf, hit, -direction, scene.lights[i]);
+            color += shading(hit, ndf, -direction, scene.lights[i]);
         }
         psOut.color = float4(color, 1);
     }
