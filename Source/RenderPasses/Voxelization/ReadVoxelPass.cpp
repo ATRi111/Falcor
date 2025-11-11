@@ -30,9 +30,6 @@
 namespace
 {
 const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/Voxelization.cs.slang";
-const std::string kOutputDiffuse = "diffuse";
-const std::string kOutputSpecular = "specular";
-const std::string kOutputArea = "area";
 const std::string kOutputEllipsoids = "ellipsoids";
 const std::string kOutputNDFLobes = "NDFLobes";
 
@@ -54,20 +51,15 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Float)
         .texture2D(0, 0, 1, 1);
 
-    reflector.addOutput(kOutputDiffuse, "Diffuse")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::RGBA32Float)
-        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
-
-    reflector.addOutput(kOutputSpecular, "Specular")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::RGBA32Float)
-        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
-
-    reflector.addOutput(kOutputArea, "Area")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::R32Float)
-        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
+    const ChannelList& channels = VoxelizationBase::Channels;
+    for (uint i = 0; i < channels.size(); i++)
+    {
+        const ChannelDesc& channel = channels[i];
+        reflector.addOutput(channel.name, channel.desc)
+            .bindFlags(ResourceBindFlags::ShaderResource)
+            .format(channel.format)
+            .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
+    }
 
     reflector.addOutput(kOutputEllipsoids, "Ellipsoids")
         .bindFlags(ResourceBindFlags::UnorderedAccess)
@@ -87,34 +79,80 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     if (mComplete || ABSDFBuffer.empty())
         return;
 
-    ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
-    ref<Texture> pSpecular = renderData.getTexture(kOutputSpecular);
-    ref<Texture> pArea = renderData.getTexture(kOutputArea);
-    ref<Buffer> pNDFLobes = renderData.getResource(kOutputNDFLobes)->asBuffer();
-    ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
-
-    float4* diffuseBuffer = new float4[gridData.totalVoxelCount()];
-    float4* specularBuffer = new float4[gridData.totalVoxelCount()];
-    float* areaBuffer = new float[gridData.totalVoxelCount()];
-    NDF* NDFLobesBuffer = new NDF[gridData.totalVoxelCount()];
-
-    for (size_t i = 0; i < gridData.totalVoxelCount(); i++)
+    size_t voxelCount = gridData.totalVoxelCount();
+    const ChannelList& channels = VoxelizationBase::Channels;
+    for (uint i_channel = 0; i_channel < channels.size(); i_channel++)
     {
-        diffuseBuffer[i] = ABSDFBuffer[i].diffuse;
-        specularBuffer[i] = ABSDFBuffer[i].specular;
-        NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
-        areaBuffer[i] = ABSDFBuffer[i].area;
+        const ChannelDesc& channel = channels[i_channel];
+        ref<Texture> pTexture = renderData.getTexture(channel.name);
+        float* floatBuffer = nullptr;
+        float4* float4Buffer = nullptr;
+        switch (channel.format)
+        {
+        case ResourceFormat::RGBA32Float:
+            float4Buffer = new float4[voxelCount];
+            break;
+        case ResourceFormat::R32Float:
+            floatBuffer = new float[voxelCount];
+            break;
+        default:
+            continue;
+        }
+
+        if (channel.name == "diffuse")
+        {
+            for (size_t i = 0; i < voxelCount; i++)
+            {
+                float4Buffer[i] = ABSDFBuffer[i].diffuse;
+            }
+        }
+        else if (channel.name == "specular")
+        {
+            for (size_t i = 0; i < voxelCount; i++)
+            {
+                float4Buffer[i] = ABSDFBuffer[i].specular;
+            }
+        }
+        else if (channel.name == "roughness")
+        {
+            for (size_t i = 0; i < voxelCount; i++)
+            {
+                floatBuffer[i] = ABSDFBuffer[i].roughness;
+            }
+        }
+        else if (channel.name == "area")
+        {
+            for (size_t i = 0; i < voxelCount; i++)
+            {
+                floatBuffer[i] = ABSDFBuffer[i].area;
+            }
+        }
+
+        switch (channel.format)
+        {
+        case ResourceFormat::RGBA32Float:
+            pTexture->setSubresourceBlob(0, float4Buffer, voxelCount * sizeof(float4));
+            break;
+        case ResourceFormat::R32Float:
+            pTexture->setSubresourceBlob(0, floatBuffer, voxelCount * sizeof(float));
+            break;
+        }
+
+        delete[] floatBuffer;
+        delete[] float4Buffer;
     }
 
-    pDiffuse->setSubresourceBlob(0, diffuseBuffer, gridData.totalVoxelCount() * sizeof(float4));
-    pSpecular->setSubresourceBlob(0, specularBuffer, gridData.totalVoxelCount() * sizeof(float4));
-    pArea->setSubresourceBlob(0, areaBuffer, gridData.totalVoxelCount() * sizeof(float));
-    pNDFLobes->setBlob(NDFLobesBuffer, 0, gridData.totalVoxelCount() * sizeof(NDF));
-    pEllipsoids->setBlob(ellipsoidBuffer.data(), 0, gridData.totalVoxelCount() * sizeof(Ellipsoid));
+    ref<Buffer> pNDFLobes = renderData.getResource(kOutputNDFLobes)->asBuffer();
+    ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
+    NDF* NDFLobesBuffer = new NDF[voxelCount];
+    for (size_t i = 0; i < voxelCount; i++)
+    {
+        NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
+    }
 
-    delete[] diffuseBuffer;
-    delete[] specularBuffer;
-    delete[] areaBuffer;
+    pNDFLobes->setBlob(NDFLobesBuffer, 0, voxelCount * sizeof(NDF));
+    pEllipsoids->setBlob(ellipsoidBuffer.data(), 0, voxelCount * sizeof(Ellipsoid));
+
     delete[] NDFLobesBuffer;
     reset(0);
 

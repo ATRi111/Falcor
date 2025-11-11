@@ -6,19 +6,10 @@ import Rendering.Materials.StandardMaterial;
 ParameterBlock<Scene> scene;
 Texture3D<float4> gDiffuse;
 Texture3D<float4> gSpecular;
+Texture3D<float> gRoughness;
 Texture3D<float> gArea;
 StructuredBuffer<NDF> gNDFLobes;
 StructuredBuffer<Ellipsoid> gEllipsoids;
-
-static const int3 adjacent[7] = {
-    int3(0, 0, 0),
-    int3(1, 0, 0),
-    int3(0, 1, 0),
-    int3(0, 0, 1),
-    int3(-1, 0, 0),
-    int3(0, -1, 0),
-    int3(0, 0, -1),
-};
 
 cbuffer GridData
 {

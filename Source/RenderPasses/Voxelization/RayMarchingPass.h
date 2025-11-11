@@ -55,4 +55,5 @@ private:
     bool mUpdateScene;
     bool mCheckEllipsoid;
     bool mCheckVisibility;
+    bool mDebug;
 };
