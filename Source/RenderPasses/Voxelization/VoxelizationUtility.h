@@ -2,21 +2,25 @@
 #include "Falcor.h"
 #include "Profiler.h"
 #include <unordered_set>
+#include <tuple>
 using namespace Falcor;
 
-struct Edge
+struct Float3Hash
 {
-    float3 from;
-    float3 to;
-
-    float3 lerp(float t) const { return from + t * (to - from); }
-    bool collinear(float3 point, float tolerance = 1e-4f) const
+    size_t operator()(const float3& v) const noexcept
     {
-        float3 v1 = to - from;
-        float3 v2 = point - from;
-        float3 cross = math::cross(v1, v2);
-        return math::dot(cross, cross) <= tolerance * tolerance * math::dot(v1, v1) * math::dot(v2, v2);
+        size_t h1 = std::hash<float>{}(v.x);
+        size_t h2 = std::hash<float>{}(v.y);
+        size_t h3 = std::hash<float>{}(v.z);
+        size_t h = h1;
+        h ^= h2 + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        h ^= h3 + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        return h;
     }
+};
+struct Float3Equal
+{
+    bool operator()(const float3& a, const float3& b) const noexcept { return a.x == b.x && a.y == b.y && a.z == b.z; }
 };
 
 class VoxelizationUtility
@@ -54,24 +58,10 @@ private:
                approximatelyEqual(a.z, b.z, tolerance);
     }
 
-    static void removeRepeatPoints(std::vector<float3>& points, float tolerance = 1e-6)
+    static void removeRepeatPoints(std::vector<float3>& points)
     {
-        std::vector<float3> temp;
-        for (uint i = 0; i < points.size(); i++)
-        {
-            bool repeat = false;
-            for (uint j = 0; j < temp.size(); j++)
-            {
-                if (approximatelyEqual(points[i], temp[j], tolerance))
-                {
-                    repeat = true;
-                    break;
-                }
-            }
-            if (!repeat)
-                temp.push_back(points[i]);
-        }
-        points.swap(temp);
+        std::unordered_set<float3, Float3Hash, Float3Equal> temp(points.begin(), points.end());
+        points.assign(temp.begin(), temp.end());
     }
 
     static float3 intersectAxisPlane(const float3& s, const float3& e, int axis, float planeVal)
