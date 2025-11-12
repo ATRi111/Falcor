@@ -100,14 +100,14 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         const ChannelDesc& channel = channels[i_channel];
         ref<Texture> pTexture = renderData.getTexture(channel.name);
         float* floatBuffer = nullptr;
-        float4* float4Buffer = nullptr;
+        float3* float3Buffer = nullptr;
         switch (channel.format)
         {
-        case ResourceFormat::RGBA32Float:
-            float4Buffer = new float4[voxelCount];
-            break;
         case ResourceFormat::R32Float:
             floatBuffer = new float[voxelCount];
+            break;
+        case ResourceFormat::RGB32Float:
+            float3Buffer = new float3[voxelCount];
             break;
         default:
             continue;
@@ -117,14 +117,14 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         {
             for (size_t i = 0; i < voxelCount; i++)
             {
-                float4Buffer[i] = ABSDFBuffer[i].diffuse;
+                float3Buffer[i] = ABSDFBuffer[i].diffuse;
             }
         }
         else if (channel.name == "specular")
         {
             for (size_t i = 0; i < voxelCount; i++)
             {
-                float4Buffer[i] = ABSDFBuffer[i].specular;
+                float3Buffer[i] = ABSDFBuffer[i].specular;
             }
         }
         else if (channel.name == "roughness")
@@ -144,8 +144,8 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
         switch (channel.format)
         {
-        case ResourceFormat::RGBA32Float:
-            pTexture->setSubresourceBlob(0, float4Buffer, voxelCount * sizeof(float4));
+        case ResourceFormat::RGB32Float:
+            pTexture->setSubresourceBlob(0, float3Buffer, voxelCount * sizeof(float3));
             break;
         case ResourceFormat::R32Float:
             pTexture->setSubresourceBlob(0, floatBuffer, voxelCount * sizeof(float));
@@ -153,7 +153,7 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         }
 
         delete[] floatBuffer;
-        delete[] float4Buffer;
+        delete[] float3Buffer;
     }
     ABSDFBuffer.clear();
     ellipsoidBuffer.clear();

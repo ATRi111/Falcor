@@ -4,8 +4,8 @@ import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
 
 ParameterBlock<Scene> scene;
-Texture3D<float4> gDiffuse;
-Texture3D<float4> gSpecular;
+Texture3D<float3> gDiffuse;
+Texture3D<float3> gSpecular;
 Texture3D<float> gRoughness;
 Texture3D<float> gArea;
 StructuredBuffer<NDF> gNDFLobes;
@@ -68,7 +68,7 @@ float3 weightedCookTorrence(NDF ndf, float3 l, float3 v, float3 spec, float roug
         float w = ndf.weightedNormals[i].w;
         if (w > 0)
         {
-            float3 n = normalize(ndf.weightedNormals[i].xyz);
+            float3 n = ndf.weightedNormals[i].xyz;
             float cosTerm = dot(n, l);
             if (cosTerm < 0)
                 n = -n;
@@ -90,7 +90,7 @@ float weightedDot(NDF ndf, float3 direction)
         float w = ndf.weightedNormals[i].w;
         if (w > 0)
         {
-            float3 n = normalize(ndf.weightedNormals[i].xyz);
+            float3 n = ndf.weightedNormals[i].xyz;
             float cosTerm = abs(dot(n, direction));
             sum += cosTerm * w;
         }
@@ -106,7 +106,7 @@ float3 getNormal(NDF ndf, float3 v)
         float w = ndf.weightedNormals[i].w;
         if (w > 0)
         {
-            float3 n = normalize(ndf.weightedNormals[i].xyz);
+            float3 n = ndf.weightedNormals[i].xyz;
             float cosTerm = dot(n, v);
             sum += sign(cosTerm) * n * w;
         }
@@ -278,10 +278,10 @@ float calcVisibility(HitResult hit, float3 dirW)
     return hit.hit ? 0.f : 1.f;
 }
 
-float3 shading(HitResult hit, NDF ndf, float3 v, LightData light)
+float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
 {
-    float4 diffuse = gDiffuse[hit.cellInt];
-    float4 specular = gSpecular[hit.cellInt];
+    float3 diffuse = gDiffuse[hit.cellInt];
+    float3 specular = gSpecular[hit.cellInt];
     float area = gArea[hit.cellInt];
 
     float3 posW = gridMin + hit.cell * voxelSize;
@@ -332,14 +332,11 @@ float3 shading(HitResult hit, NDF ndf, float3 v, LightData light)
         break;
     }
     float cosTerm = weightedDot(ndf, l);
-    float3 diffuseColor = lightColor * diffuse.xyz / diffuse.w * cosTerm;
-    float3 specularColor = weightedCookTorrence(ndf, l, v, specular.xyz / specular.w, gRoughness[hit.cellInt]);
+    float3 diffuseColor = lightColor * diffuse * cosTerm;
+    float3 specularColor = weightedCookTorrence(ndf, l, v, specular, gRoughness[hit.cellInt]);
     float3 result = 0;
     switch (gDrawMode)
     {
-    case ABSDFDrawMode::BaseColor:
-        result = diffuse.xyz / diffuse.w + specular.xyz / specular.w;
-        break;
     case ABSDFDrawMode::Diffuse:
         result = diffuseColor;
         break;
@@ -351,6 +348,9 @@ float3 shading(HitResult hit, NDF ndf, float3 v, LightData light)
     case ABSDFDrawMode::Flat:
         result = cosTerm;
         break;
+    case ABSDFDrawMode::Ellipsoid:
+        float projArea = e.projectArea(v);
+        return projArea / PI * 2;
     default:
         result = diffuseColor + specularColor;
         break;
@@ -377,10 +377,11 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     {
         int index = CellToIndex(hit.cellInt, voxelCount);
         NDF ndf = gNDFLobes[index];
+        Ellipsoid e = gEllipsoids[index];
         float3 color = 0;
         for (uint i = 0; i < scene.lightCount; i++)
         {
-            color += shading(hit, ndf, -direction, scene.lights[i]);
+            color += shading(hit, e, ndf, -direction, scene.lights[i]);
         }
         psOut.color = float4(color, 1);
     }

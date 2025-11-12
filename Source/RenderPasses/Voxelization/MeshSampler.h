@@ -35,13 +35,14 @@ public:
         pointsInVoxels.resize(voxelCount);
     }
 
-    void sumPoints()
+    void completeAccumulation()
     {
         for (uint i = 0; i < voxelCount; i++)
         {
             int3 cellInt = IndexToCell(i, gridData.voxelCount);
             Ellipsoid e = VoxelizationUtility::FitEllipsoid(pointsInVoxels[i], cellInt);
             ellipsoidBuffer[i] = e;
+            ABSDFBuffer[i].Normalize();
         }
     }
 
@@ -130,7 +131,7 @@ public:
         {
             sampleMesh(meshList[i], pPos, pUV, pTri);
         }
-        sumPoints();
+        completeAccumulation();
         Tools::Profiler::EndSample("Mesh Sampling");
         Tools::Profiler::Print();
         std::cout << "TIME PER VOXEL: " << std::chrono::duration<double>(Tools::Profiler::timeDict["Mesh Sampling"]).count() / voxelCount

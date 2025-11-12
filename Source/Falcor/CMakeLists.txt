@@ -526,6 +526,15 @@ target_sources(Falcor PRIVATE
     Scene/SDFs/SDFVoxelHitUtils.slang
     Scene/SDFs/SDFVoxelTypes.slang
 
+    Scene/SpatialHashGrid/NvHlslExtInclude.slang
+    Scene/SpatialHashGrid/SpatialHashGrid.cpp
+    Scene/SpatialHashGrid/SpatialHashGrid.h
+    Scene/SpatialHashGrid/SpatialHashGridBufferUtils.slang
+    Scene/SpatialHashGrid/SpatialHashGridMacros.slangh
+    Scene/SpatialHashGrid/SpatialHashGridParams.slang
+    Scene/SpatialHashGrid/SpatialHashGridProcess.cs.slang
+    Scene/SpatialHashGrid/SpatialHashGridUtils.slang
+
     Scene/Volume/BC4Encode.h
     Scene/Volume/BrickedGrid.h
     Scene/Volume/Grid.cpp

@@ -4,11 +4,26 @@
 
 struct ABSDF
 {
-    float4 diffuse;
-    float4 specular;
+    float3 diffuse;
+    float3 specular;
     NDF NDF;
     float roughness;
     float area;
+
+    void Normalize()
+    {
+        if (area == 0)
+            return;
+        diffuse /= area;
+        specular /= area;
+        roughness /= area;
+        for (uint i = 0; i < LOBE_COUNT; i++)
+        {
+            float4 temp = NDF.weightedNormals[i];
+            temp = float4(math::normalize(temp.xyz()), temp.w);
+            NDF.weightedNormals[i] = temp;
+        }
+    }
 };
 
 struct ABSDFInput
@@ -37,8 +52,8 @@ public:
         float f = (IoR - 1.f) / (IoR + 1.f);
         float F0 = f * f;
 
-        ABSDF.diffuse += input.area * float4(math::lerp(input.baseColor, float3(0), input.specular.b), 1);
-        ABSDF.specular += input.area * float4(math::lerp(float3(F0), input.baseColor, input.specular.b), 1);
+        ABSDF.diffuse += input.area * math::lerp(input.baseColor, float3(0), input.specular.b);
+        ABSDF.specular += input.area * math::lerp(float3(F0), input.baseColor, input.specular.b);
         ABSDF.roughness += input.area * input.specular.g;
 
         uint index = NormalIndex(input.normal);

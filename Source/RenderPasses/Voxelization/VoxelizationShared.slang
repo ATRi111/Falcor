@@ -4,16 +4,38 @@
 BEGIN_NAMESPACE_FALCOR
 
 #define LOBE_COUNT 4
+#define PI 3.14159265358
 
 struct NDF
 {
     float4 weightedNormals[LOBE_COUNT];
 };
 
+struct Basis2
+{
+    float3 u;
+    float3 v;
+};
+
 struct Ellipsoid
 {
-    float3 center;
+    float3 center; // 相对于所在体素左下角的偏移量
     float3x3 shape;
+    float det;
+
+    float projectArea(float3 direction)
+    {
+        direction = normalize(direction);
+        float A = dot(direction, mul(shape, direction));
+        return PI * sqrt(A / det);
+    }
+
+    bool contains(float3 p, float epsilon)
+    {
+        float3 offset = p - center;
+        float d = dot(offset, mul(shape, offset));
+        return d <= (1.0 + epsilon);
+    }
 };
 
 struct GridData
@@ -44,9 +66,9 @@ enum class ABSDFDrawMode : uint32_t
     Default,
     Diffuse,
     Specular,
-    BaseColor,
     Flat,
     Normal,
+    Ellipsoid,
 };
 FALCOR_ENUM_INFO(
     ABSDFDrawMode,
@@ -54,9 +76,9 @@ FALCOR_ENUM_INFO(
         { ABSDFDrawMode::Default, "Default" },
         { ABSDFDrawMode::Diffuse, "Diffuse" },
         { ABSDFDrawMode::Specular, "Specular" },
-        { ABSDFDrawMode::BaseColor, "BaseColor" },
         { ABSDFDrawMode::Flat, "Flat" },
         { ABSDFDrawMode::Normal, "Normal" },
+        { ABSDFDrawMode::Ellipsoid, "Ellipsoid" },
     }
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);
