@@ -59,12 +59,17 @@ private:
         std::vector<float3> temp;
         for (uint i = 0; i < points.size(); i++)
         {
+            bool repeat = false;
             for (uint j = 0; j < temp.size(); j++)
             {
                 if (approximatelyEqual(points[i], temp[j], tolerance))
-                    continue;
+                {
+                    repeat = true;
+                    break;
+                }
             }
-            temp.push_back(points[i]);
+            if (!repeat)
+                temp.push_back(points[i]);
         }
         points.swap(temp);
     }
@@ -266,9 +271,6 @@ public:
             greater = !greater;
         }
 
-        if (polygon.size() >= 3)
-            removeRepeatPoints(polygon);
-
         return polygon;
     }
 
@@ -285,6 +287,8 @@ public:
             return e;
         }
 
+        removeRepeatPoints(points);
+        n = points.size();
         for (uint i = 0; i < n; i++)
         {
             sum += points[i];
