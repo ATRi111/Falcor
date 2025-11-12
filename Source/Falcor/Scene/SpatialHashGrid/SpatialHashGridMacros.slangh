@@ -1,0 +1,40 @@
+#define CACHED_PT_INVALID_HASH_ENTRY 4294967295 // UINT MAX => 0xFFFFFFFF
+
+#define SPATIAL_HASH_GRID_TYPE_HISTOGRAM 0
+#define SPATIAL_HASH_GRID_TYPE_MOVMF 1
+#define SPATIAL_HASH_GRID_TYPE_QUADTREE 2
+#define SPATIAL_HASH_GRID_TYPE_GT 3
+
+// used in updateLightCacheOnNumLightsChanged
+// when a new light is added into light buffer, light cache doesn't have its info yet
+// so store a invalid/new index to m_currentLightBufferIndexToPreviousFrameBuffer
+#define LIGHT_CACHE_NEW_LIGHT_INDEX 0xffffffff
+
+// Use a complete binary heap size in order to simplify code operating on it.
+#define LIGHT_CACHE_HIGHEST_PDF_HEAP_SIZE 7
+#define LIGHT_CACHE_MAX_CONTRIB 1024.f
+
+#define SPATIAL_HASH_VOXEL_PARAMS_eVoxelSize 0
+#define SPATIAL_HASH_VOXEL_PARAMS_eLastFrameUpdated 1
+
+// As per DX specs
+#define MAX_3D_TEX_WIDTH 2048
+
+#define SPATIAL_HASH_GRID_eSpatialHashGridDimUnusedEnties (1 << 0)
+#define SPATIAL_HASH_GRID_eSpatialHashGridDontResolveConflicts (1 << 1)
+#define SPATIAL_HASH_GRID_eSpatialHashGridConeBasedSpatialHash (1 << 2)
+#define SPATIAL_HASH_GRID_eSpatialHashGridDistanceBasedSpatialHash (1 << 3)
+
+// Path guiding: histogram
+#define HISTOGRAM_OCT_SUBDIV_DIM 16
+
+// Path guiding: compressed quadtree
+#define TOTAL_QUADTREE_NODES 257 // we don't expcitly store the root node, so we need to add 1 to get the actual size
+#define TOTAL_QUADTREE_LEAVES 193 // (3 * N + 1) / 4
+
+// Path guiding: movMF
+#define K 4
+#define I_INDEX 0
+#define TOTAL_WEIGHT_INDEX 1
+#define SUM_OF_WEIGHTED_DIRECTIONS_START_INDEX 2
+#define SUM_OF_WEIGHTED_DIRECTIONS_STRIDE 4
