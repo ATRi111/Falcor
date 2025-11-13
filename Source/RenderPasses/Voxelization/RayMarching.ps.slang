@@ -184,9 +184,9 @@ float2 ellipsoidClip(Ellipsoid e, float3 from, float3 to)
     float3 v = to - from;
     from -= e.center;
     // quadratic equation
-    float a = dot(v, mul(e.shape, v));
-    float b = 2.f * dot(v, mul(e.shape, from));
-    float c = dot(from, mul(e.shape, from)) - 1.f;
+    float a = dot(v, mul(e.B, v));
+    float b = 2.f * dot(v, mul(e.B, from));
+    float c = dot(from, mul(e.B, from)) - 1.f;
     float d = b * b - 4 * a * c;
     if (d < 0)
         return float2(-1, -1);
@@ -349,7 +349,8 @@ float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
         result = cosTerm;
         break;
     case ABSDFDrawMode::Ellipsoid:
-        float projArea = e.projectArea(v);
+        Ellipse ee = e.project(v);
+        float projArea = ee.area();
         return projArea / PI * 2;
     default:
         result = diffuseColor + specularColor;
