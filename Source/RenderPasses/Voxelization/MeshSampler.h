@@ -42,7 +42,7 @@ public:
             int3 cellInt = IndexToCell(i, gridData.voxelCount);
             Ellipsoid e = VoxelizationUtility::FitEllipsoid(pointsInVoxels[i], cellInt);
             ellipsoidBuffer[i] = e;
-            ABSDFBuffer[i].Normalize();
+            MaterialUtility::Normalize(ABSDFBuffer[i]);
         }
     }
 
@@ -66,8 +66,7 @@ public:
         float area = VoxelizationUtility::PolygonArea(points);
         float3 baseColor = currentBaseColor->SampleArea(uvs).xyz();
         float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0, 0, 0);
-        // float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
-        float3 normal = float3(0.5f, 0.5f, 1.f);
+        float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
         normal = VoxelizationUtility::CalcNormal(currentTBN, normal);
         if (normal.y < 0)
             normal = -normal;

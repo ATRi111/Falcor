@@ -1,30 +1,6 @@
 #pragma once
 #include "Falcor.h"
-#include "VoxelizationShared.Slang"
-
-struct ABSDF
-{
-    float3 diffuse;
-    float3 specular;
-    NDF NDF;
-    float roughness;
-    float area;
-
-    void Normalize()
-    {
-        if (area == 0)
-            return;
-        diffuse /= area;
-        specular /= area;
-        roughness /= area;
-        for (uint i = 0; i < LOBE_COUNT; i++)
-        {
-            float4 temp = NDF.weightedNormals[i];
-            temp = float4(math::normalize(temp.xyz()), temp.w);
-            NDF.weightedNormals[i] = temp;
-        }
-    }
-};
+#include "ABSDF.Slang"
 
 struct ABSDFInput
 {
@@ -52,13 +28,34 @@ public:
         float f = (IoR - 1.f) / (IoR + 1.f);
         float F0 = f * f;
 
-        ABSDF.diffuse += input.area * math::lerp(input.baseColor, float3(0), input.specular.b);
-        ABSDF.specular += input.area * math::lerp(float3(F0), input.baseColor, input.specular.b);
+        ABSDF.diffuse += input.area * lerp(input.baseColor, float3(0), input.specular.b);
+        ABSDF.specular += input.area * lerp(float3(F0), input.baseColor, input.specular.b);
         ABSDF.roughness += input.area * input.specular.g;
 
         uint index = NormalIndex(input.normal);
         ABSDF.NDF.weightedNormals[index] += input.area * float4(input.normal, 1);
 
         ABSDF.area += input.area;
+    }
+
+    static void Normalize(ABSDF& ABSDF)
+    {
+        float area = ABSDF.area;
+        if (area == 0)
+            return;
+        ABSDF.diffuse /= area;
+        ABSDF.specular /= area;
+        ABSDF.roughness /= area;
+        Normalize(ABSDF.NDF);
+    }
+
+    static void Normalize(NDF& NDF)
+    {
+        for (uint i = 0; i < LOBE_COUNT; i++)
+        {
+            float4 temp = NDF.weightedNormals[i];
+            temp = float4(normalize(temp.xyz()), temp.w);
+            NDF.weightedNormals[i] = temp;
+        }
     }
 };

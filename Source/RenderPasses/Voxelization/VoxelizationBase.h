@@ -1,8 +1,10 @@
 #pragma once
+#include "VoxelGrid.slang"
+#include "ABSDF.slang"
+#include "Ellipsoid.slang"
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
 #include "RenderGraph/RenderPassHelpers.h"
-#include "VoxelizationShared.slang"
 #include "VoxelizationUtility.h"
 #include "MaterialUtility.h"
 using namespace Falcor;

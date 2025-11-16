@@ -273,7 +273,6 @@ public:
         {
             e.center = float3(0.5f);
             e.B = float3x3::identity();
-            e.det = 1;
             return e;
         }
 
@@ -318,7 +317,6 @@ public:
             maxDot = std::max(maxDot, dot);
         }
         e.B = inv * (1.0f / maxDot);
-        e.det = math::max(math::determinant(e.B), 1e-6f);
         e.center -= float3(cellInt);
         return e;
     }

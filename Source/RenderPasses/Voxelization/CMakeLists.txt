@@ -1,10 +1,14 @@
 add_plugin(Voxelization)
 
 target_sources(Voxelization PRIVATE
+    VoxelGrid.slang
+    Ellipsoid.slang
+    ABSDF.slang
+    Projection.slang
+
     VoxelizationUtility.h
     MaterialUtility.h
 
-    VoxelizationShared.slang
     VoxelizationBase.h
     VoxelizationBase.cpp
 

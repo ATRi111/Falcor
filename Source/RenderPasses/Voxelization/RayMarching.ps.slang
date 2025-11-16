@@ -1,4 +1,6 @@
-#include "VoxelizationShared.slang"
+#include "VoxelGrid.slang"
+#include "Ellipsoid.slang"
+#include "ABSDF.slang"
 import Scene.SceneTypes;
 import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
@@ -335,13 +337,14 @@ float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
     float3 diffuseColor = lightColor * diffuse * cosTerm;
     float3 specularColor = weightedCookTorrence(ndf, l, v, specular, gRoughness[hit.cellInt]);
     float3 result = 0;
+    float projectArea = 0;
     switch (gDrawMode)
     {
     case ABSDFDrawMode::Diffuse:
-        result = diffuseColor;
+        result = lightColor * diffuseColor;
         break;
     case ABSDFDrawMode::Specular:
-        result = specularColor;
+        result = lightColor * specularColor;
         break;
     case ABSDFDrawMode::Normal:
         return getNormal(ndf, l) * 0.5 + 0.5;
@@ -349,11 +352,17 @@ float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
         result = cosTerm;
         break;
     case ABSDFDrawMode::Ellipsoid:
-        Ellipse ee = e.project(v);
-        float projArea = ee.area();
-        return projArea / PI * 2;
+        projectArea = e.projectArea(v) / PI * 2;
+        if (projectArea <= 1)
+            return projectArea;
+        return float3(projectArea, 2 - projectArea, 2 - projectArea);
+    case ABSDFDrawMode::ClippedEllipsoid:
+        projectArea = e.clippedProjectArea(v);
+        if (projectArea <= 1)
+            return projectArea;
+        return float3(projectArea, 2 - projectArea, 2 - projectArea);
     default:
-        result = diffuseColor + specularColor;
+        result = lightColor * (diffuseColor + specularColor);
         break;
     }
     return visibility * result / area;
