@@ -132,6 +132,8 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     cb["visibilityBias"] = mVisibilityBias;
     cb["gDrawMode"] = mDrawMode;
+    cb["gFrameIndex"] = mFrameIndex;
+    mFrameIndex++;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);

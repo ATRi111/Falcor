@@ -51,6 +51,7 @@ private:
     ref<Sampler> mpPointSampler;
 
     uint mDrawMode;
+    uint mFrameIndex;
     float mVisibilityBias;
     bool mUpdateScene;
     bool mCheckEllipsoid;
