@@ -320,4 +320,347 @@ public:
         e.center -= float3(cellInt);
         return e;
     }
+
+    static inline float3x3 Outer(const float3 a, const float3 b)
+    {
+        float3x3 M = float3x3::zeros();
+        M[0][0] = a.x * b.x;
+        M[0][1] = a.x * b.y;
+        M[0][2] = a.x * b.z;
+        M[1][0] = a.y * b.x;
+        M[1][1] = a.y * b.y;
+        M[1][2] = a.y * b.z;
+        M[2][0] = a.z * b.x;
+        M[2][1] = a.z * b.y;
+        M[2][2] = a.z * b.z;
+        return M;
+    }
+
+    // 最小体积包围椭球（MVEE），共线/共面时使用；否则回退 FitEllipsoid。
+    static Ellipsoid FitEllipsoidMVEE(std::vector<float3>& points, int3 cellInt, uint maxIter = 256u, float eps = 1e-5f)
+    {
+        Ellipsoid e;
+        e.center = float3(0.5f);
+        e.B = float3x3::identity();
+
+        uint n = (uint)points.size();
+        if (n == 0)
+            return e;
+
+        removeRepeatPoints(points);
+        n = (uint)points.size();
+        if (n == 0)
+            return e;
+
+        // 基准点与退化检测
+        const float3 p0 = points[0];
+        int i1 = -1, i2 = -1;
+        for (uint i = 1; i < n; ++i)
+        {
+            float3 d = points[i] - p0;
+            if (math::dot(d, d) > 1e-20f)
+            {
+                i1 = (int)i;
+                break;
+            }
+        }
+        if (i1 < 0)
+        {
+            // 全部重合
+            e.center = p0 - float3(cellInt);
+            e.B = float3x3::identity();
+            return e;
+        }
+        float3 v1 = points[i1] - p0;
+        for (uint j = i1 + 1; j < n; ++j)
+        {
+            float3 v2 = points[j] - p0;
+            float3 c = math::cross(v1, v2);
+            if (math::dot(c, c) > 1e-20f)
+            {
+                i2 = (int)j;
+                break;
+            }
+        }
+
+        // ---------- 共线 ----------
+        if (i2 < 0)
+        {
+            float3 u = math::normalize(v1);
+            float tmin = 0.0f, tmax = 0.0f;
+            for (uint i = 0; i < n; ++i)
+            {
+                float t = math::dot(points[i] - p0, u);
+                if (i == 0)
+                {
+                    tmin = tmax = t;
+                }
+                else
+                {
+                    if (t < tmin)
+                        tmin = t;
+                    if (t > tmax)
+                        tmax = t;
+                }
+            }
+            float tc = 0.5f * (tmin + tmax);
+            float a = fmaxf(1e-6f, 0.5f * (tmax - tmin));      // 主半轴长度
+            float thin = fmaxf(1e-6f, 1e-3f * fmaxf(a, 1.0f)); // 正交方向极薄厚度
+
+            float inv_a2 = 1.0f / (a * a);
+            float inv_thin = 1.0f / (thin * thin);
+
+            float3x3 uu = Outer(u, u);
+            float3x3 I = float3x3::identity();
+            e.B = uu * inv_a2 + (I + uu * -1.0f) * inv_thin;
+
+            e.center = p0 + u * tc;
+            e.center -= float3(cellInt);
+            return e;
+        }
+
+        // ---------- 共面（最常见） ----------
+        float3 nrm = math::normalize(math::cross(v1, points[i2] - p0));
+
+        // 动态阈值判断共面（尺度相关）
+        float avgR = 0.0f;
+        for (uint i = 0; i < n; ++i)
+            avgR += sqrtf(fmaxf(0.0f, math::dot(points[i] - p0, points[i] - p0)));
+        avgR = (n > 0) ? (avgR / (float)n) : 1.0f;
+        float planeTol = 1e-4f * (avgR + 1e-3f);
+
+        bool coplanar = true;
+        for (uint i = 0; i < n; ++i)
+        {
+            float d = fabsf(math::dot(points[i] - p0, nrm));
+            if (d > planeTol)
+            {
+                coplanar = false;
+                break;
+            }
+        }
+
+        if (coplanar)
+        {
+            // 构造平面正交基 {u, v}, 法向 nrm
+            float3 u = math::normalize(v1);
+            float3 v = math::normalize(math::cross(nrm, u));
+
+            // 2D 坐标（float）
+            std::vector<float> xs(n), ys(n);
+            for (uint i = 0; i < n; ++i)
+            {
+                float3 d = points[i] - p0;
+                xs[i] = math::dot(d, u);
+                ys[i] = math::dot(d, v);
+            }
+
+            // Khachiyan (2D) 权重
+            const float D = 2.0f;
+            std::vector<float> w(n, 1.0f / (float)n);
+
+            for (uint it = 0; it < maxIter; ++it)
+            {
+                // X = Σ w_k * q_k q_k^T, q_k = [x,y,1]^T
+                float3x3 X = float3x3::zeros();
+                for (uint k = 0; k < n; ++k)
+                {
+                    float q0 = xs[k], q1 = ys[k], q2 = 1.0f, wk = w[k];
+                    X[0][0] += wk * q0 * q0;
+                    X[0][1] += wk * q0 * q1;
+                    X[0][2] += wk * q0 * q2;
+                    X[1][0] += wk * q1 * q0;
+                    X[1][1] += wk * q1 * q1;
+                    X[1][2] += wk * q1 * q2;
+                    X[2][0] += wk * q2 * q0;
+                    X[2][1] += wk * q2 * q1;
+                    X[2][2] += wk * q2 * q2;
+                }
+                // 轻微正则，防奇异
+                float reg = 1e-8f;
+                X[0][0] += reg;
+                X[1][1] += reg;
+                X[2][2] += reg;
+
+                float3x3 Xi = math::inverse(X);
+
+                // M_k = q_k^T * X^{-1} * q_k
+                uint j = 0;
+                float mmax = -1.0f;
+                for (uint k = 0; k < n; ++k)
+                {
+                    float3 q = float3(xs[k], ys[k], 1.0f);
+                    float3 t = mul(Xi, q);
+                    float Mk = math::dot(q, t);
+                    if (Mk > mmax)
+                    {
+                        mmax = Mk;
+                        j = k;
+                    }
+                }
+
+                float step = (mmax - (D + 1.0f)) / ((D + 1.0f) * (mmax - 1.0f));
+                if (step <= eps)
+                    break;
+
+                for (uint k = 0; k < n; ++k)
+                    w[k] *= (1.0f - step);
+                w[j] += step;
+            }
+
+            // 中心（2D）
+            float cx = 0.0f, cy = 0.0f;
+            for (uint k = 0; k < n; ++k)
+            {
+                cx += w[k] * xs[k];
+                cy += w[k] * ys[k];
+            }
+
+            // S2 = Σ w_i ([x-c][y-c])([x-c][y-c])^T
+            float S00 = 0.0f, S01 = 0.0f, S11 = 0.0f;
+            for (uint k = 0; k < n; ++k)
+            {
+                float dx = xs[k] - cx, dy = ys[k] - cy, wk = w[k];
+                S00 += wk * dx * dx;
+                S01 += wk * dx * dy;
+                S11 += wk * dy * dy;
+            }
+
+            // 用 3×3 的块对角矩阵把 2×2 的 S2 嵌入，借助 math::inverse 求 inv(S2)
+            float3x3 S3 = float3x3::zeros();
+            S3[0][0] = S00;
+            S3[0][1] = S01;
+            S3[1][0] = S01;
+            S3[1][1] = S11;
+            S3[2][2] = 1.0f;
+            // 轻微正则
+            float tr = S3[0][0] + S3[1][1] + S3[2][2];
+            float lam = 1e-8f * fmaxf(tr, 1e-6f);
+            S3[0][0] += lam;
+            S3[1][1] += lam;
+            float3x3 S3i = math::inverse(S3);
+
+            // A2 = inv(S2) / D，取 S3i 的左上 2×2
+            float A00 = S3i[0][0] * (1.0f / D);
+            float A01 = S3i[0][1] * (1.0f / D);
+            float A10 = S3i[1][0] * (1.0f / D);
+            float A11 = S3i[1][1] * (1.0f / D);
+
+            // 回到 3D：B = U*A2*U^T + alpha*(nrm nrm^T)
+            float3x3 uu = Outer(u, u);
+            float3x3 vv = Outer(v, v);
+            float3x3 uv = Outer(u, v);
+            float3x3 vu = Outer(v, u);
+            float3x3 Bp = uu * A00 + vv * A11 + uv * A01 + vu * A10;
+
+            // 法向极薄厚度（与平面内尺度相对）
+            float aMean = sqrtf(fmaxf(1e-12f, S00 + S11));
+            float thin = fmaxf(1e-6f, 1e-3f * aMean);
+            float alpha = 1.0f / (thin * thin);
+            float3x3 nn = Outer(nrm, nrm);
+
+            e.B = Bp + nn * alpha;
+            e.center = p0 + u * cx + v * cy;
+            e.center -= float3(cellInt);
+            return e;
+        }
+
+        // 非共面
+        const float D = 3.0f;
+        std::vector<float> w(n, 1.0f / (float)n);
+
+        for (uint it = 0; it < maxIter; ++it)
+        {
+            // X = Σ w_k * q_k q_k^T, q_k = [x, y, z, 1]^T
+            float4x4 X = float4x4::zeros();
+            for (uint k = 0; k < n; ++k)
+            {
+                const float3& p = points[k];
+                float x = p.x, y = p.y, z = p.z, wk = w[k];
+
+                X[0][0] += wk * x * x;
+                X[0][1] += wk * x * y;
+                X[0][2] += wk * x * z;
+                X[0][3] += wk * x * 1.0f;
+                X[1][0] += wk * y * x;
+                X[1][1] += wk * y * y;
+                X[1][2] += wk * y * z;
+                X[1][3] += wk * y * 1.0f;
+                X[2][0] += wk * z * x;
+                X[2][1] += wk * z * y;
+                X[2][2] += wk * z * z;
+                X[2][3] += wk * z * 1.0f;
+                X[3][0] += wk * 1.0f * x;
+                X[3][1] += wk * 1.0f * y;
+                X[3][2] += wk * 1.0f * z;
+                X[3][3] += wk * 1.0f * 1.0f;
+            }
+            // 轻微正则
+            float reg = 1e-8f;
+            X[0][0] += reg;
+            X[1][1] += reg;
+            X[2][2] += reg;
+            X[3][3] += reg;
+
+            float4x4 Xi = math::inverse(X);
+
+            // M_k = q_k^T * X^{-1} * q_k
+            uint j = 0;
+            float mmax = -1.0f;
+            for (uint k = 0; k < n; ++k)
+            {
+                const float3& p = points[k];
+                float4 q = float4(p.x, p.y, p.z, 1.0f);
+                float4 t = mul(Xi, q);
+                float Mk = q.x * t.x + q.y * t.y + q.z * t.z + q.w * t.w; // 避免依赖是否有 float4 dot 重载
+                if (Mk > mmax)
+                {
+                    mmax = Mk;
+                    j = k;
+                }
+            }
+
+            float step = (mmax - (D + 1.0f)) / ((D + 1.0f) * (mmax - 1.0f)); // D=3 → (mmax-4)/(4*(mmax-1))
+            if (step <= eps)
+                break;
+
+            for (uint k = 0; k < n; ++k)
+                w[k] *= (1.0f - step);
+            w[j] += step;
+        }
+
+        // 3D 中心
+        float3 c = float3(0.0f);
+        for (uint k = 0; k < n; ++k)
+            c += points[k] * w[k];
+
+        // S = Σ w_i (p_i - c)(p_i - c)^T
+        float3x3 S = float3x3::zeros();
+        for (uint k = 0; k < n; ++k)
+        {
+            float3 d = points[k] - c;
+            float wk = w[k];
+            S[0][0] += wk * d.x * d.x;
+            S[0][1] += wk * d.x * d.y;
+            S[0][2] += wk * d.x * d.z;
+            S[1][0] += wk * d.y * d.x;
+            S[1][1] += wk * d.y * d.y;
+            S[1][2] += wk * d.y * d.z;
+            S[2][0] += wk * d.z * d.x;
+            S[2][1] += wk * d.z * d.y;
+            S[2][2] += wk * d.z * d.z;
+        }
+        // 轻微正则避免奇异
+        float tr = S[0][0] + S[1][1] + S[2][2];
+        float lam = 1e-8f * fmaxf(tr, 1e-6f);
+        S[0][0] += lam;
+        S[1][1] += lam;
+        S[2][2] += lam;
+
+        float3x3 Sinv = math::inverse(S);
+        e.B = Sinv * (1.0f / 3.0f); // D=3
+        e.center = c;
+        e.center -= float3(cellInt);
+        return e;
+    }
 };

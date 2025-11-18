@@ -382,12 +382,10 @@ float2 randomJitter(UniformSampleGenerator rng)
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
     PsOut psOut = { float4(1, 0, 1, 1) };
-#if DEBUG
     uint2 pixel = uint2(texCoord * pixelCount);
     UniformSampleGenerator rng = UniformSampleGenerator(pixel, gFrameIndex);
     float2 jitter = randomJitter(rng);
     texCoord += jitter;
-#endif
     float3 from = screenCoordToGridCoord(texCoord, 0);
     float3 to = screenCoordToGridCoord(texCoord, 1);
 
