@@ -12,7 +12,6 @@ inline float cross2(float2 a, float2 b)
 
 #if !defined(HOST_CODE)
 
-
 // 计算凸包
 inline int convexHull2D(float2 points[CUBE_VERTEX_COUNT], int inputCount, out float2 hull[CUBE_VERTEX_COUNT])
 {
@@ -69,6 +68,7 @@ inline int convexHull2D(float2 points[CUBE_VERTEX_COUNT], int inputCount, out fl
 
     return count;
 }
+#else
 
 #endif
 

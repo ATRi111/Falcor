@@ -3,6 +3,7 @@
 #include "ImageLoader.h"
 #include "Profiler.h"
 #include <fstream>
+#include "QuickHull/QuickHull.hpp"
 
 class MeshSampler
 {
@@ -37,10 +38,21 @@ public:
 
     void completeAccumulation()
     {
+        using namespace quickhull;
+        std::vector<float3> temp;
         for (uint i = 0; i < voxelCount; i++)
         {
             int3 cellInt = IndexToCell(i, gridData.voxelCount);
-            Ellipsoid e = VoxelizationUtility::FitEllipsoid(pointsInVoxels[i], cellInt);
+            QuickHull<float> qh;
+            ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(pointsInVoxels[i].data()), pointsInVoxels[i].size(), true, false);
+            VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
+            temp.clear();
+            for (uint j = 0; j < vertexBuffer.size(); j++)
+            {
+                Vector3<float> p = vertexBuffer[j];
+                temp.emplace_back(p.x, p.y, p.z);
+            }
+            Ellipsoid e = VoxelizationUtility::FitEllipsoid(temp, cellInt);
             ellipsoidBuffer[i] = e;
             MaterialUtility::Normalize(ABSDFBuffer[i]);
         }
