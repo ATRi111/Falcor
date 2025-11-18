@@ -5,6 +5,7 @@ target_sources(Voxelization PRIVATE
     Ellipsoid.slang
     ABSDF.slang
     Projection.slang
+    ConvexHull.slang
 
     VoxelizationUtility.h
     MaterialUtility.h
