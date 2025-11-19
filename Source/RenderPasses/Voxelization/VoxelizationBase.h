@@ -1,12 +1,11 @@
 #pragma once
-#include "VoxelGrid.slang"
-#include "ABSDF.slang"
-#include "Ellipsoid.slang"
+#include "Voxel/VoxelGrid.slang"
+#include "Voxel/ABSDF.slang"
+#include "Math/Ellipsoid.slang"
 #include "Falcor.h"
 #include "RenderGraph/RenderPass.h"
 #include "RenderGraph/RenderPassHelpers.h"
-#include "VoxelizationUtility.h"
-#include "MaterialUtility.h"
+#include "Math/VoxelizationUtility.h"
 using namespace Falcor;
 
 inline std::string ToString(float3 v)

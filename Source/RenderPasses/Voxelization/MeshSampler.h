@@ -1,9 +1,10 @@
 #pragma once
 #include "VoxelizationBase.h"
-#include "ImageLoader.h"
+#include "Image/ImageLoader.h"
 #include "Profiler.h"
-#include <fstream>
 #include "QuickHull/QuickHull.hpp"
+#include "Math/Polygon.slang"
+#include <fstream>
 
 class MeshSampler
 {
@@ -20,7 +21,7 @@ public:
     uint sampleFrequency;
     std::vector<ABSDF> ABSDFBuffer;
     std::vector<Ellipsoid> ellipsoidBuffer;
-    std::vector<std::vector<float3>> pointsInVoxels;
+    std::vector<std::vector<Polygon>> polygonsInVoxels;
     std::string fileName;
 
     MeshSampler(uint sampleFrequency = 0)
@@ -33,57 +34,61 @@ public:
         fileName = ToString(gridData.voxelCount) + "_" + std::to_string(sampleFrequency) + ".bin";
         ABSDFBuffer.resize(voxelCount);
         ellipsoidBuffer.resize(voxelCount);
-        pointsInVoxels.resize(voxelCount);
+        polygonsInVoxels.resize(voxelCount);
     }
 
     void completeAccumulation()
     {
         using namespace quickhull;
-        std::vector<float3> temp;
+        std::vector<float3> points;
         for (uint i = 0; i < voxelCount; i++)
         {
+            points.clear();
+            for (uint j = 0; j < polygonsInVoxels[i].size(); j++)
+            {
+                polygonsInVoxels[i][j].addTo(points);
+            }
             int3 cellInt = IndexToCell(i, gridData.voxelCount);
             QuickHull<float> qh;
-            ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(pointsInVoxels[i].data()), pointsInVoxels[i].size(), true, false);
+            ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-3f);
             VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
-            temp.clear();
+            points.clear();
             for (uint j = 0; j < vertexBuffer.size(); j++)
             {
                 Vector3<float> p = vertexBuffer[j];
-                temp.emplace_back(p.x, p.y, p.z);
+                points.emplace_back(p.x, p.y, p.z);
             }
-            Ellipsoid e = VoxelizationUtility::FitEllipsoid(temp, cellInt);
+            Ellipsoid e = VoxelizationUtility::FitEllipsoid(points, cellInt);
             ellipsoidBuffer[i] = e;
-            MaterialUtility::Normalize(ABSDFBuffer[i]);
+            ABSDFBuffer[i].normalizeSelf();
         }
     }
 
-    void sampleArea(float3 tri[3], float2 triuv[3], std::vector<float3>& points, int3 cellInt)
+    void sampleArea(float3 tri[3], float2 triuv[3], Polygon polygon, int3 cellInt)
     {
-        if (points.size() == 0)
+        if (polygon.count < 3)
             return;
-        if (points.size() < 3)
-            std::cout << "Less than 3 intersection points in voxel!" << std::endl;
 
         int index = CellToIndex(cellInt, gridData.voxelCount);
+
+        polygonsInVoxels[index].push_back(polygon);
+
         std::vector<float2> uvs;
-        for (uint i = 0; i < points.size(); i++)
+        for (uint i = 0; i < polygon.count; i++)
         {
-            float3 coord = VoxelizationUtility::BarycentricCoordinates(tri[0], tri[1], tri[2], points[i]);
+            float3 coord = VoxelizationUtility::BarycentricCoordinates(tri[0], tri[1], tri[2], polygon.vertices[i]);
             float2 uv = triuv[0] * coord.x + triuv[1] * coord.y + triuv[2] * coord.z;
             uvs.push_back(uv);
-            pointsInVoxels[index].push_back(points[i]);
         }
 
-        float area = VoxelizationUtility::PolygonArea(points);
         float3 baseColor = currentBaseColor->SampleArea(uvs).xyz();
         float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0, 0, 0);
         float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
         normal = VoxelizationUtility::CalcNormal(currentTBN, normal);
         if (normal.y < 0)
             normal = -normal;
-        ABSDFInput input = {baseColor, spec, normal, area};
-        MaterialUtility::Accumulate(ABSDFBuffer[index], input);
+        ABSDFInput input = {baseColor, spec, normal, polygon.area()};
+        ABSDFBuffer[index].accumulate(input);
     }
 
     void calcTriangle(float3 tri[3], float2 triuv[3])
@@ -109,8 +114,8 @@ public:
                 {
                     int3 cellInt = int3(x, y, z);
                     float3 minPoint = float3(cellInt);
-                    std::vector<float3> points = VoxelizationUtility::BoxClip(minPoint, minPoint + 1.f, tri);
-                    sampleArea(tri, triuv, points, cellInt);
+                    Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri);
+                    sampleArea(tri, triuv, polygon, cellInt);
                 }
             }
         }

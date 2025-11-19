@@ -1,14 +1,19 @@
 add_plugin(Voxelization)
 
 target_sources(Voxelization PRIVATE
-    VoxelGrid.slang
-    Ellipsoid.slang
-    ABSDF.slang
-    Projection.slang
-    ConvexHull.slang
+    Voxel/ABSDF.slang
+    Voxel/VoxelGrid.slang
 
-    VoxelizationUtility.h
-    MaterialUtility.h
+    Math/Projection.slang
+    Math/ConvexHull.slang
+    Math/Ellipsoid.slang
+    Math/Polygon.slang
+    Math/Triangle.slang
+    Math/VoxelizationUtility.h
+
+    Image/Image.h
+    Image/ImageLoader.cpp
+    Image/ImageLoader.h
 
     VoxelizationBase.h
     VoxelizationBase.cpp
@@ -25,9 +30,6 @@ target_sources(Voxelization PRIVATE
     LoadMeshPass.h
     LoadMesh.cs.slang
 
-    Image.h
-    ImageLoader.cpp
-    ImageLoader.h
     MeshSampler.h
     ReadVoxelPass.cpp
     ReadVoxelPass.h

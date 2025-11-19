@@ -1,5 +1,6 @@
 #pragma once
 #include "Falcor.h"
+using namespace Falcor;
 
 enum AddressingMode
 {
@@ -73,6 +74,22 @@ struct MipLevel
 class Image
 {
 public:
+    static float PolygonArea(std::vector<float2>& points)
+    {
+        const size_t n = points.size();
+        if (n < 3)
+            return 0.0f;
+        float area = 0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            float2 a = points[i];
+            float2 b = points[(i + 1) % n];
+            area += a.x * b.y - a.y * b.x;
+        }
+        area = 0.5f * abs(area);
+        return area;
+    }
+
     std::string name;
     std::vector<MipLevel> mipLevels;
     AddressingMode addressingMode;
@@ -198,7 +215,7 @@ public:
                 center += uvs[i];
             }
             center /= (float)uvs.size();
-            float area = VoxelizationUtility::PolygonArea(uvs);
+            float area = PolygonArea(uvs);
             area *= mipLevels[0].size.x * mipLevels[0].size.y;
             float lod = 0.5f * math::log2(area);
             return SampleTrilinear(center, lod);

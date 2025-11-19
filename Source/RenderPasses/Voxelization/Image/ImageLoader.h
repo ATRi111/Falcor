@@ -1,7 +1,7 @@
 #pragma once
-#include "VoxelizationBase.h"
 #include "Image.h"
 #include <unordered_map>
+using namespace Falcor;
 
 enum TextureType
 {

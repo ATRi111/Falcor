@@ -1,6 +1,6 @@
-#include "VoxelGrid.slang"
-#include "Ellipsoid.slang"
-#include "ABSDF.slang"
+#include "Voxel/VoxelGrid.slang"
+#include "Voxel/ABSDF.slang"
+#include "Math/Ellipsoid.slang"
 import Scene.SceneTypes;
 import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
@@ -363,6 +363,10 @@ float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
         if (projectArea <= 1)
             return projectArea;
         return float3(projectArea, 2 - projectArea, 2 - projectArea);
+    case ABSDFDrawMode::Area:
+        if (area <= 1)
+            return area;
+        return float3(area, 2 - area, 2 - area);
     default:
         result = lightColor * (diffuseColor + specularColor);
         break;

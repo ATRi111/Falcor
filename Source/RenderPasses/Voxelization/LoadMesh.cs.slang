@@ -1,4 +1,4 @@
-#include "VoxelGrid.slang"
+#include "Voxel/VoxelGrid.slang"
 #include "Scene/VertexAttrib.slangh"
 
 import Scene.SceneTypes;
