@@ -3,6 +3,12 @@
 
 BEGIN_NAMESPACE_FALCOR
 
+struct AABBInt
+{
+    int3 min;
+    int3 max;
+};
+
 struct GridData
 {
     float3 gridMin;

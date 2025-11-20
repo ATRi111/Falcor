@@ -1,5 +1,6 @@
 #pragma once
 #include "Utils/HostDeviceShared.slangh"
+#include "Voxel/VoxelGrid.slang"
 
 #if defined(HOST_CODE)
 #include<vector>
@@ -10,6 +11,7 @@ BEGIN_NAMESPACE_FALCOR
 struct Triangle
 {
     float3 vertices[3];
+    float2 uvs[3];
 
 #if !defined(HOST_CODE)
     [mutating]
@@ -21,6 +23,17 @@ struct Triangle
             vertices[i] = float3(0);
         }
     }
+
+#if defined(HOST_CODE)
+    void addTo(std::vector<float3>& points)
+    {
+        for (uint i = 0; i < 3; i++)
+        {
+            points.push_back(vertices[i]);
+        }
+    }
+#endif
+
     // 判断点是否在三角形内（必须共面）
     bool contains2D(float3 p)
     {
@@ -46,13 +59,68 @@ struct Triangle
         float denom = d00 * d11 - d01 * d01;
 
         if (abs(denom) < 1e-8)
-            return float3(1, 1, 1) / 3;
+            return float3(1) / float3(3);
 
         float v = (d11 * d20 - d01 * d21) / denom;
         float w = (d00 * d21 - d01 * d20) / denom;
         float u = 1 - v - w;
 
         return float3(u, v, w);
+    }
+
+    float2 lerpUV(float3 p)
+    {
+        float3 coord = barycentricCoordinates(p);
+        return uvs[0] * coord.x + uvs[1] * coord.y + uvs[2] * coord.z;
+    }
+
+    AABBInt calcAABBInt()
+    {
+        AABBInt aabb;
+        aabb.min = aabb.max = (int3)floor(vertices[0]);
+        for (size_t i = 1; i < 3; i++)
+        {
+            aabb.min = min(aabb.min, (int3)floor(vertices[i]));
+            aabb.max = max(aabb.max, (int3)floor(vertices[i]));
+        }
+        return aabb;
+    }
+
+    float3x3 buildTBN()
+    {
+        float3 e1 = vertices[1] - vertices[0];
+        float3 e2 = vertices[2] - vertices[0];
+        float2 duv1 = uvs[1] - uvs[0];
+        float2 duv2 = uvs[2] - uvs[0];
+
+        float D = duv1.x * duv2.y - duv1.y * duv2.x;
+        float3 N = normalize(cross(e1, e2));
+        float3 T, B;
+        if (abs(D) < 1e-8)
+        {
+            T = normalize(e1 - N * dot(N, e1));
+            B = normalize(cross(N, T));
+        }
+        else
+        {
+            float r = 1.0 / D;
+            float3 Tp = (e1 * duv2.y - e2 * duv1.y) * r;
+            float3 Bp = (e2 * duv1.x - e1 * duv2.x) * r;
+
+            T = normalize(Tp - N * dot(N, Tp));
+            B = normalize(Bp - N * dot(N, Bp));
+        }
+
+#if defined(HOST_CODE)
+        float3x3 ret;
+        ret.setCol(0, T);
+        ret.setCol(1, B);
+        ret.setCol(2, N);
+#else
+        float3x3 ret = float3x3(T, B, N);
+        ret = transpose(ret);
+#endif
+        return ret;
     }
 };
 

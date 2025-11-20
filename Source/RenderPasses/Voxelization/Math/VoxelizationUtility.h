@@ -2,6 +2,7 @@
 #include "Falcor.h"
 #include "Profiler.h"
 #include "Polygon.slang"
+#include "Triangle.slang"
 #include <unordered_set>
 #include <tuple>
 using namespace Falcor;
@@ -95,71 +96,13 @@ private:
 
 public:
 
-    static float3x3 BuildTBN(float3 tri[3], float2 triuv[3])
-    {
-        float3 e1 = tri[1] - tri[0];
-        float3 e2 = tri[2] - tri[0];
-        float2 duv1 = triuv[1] - triuv[0];
-        float2 duv2 = triuv[2] - triuv[0];
-
-        float D = duv1.x * duv2.y - duv1.y * duv2.x;
-        float3 N = normalize(cross(e1, e2));
-
-        float3x3 ret;
-        if (abs(D) < 1e-8)
-        {
-            float3 T = normalize(e1 - N * dot(N, e1));
-            float3 B = normalize(cross(N, T));
-            ret.setCol(0, T);
-            ret.setCol(1, B);
-            ret.setCol(2, N);
-            return ret;
-        }
-
-        float r = 1.0 / D;
-        float3 Tp = (e1 * duv2.y - e2 * duv1.y) * r;
-        float3 Bp = (e2 * duv1.x - e1 * duv2.x) * r;
-
-        float3 T = normalize(Tp - N * dot(N, Tp));
-        float3 B = normalize(Bp - N * dot(N, Bp));
-        ret.setCol(0, T);
-        ret.setCol(1, B);
-        ret.setCol(2, N);
-        return ret;
-    }
+    
 
     static float3 CalcNormal(float3x3 TBN, float3 normalMapColor)
     {
         float3 normal = normalMapColor * 2.f - 1.f;
         normal = math::normalize(math::mul(TBN, normal));
         return normal;
-    }
-
-    /// <summary>
-    /// 计算重心坐标
-    /// </summary>
-    static float3 BarycentricCoordinates(float3 A, float3 B, float3 C, float3 P)
-    {
-        float3 v0 = B - A;
-        float3 v1 = C - A;
-        float3 v2 = P - A;
-
-        float d00 = dot(v0, v0);
-        float d01 = dot(v0, v1);
-        float d11 = dot(v1, v1);
-        float d20 = dot(v2, v0);
-        float d21 = dot(v2, v1);
-
-        float denom = d00 * d11 - d01 * d01;
-
-        if (abs(denom) < 1e-8)
-            return float3(1, 1, 1) / 3.f;
-
-        float v = (d11 * d20 - d01 * d21) / denom;
-        float w = (d00 * d21 - d01 * d20) / denom;
-        float u = 1.0 - v - w;
-
-        return float3(u, v, w);
     }
 
     /// <summary>
@@ -194,7 +137,7 @@ public:
     /// <summary>
     /// 用轴对齐长方体裁剪三角形
     /// </summary>
-    static Polygon BoxClipTriangle(float3 minPoint, float3 maxPoint, float3 points[3])
+    static Polygon BoxClipTriangle(float3 minPoint, float3 maxPoint, Triangle tri)
     {
         std::vector<float3> vertices;
         std::vector<float3> temp;
@@ -204,9 +147,7 @@ public:
         Polygon polygon = {};
         polygon.init();
         // 初始三角形
-        vertices.push_back(points[0]);
-        vertices.push_back(points[1]);
-        vertices.push_back(points[2]);
+        tri.addTo(vertices);
 
         // 依次对六个面裁剪
         float bounds[6] = {minPoint.x, maxPoint.x, minPoint.y, maxPoint.y, minPoint.z, maxPoint.z};

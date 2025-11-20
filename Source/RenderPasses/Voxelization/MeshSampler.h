@@ -64,7 +64,7 @@ public:
         }
     }
 
-    void sampleArea(float3 tri[3], float2 triuv[3], Polygon polygon, int3 cellInt)
+    void sampleArea(Triangle& tri, Polygon& polygon, int3 cellInt)
     {
         if (polygon.count < 3)
             return;
@@ -76,8 +76,7 @@ public:
         std::vector<float2> uvs;
         for (uint i = 0; i < polygon.count; i++)
         {
-            float3 coord = VoxelizationUtility::BarycentricCoordinates(tri[0], tri[1], tri[2], polygon.vertices[i]);
-            float2 uv = triuv[0] * coord.x + triuv[1] * coord.y + triuv[2] * coord.z;
+            float2 uv = tri.lerpUV(polygon.vertices[i]);
             uvs.push_back(uv);
         }
 
@@ -91,52 +90,47 @@ public:
         ABSDFBuffer[index].accumulate(input);
     }
 
-    void calcTriangle(float3 tri[3], float2 triuv[3])
+    void calcTriangle(Triangle& tri)
     {
-        currentTBN = VoxelizationUtility::BuildTBN(tri, triuv);
-        int xMin, yMin, zMin, xMax, yMax, zMax;
-        xMin = yMin = zMin = voxelCount;
-        xMax = yMax = zMax = 0;
-        for (size_t i = 0; i < 3; i++)
+        currentTBN = tri.buildTBN();
+        AABBInt aabb = tri.calcAABBInt();
+        for (int z = aabb.min.z; z <= aabb.max.z; z++)
         {
-            xMin = std::min(xMin, (int)math::floor(tri[i].x));
-            yMin = std::min(yMin, (int)math::floor(tri[i].y));
-            zMin = std::min(zMin, (int)math::floor(tri[i].z));
-            xMax = std::max(xMax, (int)math::floor(tri[i].x));
-            yMax = std::max(yMax, (int)math::floor(tri[i].y));
-            zMax = std::max(zMax, (int)math::floor(tri[i].z));
-        }
-        for (int z = zMin; z <= zMax; z++)
-        {
-            for (int y = yMin; y <= yMax; y++)
+            for (int y = aabb.min.y; y <= aabb.max.y; y++)
             {
-                for (int x = xMin; x <= xMax; x++)
+                for (int x = aabb.min.x; x <= aabb.max.x; x++)
                 {
                     int3 cellInt = int3(x, y, z);
                     float3 minPoint = float3(cellInt);
                     Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri);
-                    sampleArea(tri, triuv, polygon, cellInt);
+                    sampleArea(tri, polygon, cellInt);
                 }
             }
         }
     }
 
-    void sampleMesh(MeshHeader mesh, float3* pPos, float2* pUV, uint3* pTri)
+    void sampleMesh(MeshHeader mesh, float3* pPos, float2* pUV, uint3* pIndex)
     {
         currentBaseColor = loader.loadImage(mesh.materialID, BaseColor);
         currentSpecular = loader.loadImage(mesh.materialID, Specular);
         currentNormal = loader.loadImage(mesh.materialID, Normal);
         for (size_t tid = 0; tid < mesh.triangleCount; tid++)
         {
-            uint3 triangle = pTri[tid + mesh.triangleOffset];
-            float3 tri[3] = {pPos[triangle.x], pPos[triangle.y], pPos[triangle.z]};
+            Triangle tri = {};
+            uint3 indices = pIndex[tid + mesh.triangleOffset];
+            tri.vertices[0] = pPos[indices.x];
+            tri.vertices[1] = pPos[indices.y];
+            tri.vertices[2] = pPos[indices.z];
+            tri.uvs[0] = pUV[indices.x];
+            tri.uvs[1] = pUV[indices.y];
+            tri.uvs[2] = pUV[indices.z];
+
             // 世界坐标处理成网格坐标
             for (int i = 0; i < 3; i++)
             {
-                tri[i] = (tri[i] - gridData.gridMin) / gridData.voxelSize;
+                tri.vertices[i] = (tri.vertices[i] - gridData.gridMin) / gridData.voxelSize;
             }
-            float2 triuv[3] = {pUV[triangle.x], pUV[triangle.y], pUV[triangle.z]};
-            calcTriangle(tri, triuv);
+            calcTriangle(tri);
         }
     }
 
