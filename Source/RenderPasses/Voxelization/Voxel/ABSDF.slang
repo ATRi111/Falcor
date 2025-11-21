@@ -95,21 +95,23 @@ enum class ABSDFDrawMode : uint32_t
     Normal,
     Ellipsoid,
     ClippedEllipsoid,
+    Polygons,
     Area,
-    ProjectArea,
+    InternalVisibility,
 };
 FALCOR_ENUM_INFO(
     ABSDFDrawMode,
     {
-        { ABSDFDrawMode::Default, "Default" },
-        { ABSDFDrawMode::Diffuse, "Diffuse" },
-        { ABSDFDrawMode::Specular, "Specular" },
-        { ABSDFDrawMode::Flat, "Flat" },
-        { ABSDFDrawMode::Normal, "Normal" },
-        { ABSDFDrawMode::Ellipsoid, "Ellipsoid" },
-        { ABSDFDrawMode::ClippedEllipsoid, "ClippedEllipsoid" },
-        { ABSDFDrawMode::Area, "Area" },
-        { ABSDFDrawMode::ProjectArea, "ProjectArea" },
+    { ABSDFDrawMode::Default, "Default" },
+    { ABSDFDrawMode::Diffuse, "Diffuse" },
+    { ABSDFDrawMode::Specular, "Specular" },
+    { ABSDFDrawMode::Flat, "Flat" },
+    { ABSDFDrawMode::Normal, "Normal" },
+    { ABSDFDrawMode::Ellipsoid, "Ellipsoid" },
+    { ABSDFDrawMode::ClippedEllipsoid, "ClippedEllipsoid" },
+    { ABSDFDrawMode::Polygons, "Polygons" },
+    { ABSDFDrawMode::Area, "Area" },
+    { ABSDFDrawMode::InternalVisibility, "InternalVisibility" },
     }
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);

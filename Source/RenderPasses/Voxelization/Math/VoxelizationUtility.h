@@ -48,12 +48,6 @@ private:
                approximatelyEqual(a.z, b.z, tolerance);
     }
 
-    static void removeRepeatPoints(std::vector<float3>& points)
-    {
-        std::unordered_set<float3, Float3Hash, Float3Equal> temp(points.begin(), points.end());
-        points.assign(temp.begin(), temp.end());
-    }
-
     static float3 intersectAxisPlane(const float3& s, const float3& e, int axis, float planeVal)
     {
         float denom = e[axis] - s[axis];
@@ -95,14 +89,10 @@ private:
     }
 
 public:
-
-    
-
-    static float3 CalcNormal(float3x3 TBN, float3 normalMapColor)
+    static void RemoveRepeatPoints(std::vector<float3>& points)
     {
-        float3 normal = normalMapColor * 2.f - 1.f;
-        normal = math::normalize(math::mul(TBN, normal));
-        return normal;
+        std::unordered_set<float3, Float3Hash, Float3Equal> temp(points.begin(), points.end());
+        points.assign(temp.begin(), temp.end());
     }
 
     /// <summary>
@@ -163,77 +153,5 @@ public:
 
         polygon.init(vertices);
         return polygon;
-    }
-
-    static Ellipsoid FitEllipsoid(std::vector<float3>& points, int3 cellInt)
-    {
-        Ellipsoid e;
-        float3 sum = float3(0);
-        uint n = points.size();
-        if (n == 0)
-        {
-            e.center = float3(0.5f);
-            e.B = float3x3::identity();
-            return e;
-        }
-
-        removeRepeatPoints(points);
-        n = points.size();
-        for (uint i = 0; i < n; i++)
-        {
-            sum += points[i];
-        }
-        e.center = sum / (float)n;
-        // 二次方程
-        float3x3 cov = float3x3::zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
-        for (uint i = 0; i < n; i++)
-        {
-            float3 v = points[i] - e.center;
-            cov[0][0] += v.x * v.x;
-            cov[0][1] += v.x * v.y;
-            cov[0][2] += v.x * v.z;
-            cov[1][0] += v.y * v.x;
-            cov[1][1] += v.y * v.y;
-            cov[1][2] += v.y * v.z;
-            cov[2][0] += v.z * v.x;
-            cov[2][1] += v.z * v.y;
-            cov[2][2] += v.z * v.z;
-        }
-        cov = cov * (1.f / n);
-
-        cov = (math::transpose(cov) + cov) * 0.5f;
-        // 避免出现奇异矩阵
-        float tr = cov[0][0] + cov[1][1] + cov[2][2];
-        float lam = 1e-6f * std::max(tr, 1e-6f);
-        cov[0][0] += lam;
-        cov[1][1] += lam;
-        cov[2][2] += lam;
-
-        float3x3 inv = math::inverse(cov);
-        float maxDot = 1e-12f;
-        for (uint i = 0; i < n; i++)
-        {
-            float3 v = points[i] - e.center;
-            float dot = math::dot(v, mul(inv, v));
-            maxDot = std::max(maxDot, dot);
-        }
-        e.B = inv * (1.0f / maxDot);
-        e.center -= float3(cellInt);
-        return e;
-    }
-
-    static inline float3x3 Outer(const float3 a, const float3 b)
-    {
-        float3x3 M = float3x3::zeros();
-        M[0][0] = a.x * b.x;
-        M[0][1] = a.x * b.y;
-        M[0][2] = a.x * b.z;
-        M[1][0] = a.y * b.x;
-        M[1][1] = a.y * b.y;
-        M[1][2] = a.y * b.z;
-        M[2][0] = a.z * b.x;
-        M[2][1] = a.z * b.y;
-        M[2][2] = a.z * b.z;
-        return M;
     }
 };

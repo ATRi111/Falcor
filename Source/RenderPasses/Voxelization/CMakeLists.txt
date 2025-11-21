@@ -9,6 +9,8 @@ target_sources(Voxelization PRIVATE
     Math/Ellipsoid.slang
     Math/Polygon.slang
     Math/Triangle.slang
+    Math/Sampling.slang
+    Math/SphericalHarmonics.slang
     Math/VoxelizationUtility.h
 
     Image/Image.h

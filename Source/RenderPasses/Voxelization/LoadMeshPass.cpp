@@ -188,11 +188,8 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
     }
 
-    if (mpScene)
-    {
-        if (widget.button("Generate"))
-            mComplete = false;
-    }
+    if (mpScene && widget.button("Generate"))
+        mComplete = false;
 }
 
 void LoadMeshPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

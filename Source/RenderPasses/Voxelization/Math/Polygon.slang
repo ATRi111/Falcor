@@ -21,17 +21,14 @@ struct Polygon
     void init()
     {
         count = 0;
-        for (uint i = 0; i < MAX_VERTEX_COUNT; i++)
-        {
-            vertices[i] = float3(0);
-        }
     }
 
 #if defined(HOST_CODE)
+    //顶点必须有序
     void init(std::vector<float3>& points)
     {
-        count = points.size();
         uint n = math::min(MAX_VERTEX_COUNT, (int)points.size());
+        count = n;
         for (uint i = 0; i < n; i++)
         {
             vertices[i] = points[i];
@@ -49,6 +46,7 @@ struct Polygon
 
     float area()
     {
+        // 必须至少包含三个点
         float3 s = float3(0);
         for (uint i = 0; i < count; ++i)
         {
@@ -56,9 +54,8 @@ struct Polygon
             float3 b = vertices[(i + 1) % count];
             s += cross(a, b);
         }
-        return sqrt(s.x * s.x + s.y * s.y + s.z * s.z) / 2;
+        return sqrt(dot(s,s)) / 2;
     }
-
 
 #if !defined(HOST_CODE)
     [mutating]
@@ -72,8 +69,23 @@ struct Polygon
         }
     }
 
+    float3 calcNormal()
+    {
+        // 必须至少包含三个点
+        return cross(vertices[1] - vertices[0], vertices[2] - vertices[0]);
+    }
+
+    bool calcSign(float3 p, float3 n, uint i)
+    {
+        float3 v1 = vertices[(i + 1) % count] - vertices[i];
+        float3 v2 = p - vertices[i];
+        float s = dot(cross(v1, v2), n);
+        return s >= 0;
+    }
+
     bool intersectRay(float3 rayOrigin, float3 rayDir)
     {
+        // 必须至少包含三个点
         float3 v0 = vertices[0];
         float3 n = cross(vertices[1] - v0, vertices[2] - v0);
 
@@ -84,27 +96,31 @@ struct Polygon
         if (t < 0.0f)
             return false;
 
-        float3 P = rayOrigin + t * rayDir;
+        float3 p = rayOrigin + t * rayDir;
 
         // 必须是凸多边形
-        bool positive = false, negative = false;
-        for (uint i = 0; i < count; ++i)
+        bool positive = calcSign(p, n, 0);
+        for (uint i = 1; i < count; ++i)
         {
-            float3 a = vertices[i];
-            float3 b = vertices[(i + 1) % count];
-            float3 e = b - a;
-            float3 c = P - a;
-            float s = dot(cross(e, c), n);
-            if (s > 0.0f)
-                positive = true;
-            else if (s < 0.0f)
-                negative = true;
-
-            if (positive && negative)
+            if (calcSign(p, n, i) != positive)
                 return false; //有正有负说明点在多边形外部
         }
 
         return true;
+    }
+
+    float sampleVisibility(float3 rayOrigin, float3 rayDir, float3 n, float denom)
+    {
+        // 默认t>0
+        float t = dot(vertices[0] - rayOrigin, n) / denom;
+        float3 p = rayOrigin + t * rayDir;
+        bool positive = calcSign(p, n, 0);
+        for (uint i = 1; i < count; ++i)
+        {
+            if (calcSign(p, n, i) != positive)
+                return 1;
+        }
+        return 0;
     }
 };
 

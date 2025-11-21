@@ -4,7 +4,9 @@
 #include "Profiler.h"
 #include "QuickHull/QuickHull.hpp"
 #include "Math/Polygon.slang"
+#include "Math/SphericalHarmonics.slang"
 #include <fstream>
+#include <unordered_map>
 
 class MeshSampler
 {
@@ -19,8 +21,11 @@ private:
 
 public:
     uint sampleFrequency;
-    std::vector<ABSDF> ABSDFBuffer;
-    std::vector<Ellipsoid> ellipsoidBuffer;
+    std::unordered_map<std::string, char*> bufferHeads;
+    ABSDF* ABSDFBuffer;
+    Ellipsoid* ellipsoidBuffer;
+    SphericalHarmonics* visibilityBuffer;
+    SphericalHarmonics* polygonAreaBuffer;
     std::vector<std::vector<Polygon>> polygonsInVoxels;
     std::string fileName;
 
@@ -32,9 +37,30 @@ public:
         currentNormal = nullptr;
         currentSpecular = nullptr;
         fileName = ToString(gridData.voxelCount) + "_" + std::to_string(sampleFrequency) + ".bin";
-        ABSDFBuffer.resize(voxelCount);
-        ellipsoidBuffer.resize(voxelCount);
+
+        for (const BufferDesc& buffer : VoxelizationBase::Buffers)
+        {
+            if (buffer.serialized)
+            {
+                char* head = new char[buffer.bytesPerElement * voxelCount];
+                std::memset(head, 0, buffer.bytesPerElement * voxelCount);
+                bufferHeads[buffer.name] = head;
+            }
+        }
+
+        ABSDFBuffer = reinterpret_cast<ABSDF*>(bufferHeads["ABSDF"]);
+        ellipsoidBuffer = reinterpret_cast<Ellipsoid*>(bufferHeads["ellipsoid"]);
+        visibilityBuffer = reinterpret_cast<SphericalHarmonics*>(bufferHeads["visibilitySH"]);
+        polygonAreaBuffer = reinterpret_cast<SphericalHarmonics*>(bufferHeads["polygonAreaSH"]);
         polygonsInVoxels.resize(voxelCount);
+    }
+
+    ~MeshSampler()
+    {
+        for (auto& pair : bufferHeads)
+        {
+            delete[] pair.second;
+        }
     }
 
     void completeAccumulation()
@@ -43,24 +69,30 @@ public:
         std::vector<float3> points;
         for (uint i = 0; i < voxelCount; i++)
         {
-            points.clear();
-            for (uint j = 0; j < polygonsInVoxels[i].size(); j++)
+            if (polygonsInVoxels[i].size() > 0)
             {
-                polygonsInVoxels[i][j].addTo(points);
+                points.clear();
+                for (uint j = 0; j < polygonsInVoxels[i].size(); j++)
+                {
+                    polygonsInVoxels[i][j].addTo(points);
+                }
+                int3 cellInt = IndexToCell(i, gridData.voxelCount);
+                QuickHull<float> qh;
+                ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-3f);
+                VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
+                points.clear();
+                for (uint j = 0; j < vertexBuffer.size(); j++)
+                {
+                    Vector3<float> p = vertexBuffer[j];
+                    points.emplace_back(p.x, p.y, p.z);
+                };
+
+                VoxelizationUtility::RemoveRepeatPoints(points);
+                Ellipsoid e = {};
+                e.fit(points, cellInt);
+                ellipsoidBuffer[i] = e;
+                ABSDFBuffer[i].normalizeSelf();
             }
-            int3 cellInt = IndexToCell(i, gridData.voxelCount);
-            QuickHull<float> qh;
-            ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-3f);
-            VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
-            points.clear();
-            for (uint j = 0; j < vertexBuffer.size(); j++)
-            {
-                Vector3<float> p = vertexBuffer[j];
-                points.emplace_back(p.x, p.y, p.z);
-            }
-            Ellipsoid e = VoxelizationUtility::FitEllipsoid(points, cellInt);
-            ellipsoidBuffer[i] = e;
-            ABSDFBuffer[i].normalizeSelf();
         }
     }
 
@@ -83,7 +115,7 @@ public:
         float3 baseColor = currentBaseColor->SampleArea(uvs).xyz();
         float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0, 0, 0);
         float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
-        normal = VoxelizationUtility::CalcNormal(currentTBN, normal);
+        normal = calcShadingNormal(currentTBN, normal);
         if (normal.y < 0)
             normal = -normal;
         ABSDFInput input = {baseColor, spec, normal, polygon.area()};
@@ -149,15 +181,18 @@ public:
         Tools::Profiler::Reset();
     }
 
-    void write() const
+    void write()
     {
         std::ofstream f;
         std::string s = VoxelizationBase::ResourceFolder + fileName;
         f.open(s, std::ios::binary);
-
         f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
-        f.write(reinterpret_cast<const char*>(ABSDFBuffer.data()), voxelCount * sizeof(ABSDF));
-        f.write(reinterpret_cast<const char*>(ellipsoidBuffer.data()), voxelCount * sizeof(Ellipsoid));
+
+        for (const BufferDesc& buffer : VoxelizationBase::Buffers)
+        {
+            if (buffer.serialized)
+                f.write(reinterpret_cast<const char*>(bufferHeads[buffer.name]), voxelCount * buffer.bytesPerElement);
+        }
 
         f.close();
         VoxelizationBase::FileUpdated = true;

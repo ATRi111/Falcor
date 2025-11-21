@@ -30,8 +30,6 @@
 namespace
 {
 const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/Voxelization.cs.slang";
-const std::string kOutputEllipsoids = "ellipsoids";
-const std::string kOutputNDFLobes = "NDFLobes";
 
 }; // namespace
 
@@ -51,112 +49,140 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Float)
         .texture2D(0, 0, 1, 1);
 
-    const ChannelList& channels = VoxelizationBase::Channels;
-    for (uint i = 0; i < channels.size(); i++)
+    for (const ChannelDesc& channel : VoxelizationBase::Channels)
     {
-        const ChannelDesc& channel = channels[i];
         reflector.addOutput(channel.name, channel.desc)
             .bindFlags(ResourceBindFlags::ShaderResource)
             .format(channel.format)
             .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
     }
 
-    reflector.addOutput(kOutputEllipsoids, "Ellipsoids")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::Unknown)
-        .rawBuffer(gridData.totalVoxelCount() * sizeof(Ellipsoid));
-
-    reflector.addOutput(kOutputNDFLobes, "NDF Lobes")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::Unknown)
-        .rawBuffer(gridData.totalVoxelCount() * sizeof(NDF));
+    for (const BufferDesc& buffer : VoxelizationBase::Buffers)
+    {
+        if (buffer.isInputOrOutut)
+        {
+            reflector.addOutput(buffer.name, buffer.desc)
+                .bindFlags(ResourceBindFlags::ShaderResource)
+                .format(ResourceFormat::Unknown)
+                .rawBuffer(gridData.totalVoxelCount() * buffer.bytesPerElement);
+        }
+    }
 
     return reflector;
 }
 
 void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (mComplete || ABSDFBuffer.empty())
+    if (mComplete)
         return;
 
     size_t voxelCount = gridData.totalVoxelCount();
-
-    ref<Buffer> pNDFLobes = renderData.getResource(kOutputNDFLobes)->asBuffer();
-    ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
-    NDF* NDFLobesBuffer = new NDF[voxelCount];
-    for (size_t i = 0; i < voxelCount; i++)
+    ABSDF* ABSDFBuffer = nullptr;
     {
-        NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
+        std::ifstream f;
+        size_t offset = 0;
+
+        f.open(filePaths[selectedFile], std::ios::binary | std::ios::ate);
+        size_t fileSize = std::filesystem::file_size(filePaths[selectedFile]);
+        tryRead(f, offset, sizeof(GridData), nullptr, fileSize);
+
+        for (const BufferDesc& buffer : VoxelizationBase::Buffers)
+        {
+            if (buffer.serialized)
+            {
+                char* head = new char[buffer.bytesPerElement * voxelCount];
+                tryRead(f, offset, voxelCount * buffer.bytesPerElement, head, fileSize);
+
+                if (buffer.isInputOrOutut)
+                {
+                    ref<Buffer> pBuffer = renderData.getResource(buffer.name)->asBuffer();
+                    pBuffer->setBlob(head, 0, voxelCount * buffer.bytesPerElement);
+                }
+
+                if (buffer.name == "ABSDF") //ABSDF必须先于NDFLobes被读取
+                    ABSDFBuffer = reinterpret_cast<ABSDF*>(head);
+                else
+                    delete[] head;
+            }
+
+            if (buffer.name == "NDFLobes")
+            {
+                ref<Buffer> pBuffer = renderData.getResource(buffer.name)->asBuffer();
+                NDF* NDFLobesBuffer = new NDF[voxelCount];
+                for (size_t i = 0; i < voxelCount; i++)
+                {
+                    NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
+                }
+                pBuffer->setBlob(NDFLobesBuffer, 0, voxelCount* buffer.bytesPerElement);
+                delete[] NDFLobesBuffer;
+            }
+        }
+        f.close();
     }
 
-    pNDFLobes->setBlob(NDFLobesBuffer, 0, voxelCount * sizeof(NDF));
-    pEllipsoids->setBlob(ellipsoidBuffer.data(), 0, voxelCount * sizeof(Ellipsoid));
-
-    delete[] NDFLobesBuffer;
-
-    const ChannelList& channels = VoxelizationBase::Channels;
-    for (uint i_channel = 0; i_channel < channels.size(); i_channel++)
     {
-        const ChannelDesc& channel = channels[i_channel];
-        ref<Texture> pTexture = renderData.getTexture(channel.name);
-        float* floatBuffer = nullptr;
-        float3* float3Buffer = nullptr;
-        switch (channel.format)
+        for (const ChannelDesc& channel : VoxelizationBase::Channels)
         {
-        case ResourceFormat::R32Float:
-            floatBuffer = new float[voxelCount];
-            break;
-        case ResourceFormat::RGB32Float:
-            float3Buffer = new float3[voxelCount];
-            break;
-        default:
-            continue;
-        }
+            ref<Texture> pTexture = renderData.getTexture(channel.name);
+            float* floatBuffer = nullptr;
+            float3* float3Buffer = nullptr;
+            switch (channel.format)
+            {
+            case ResourceFormat::R32Float:
+                floatBuffer = new float[voxelCount];
+                break;
+            case ResourceFormat::RGB32Float:
+                float3Buffer = new float3[voxelCount];
+                break;
+            default:
+                continue;
+            }
 
-        if (channel.name == "diffuse")
-        {
-            for (size_t i = 0; i < voxelCount; i++)
+            if (channel.name == "diffuse")
             {
-                float3Buffer[i] = ABSDFBuffer[i].diffuse;
+                for (size_t i = 0; i < voxelCount; i++)
+                {
+                    float3Buffer[i] = ABSDFBuffer[i].diffuse;
+                }
             }
-        }
-        else if (channel.name == "specular")
-        {
-            for (size_t i = 0; i < voxelCount; i++)
+            else if (channel.name == "specular")
             {
-                float3Buffer[i] = ABSDFBuffer[i].specular;
+                for (size_t i = 0; i < voxelCount; i++)
+                {
+                    float3Buffer[i] = ABSDFBuffer[i].specular;
+                }
             }
-        }
-        else if (channel.name == "roughness")
-        {
-            for (size_t i = 0; i < voxelCount; i++)
+            else if (channel.name == "roughness")
             {
-                floatBuffer[i] = ABSDFBuffer[i].roughness;
+                for (size_t i = 0; i < voxelCount; i++)
+                {
+                    floatBuffer[i] = ABSDFBuffer[i].roughness;
+                }
             }
-        }
-        else if (channel.name == "area")
-        {
-            for (size_t i = 0; i < voxelCount; i++)
+            else if (channel.name == "area")
             {
-                floatBuffer[i] = ABSDFBuffer[i].area;
+                for (size_t i = 0; i < voxelCount; i++)
+                {
+                    floatBuffer[i] = ABSDFBuffer[i].area;
+                }
             }
-        }
 
-        switch (channel.format)
-        {
-        case ResourceFormat::RGB32Float:
-            pTexture->setSubresourceBlob(0, float3Buffer, voxelCount * sizeof(float3));
-            break;
-        case ResourceFormat::R32Float:
-            pTexture->setSubresourceBlob(0, floatBuffer, voxelCount * sizeof(float));
-            break;
-        }
+            switch (channel.format)
+            {
+            case ResourceFormat::RGB32Float:
+                pTexture->setSubresourceBlob(0, float3Buffer, voxelCount * sizeof(float3));
+                break;
+            case ResourceFormat::R32Float:
+                pTexture->setSubresourceBlob(0, floatBuffer, voxelCount * sizeof(float));
+                break;
+            }
 
-        delete[] floatBuffer;
-        delete[] float3Buffer;
+            delete[] floatBuffer;
+            delete[] float3Buffer;
+        }
     }
-    ABSDFBuffer.clear();
-    ellipsoidBuffer.clear();
+
+    delete[] reinterpret_cast<char*>(ABSDFBuffer);
 
     mComplete = true;
 }
@@ -184,7 +210,7 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     }
     widget.dropdown("File", list, selectedFile);
 
-    if (widget.button("Read"))
+    if (mpScene && widget.button("Read"))
     {
         std::ifstream f;
         size_t offset = 0;
@@ -194,14 +220,7 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
             return;
 
         size_t fileSize = std::filesystem::file_size(filePaths[selectedFile]);
-
         tryRead(f, offset, sizeof(GridData), &gridData, fileSize);
-        size_t voxelCount = gridData.totalVoxelCount();
-        reset(voxelCount);
-
-        tryRead(f, offset, voxelCount * sizeof(ABSDF), ABSDFBuffer.data(), fileSize);
-
-        tryRead(f, offset, voxelCount * sizeof(Ellipsoid), ellipsoidBuffer.data(), fileSize);
 
         f.close();
 
@@ -215,22 +234,20 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     widget.text("Grid Min: " + ToString(data.gridMin));
 }
 
-void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) {}
-
-void ReadVoxelPass::reset(uint voxelCount)
+void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
-    ABSDFBuffer.reserve(voxelCount);
-    ABSDFBuffer.resize(voxelCount);
-    ellipsoidBuffer.reserve(voxelCount);
-    ellipsoidBuffer.resize(voxelCount);
+    mpScene = pScene;
 }
 
 bool ReadVoxelPass::tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize)
 {
     if (offset + bytes > fileSize)
         return false;
-    f.seekg(offset, std::ios::beg);
-    f.read(reinterpret_cast<char*>(dst), bytes);
+    if (dst)
+    {
+        f.seekg(offset, std::ios::beg);
+        f.read(reinterpret_cast<char*>(dst), bytes);
+    }
     offset += bytes;
     return true;
 }

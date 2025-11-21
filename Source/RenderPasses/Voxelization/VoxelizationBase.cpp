@@ -29,3 +29,13 @@ const ChannelList VoxelizationBase::Channels = {
     { "area",           "gArea",            "Area",                     true, ResourceFormat::R32Float },
     // clang-format on
 };
+
+const BufferlList VoxelizationBase::Buffers = {
+    // clang-format off
+    { "ABSDF",          "",                 "ABSDF",                     true, false,  sizeof(ABSDF)     },
+    { "ellipsoid",      "gEllipsoid",       "Ellipsoid parameters",      true, true,   sizeof(Ellipsoid) },
+    { "NDFLobes",       "gNDFLobes",        "NDF Lobes",                 false,true,   sizeof(NDF)       },
+    { "visibilitySH",   "gVisibilitySH",    "SH of visibility",          true, true,   sizeof(SphericalHarmonics) },
+    { "polygonAreaSH",  "gPolygonAreaSH",   "SH of polygon Area",        true, true,   sizeof(SphericalHarmonics) },
+    // clang-format on
+};

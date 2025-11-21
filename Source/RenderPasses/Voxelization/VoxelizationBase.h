@@ -22,10 +22,22 @@ inline std::string ToString(uint3 v)
     return oss.str();
 }
 
+struct BufferDesc
+{
+    std::string name;      
+    std::string texname;   //如果不直接对应着色器资源，设为空字符串
+    std::string desc;
+    bool serialized;
+    bool isInputOrOutut;
+    size_t bytesPerElement;
+};
+using BufferlList = std::vector<BufferDesc>;
+
 class VoxelizationBase
 {
 public:
     static const ChannelList Channels;
+    static const BufferlList Buffers;
     static const int NDFLobeCount = 8;
     static GridData GlobalGridData;
     static uint3 MinFactor; // 网格的分辨率必须是此值的整数倍

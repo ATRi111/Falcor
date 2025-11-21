@@ -26,16 +26,15 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "RayMarchingPass.h"
+#include "Math/SphericalHarmonics.slang"
 
 namespace
 {
 const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/RayMarching.ps.slang";
-const std::string kInputEllipsoids = "ellipsoids";
 const std::string kOutputColor = "color";
-const std::string kInputNDFLobes = "NDFLobes";
 } // namespace
 
-RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
+RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mpDevice = pDevice;
     mVisibilityBias = 0.5f;
@@ -44,6 +43,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mCheckEllipsoid = true;
     mCheckVisibility = true;
     mDrawMode = 0;
+    mFrameIndex = 0;
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Point, TextureFilteringMode::Point, TextureFilteringMode::Point)
@@ -55,25 +55,24 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
 
-    const ChannelList& channels = VoxelizationBase::Channels;
-    for (uint i = 0; i < channels.size(); i++)
+    for (const ChannelDesc& channel : VoxelizationBase::Channels)
     {
-        const ChannelDesc& channel = channels[i];
         reflector.addInput(channel.name, channel.desc)
             .bindFlags(ResourceBindFlags::ShaderResource)
             .format(channel.format)
             .texture3D(0, 0, 0, 1);
     }
 
-    reflector.addInput(kInputNDFLobes, "NDF Lobes")
-        .bindFlags(ResourceBindFlags::ShaderResource)
-        .format(ResourceFormat::Unknown)
-        .rawBuffer(VoxelizationBase::GlobalGridData.totalVoxelCount() * sizeof(NDF));
-
-    reflector.addInput(kInputEllipsoids, "Ellipsoids")
-        .bindFlags(ResourceBindFlags::ShaderResource)
-        .format(ResourceFormat::Unknown)
-        .rawBuffer(VoxelizationBase::GlobalGridData.totalVoxelCount() * sizeof(Ellipsoid));
+    for (const BufferDesc& buffer : VoxelizationBase::Buffers)
+    {
+        if (buffer.isInputOrOutut)
+        {
+            reflector.addInput(buffer.name, buffer.desc)
+                .bindFlags(ResourceBindFlags::ShaderResource)
+                .format(ResourceFormat::Unknown)
+                .rawBuffer(gridData.totalVoxelCount() * buffer.bytesPerElement);
+        }
+    }
 
     reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
@@ -101,31 +100,28 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     mpFullScreenPass->addDefine("DEBUG", mDebug ? "1" : "0");
 
     ref<Camera> pCamera = mpScene->getCamera();
-
-    ref<Buffer> pNDFLobes = renderData.getResource(kInputNDFLobes)->asBuffer();
-    ref<Buffer> pEllipsoids = renderData.getResource(kInputEllipsoids)->asBuffer();
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
-
-    GridData& data = VoxelizationBase::GlobalGridData;
 
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
 
     auto var = mpFullScreenPass->getRootVar();
     mpScene->bindShaderData(var["scene"]);
 
-    const ChannelList& channels = VoxelizationBase::Channels;
-    for (uint i = 0; i < channels.size(); i++)
+    for (const ChannelDesc& channel : VoxelizationBase::Channels)
     {
-        const ChannelDesc& channel = channels[i];
-        var[channel.texname] = renderData.getTexture(channel.name);
+        if(channel.texname != "")
+            var[channel.texname] = renderData.getTexture(channel.name);
     }
-    var["gNDFLobes"] = pNDFLobes;
-    var["gEllipsoids"] = pEllipsoids;
+    for (const BufferDesc& buffer : VoxelizationBase::Buffers)
+    {
+        if (buffer.texname != "")
+            var[buffer.texname] = renderData.getResource(buffer.name)->asBuffer();
+    }
 
     auto cb_GridData = mpFullScreenPass->getRootVar()["GridData"];
-    cb_GridData["gridMin"] = data.gridMin;
-    cb_GridData["voxelSize"] = data.voxelSize;
-    cb_GridData["voxelCount"] = data.voxelCount;
+    cb_GridData["gridMin"] = gridData.gridMin;
+    cb_GridData["voxelSize"] = gridData.voxelSize;
+    cb_GridData["voxelCount"] = gridData.voxelCount;
 
     auto cb = mpFullScreenPass->getRootVar()["CB"];
     cb["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());

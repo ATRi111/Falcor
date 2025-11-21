@@ -8,6 +8,13 @@
 
 BEGIN_NAMESPACE_FALCOR
 
+inline float3 calcShadingNormal(float3x3 TBN, float3 normalMapColor)
+{
+    float3 normal = normalMapColor * 2.f - 1.f;
+    normal = normalize(mul(TBN, normal));
+    return normal;
+}
+
 struct Triangle
 {
     float3 vertices[3];

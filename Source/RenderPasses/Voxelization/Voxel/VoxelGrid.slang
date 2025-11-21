@@ -3,6 +3,9 @@
 
 BEGIN_NAMESPACE_FALCOR
 
+#define DIAG 1.7320508
+#define DIAG_2 0.8660254
+
 struct AABBInt
 {
     int3 min;

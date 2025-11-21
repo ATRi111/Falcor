@@ -27,6 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "VoxelizationBase.h"
+#include "Math/SphericalHarmonics.slang"
 #include <fstream>
 #include <filesystem>
 
@@ -49,13 +50,12 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
-    void reset(uint voxelCount);
     bool tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize);
     GridData& gridData;
     ref<Device> mpDevice;
+    ref<Scene> mpScene;
     std::vector<std::filesystem::path> filePaths;
-    std::vector<ABSDF> ABSDFBuffer;
-    std::vector<Ellipsoid> ellipsoidBuffer;
+
     uint selectedFile;
 
     bool mComplete;

@@ -117,6 +117,60 @@ struct Ellipsoid
 {
     float3 center; // 相对于所在体素左下角的偏移量（涉及求交运算时，以椭球的中心为原点）
     float3x3 B;    // x^T B x <=1
+#if defined(HOST_CODE)
+    void fit(std::vector<float3> &points, int3 cellInt)
+    {
+        float3 sum = float3(0);
+        uint n = points.size();
+        if (n == 0)
+        {
+            center = float3(0.5f);
+            B = float3x3::identity();
+            return;
+        }
+
+        for (uint i = 0; i < n; i++)
+        {
+            sum += points[i];
+        }
+        center = sum / (float)n;
+        // 二次方程
+        float3x3 cov = float3x3::zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
+        for (uint i = 0; i < n; i++)
+        {
+            float3 v = points[i] - center;
+            cov[0][0] += v.x * v.x;
+            cov[0][1] += v.x * v.y;
+            cov[0][2] += v.x * v.z;
+            cov[1][0] += v.y * v.x;
+            cov[1][1] += v.y * v.y;
+            cov[1][2] += v.y * v.z;
+            cov[2][0] += v.z * v.x;
+            cov[2][1] += v.z * v.y;
+            cov[2][2] += v.z * v.z;
+        }
+        cov = cov * (1.f / n);
+
+        cov = (math::transpose(cov) + cov) * 0.5f;
+        // 避免出现奇异矩阵
+        float tr = cov[0][0] + cov[1][1] + cov[2][2];
+        float lam = 1e-6f * std::max(tr, 1e-6f);
+        cov[0][0] += lam;
+        cov[1][1] += lam;
+        cov[2][2] += lam;
+
+        float3x3 inv = math::inverse(cov);
+        float maxDot = 1e-12f;
+        for (uint i = 0; i < n; i++)
+        {
+            float3 v = points[i] - center;
+            float dot = math::dot(v, mul(inv, v));
+            maxDot = std::max(maxDot, dot);
+        }
+        B = inv * (1.0f / maxDot);
+        center -= float3(cellInt);
+    }
+#endif
 
 #if !defined(HOST_CODE)
     float2 clip(float3 from, float3 to)

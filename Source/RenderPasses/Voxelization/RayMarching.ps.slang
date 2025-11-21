@@ -1,6 +1,7 @@
 #include "Voxel/VoxelGrid.slang"
 #include "Voxel/ABSDF.slang"
 #include "Math/Ellipsoid.slang"
+#include "Math/SphericalHarmonics.slang"
 import Scene.SceneTypes;
 import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
@@ -12,7 +13,9 @@ Texture3D<float3> gSpecular;
 Texture3D<float> gRoughness;
 Texture3D<float> gArea;
 StructuredBuffer<NDF> gNDFLobes;
-StructuredBuffer<Ellipsoid> gEllipsoids;
+StructuredBuffer<Ellipsoid> gEllipsoid;
+StructuredBuffer<SphericalHarmonics> gVisibilitySH;
+StructuredBuffer<SphericalHarmonics> gPolygonAreaSH;
 
 cbuffer GridData
 {
@@ -250,7 +253,7 @@ HitResult rayMarching(float3 from, float3 to)
         {
 #if CHECK_ELLIPSOID
             int index = CellToIndex(current.cellInt, voxelCount);
-            Ellipsoid ellipsoid = gEllipsoids[index];
+            Ellipsoid ellipsoid = gEllipsoid[index];
             HitResult hit = checkEllipsoid(ellipsoid, current.cell, direction, current.cellInt);
             if (hit.hit)
                 return hit;
@@ -303,8 +306,6 @@ float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
     }
 #if CHECK_VISIBILITY
     float visibility = calcVisibility(hit, l);
-    if (visibility <= 0.f)
-        return 0;
 #else
     float visibility = 1.f;
 #endif
@@ -316,7 +317,7 @@ float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
         float sqrDistance = max(dot(toL, toL), 1e-4f);
 
         float spot = 1.0f;
-        if (light.openingAngle < 3.1415926f)
+        if (light.openingAngle < PI)
         {
             float cosTerm = dot(light.dirW, -l);
             float cosOuter = light.cosOpeningAngle;
@@ -363,10 +364,14 @@ float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
         if (projectArea <= 1)
             return projectArea;
         return float3(projectArea, 2 - projectArea, 2 - projectArea);
+    case ABSDFDrawMode::Polygons:
+        return 0;
     case ABSDFDrawMode::Area:
         if (area <= 1)
             return area;
         return float3(area, 2 - area, 2 - area);
+    case ABSDFDrawMode::InternalVisibility:
+        return 0;
     default:
         result = lightColor * (diffuseColor + specularColor);
         break;
@@ -405,7 +410,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     {
         int index = CellToIndex(hit.cellInt, voxelCount);
         NDF ndf = gNDFLobes[index];
-        Ellipsoid e = gEllipsoids[index];
+        Ellipsoid e = gEllipsoid[index];
         float3 color = 0;
         for (uint i = 0; i < scene.lightCount; i++)
         {

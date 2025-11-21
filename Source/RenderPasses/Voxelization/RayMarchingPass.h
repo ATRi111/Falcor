@@ -50,6 +50,7 @@ private:
     ref<FullScreenPass> mpFullScreenPass;
     ref<Sampler> mpPointSampler;
 
+    GridData& gridData;
     uint mDrawMode;
     uint mFrameIndex;
     float mVisibilityBias;

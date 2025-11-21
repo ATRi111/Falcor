@@ -6,7 +6,6 @@ BEGIN_NAMESPACE_FALCOR
 
 #define PI 3.14159265358
 
-
 struct Basis2
 {
     float3 u;
