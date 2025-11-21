@@ -39,7 +39,7 @@ LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : Rende
     mSampleFrequency = 0;
     mVoxelResolution = 256;
 
-    VoxelizationBase::updateVoxelGrid(nullptr, mVoxelResolution);
+    VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
 
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
@@ -173,7 +173,7 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         }
         if (widget.dropdown("Voxel Resolution", list, mVoxelResolution))
         {
-            VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
+            VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
             requestRecompile();
         }
     }
@@ -196,5 +196,5 @@ void LoadMeshPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
 {
     mpScene = pScene;
     mLoadMeshPass = nullptr;
-    VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
+    VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
 }

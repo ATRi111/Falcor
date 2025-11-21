@@ -6,6 +6,7 @@
 #include "RenderGraph/RenderPass.h"
 #include "RenderGraph/RenderPassHelpers.h"
 #include "Math/VoxelizationUtility.h"
+#include <random>
 using namespace Falcor;
 
 inline std::string ToString(float3 v)
@@ -35,6 +36,9 @@ using BufferlList = std::vector<BufferDesc>;
 
 class VoxelizationBase
 {
+private:
+    static std::mt19937 Generator;
+    static std::uniform_real_distribution<double> Distribution;
 public:
     static const ChannelList Channels;
     static const BufferlList Buffers;
@@ -44,7 +48,20 @@ public:
     static bool FileUpdated;
     static std::string ResourceFolder;
 
-    static void updateVoxelGrid(ref<Scene> scene, uint voxelResolution)
+    static double Next()
+    {
+        return Distribution(Generator);
+    }
+    static float2 Next2()
+    {
+        return float2(Distribution(Generator), Distribution(Generator));
+    }
+    static float3 Next3()
+    {
+        return float3(Distribution(Generator), Distribution(Generator), Distribution(Generator));
+    }
+
+    static void UpdateVoxelGrid(ref<Scene> scene, uint voxelResolution)
     {
         float3 diag;
         float length;

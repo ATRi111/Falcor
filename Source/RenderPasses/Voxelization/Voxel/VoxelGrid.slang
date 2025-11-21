@@ -5,6 +5,8 @@ BEGIN_NAMESPACE_FALCOR
 
 #define DIAG 1.7320508
 #define DIAG_2 0.8660254
+//体素外接球投影而得的圆的面积
+#define PROJECT_CIRCLE_AREA 2.35619449
 
 struct AABBInt
 {

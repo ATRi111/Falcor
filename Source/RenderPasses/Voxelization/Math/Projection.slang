@@ -1,5 +1,4 @@
 #pragma once
-#include "ConvexHull.slang"
 #include "Utils/HostDeviceShared.slangh"
 
 BEGIN_NAMESPACE_FALCOR

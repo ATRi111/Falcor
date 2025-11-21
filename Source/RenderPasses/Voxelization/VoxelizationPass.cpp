@@ -44,7 +44,7 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     mComplete = false;
     mDebug = false;
 
-    VoxelizationBase::updateVoxelGrid(nullptr, mVoxelResolution);
+    VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
 
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
     Sampler::Desc samplerDesc;
@@ -142,7 +142,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         }
         if (widget.dropdown("Voxel Resolution", list, mVoxelResolution))
         {
-            VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
+            VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
             requestRecompile();
             mComplete = false;
         }
@@ -174,7 +174,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
 void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
-    VoxelizationBase::updateVoxelGrid(mpScene, mVoxelResolution);
+    VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
     mVoxelizationPass = nullptr;
     mComplete = false;
 }

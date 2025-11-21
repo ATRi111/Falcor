@@ -92,6 +92,9 @@ public:
                 e.fit(points, cellInt);
                 ellipsoidBuffer[i] = e;
                 ABSDFBuffer[i].normalizeSelf();
+
+                SphericalHarmonics SH = VoxelizationUtility::SampleProjectArea(polygonsInVoxels[i], cellInt, sampleFrequency * sampleFrequency);
+                polygonAreaBuffer[i] = SH;
             }
         }
     }

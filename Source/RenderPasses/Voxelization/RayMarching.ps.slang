@@ -285,11 +285,15 @@ float calcVisibility(HitResult hit, float3 dirW)
     return hit.hit ? 0.f : 1.f;
 }
 
-float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
+float3 shading(HitResult hit,  float3 v, LightData light)
 {
+    int index = CellToIndex(hit.cellInt, voxelCount);
     float3 diffuse = gDiffuse[hit.cellInt];
     float3 specular = gSpecular[hit.cellInt];
     float area = gArea[hit.cellInt];
+    Ellipsoid e = gEllipsoid[index];
+    NDF ndf = gNDFLobes[index];
+    SphericalHarmonics polygonArea = gPolygonAreaSH[index];
 
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
@@ -365,7 +369,10 @@ float3 shading(HitResult hit, Ellipsoid e, NDF ndf, float3 v, LightData light)
             return projectArea;
         return float3(projectArea, 2 - projectArea, 2 - projectArea);
     case ABSDFDrawMode::Polygons:
-        return 0;
+        projectArea = polygonArea.calc(v);
+        if (projectArea <= 1)
+            return projectArea;
+        return float3(projectArea, 2 - projectArea, 2 - projectArea);
     case ABSDFDrawMode::Area:
         if (area <= 1)
             return area;
@@ -408,13 +415,10 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     HitResult hit = rayMarching(from, to); // to足够远即可
     if (hit.hit)
     {
-        int index = CellToIndex(hit.cellInt, voxelCount);
-        NDF ndf = gNDFLobes[index];
-        Ellipsoid e = gEllipsoid[index];
         float3 color = 0;
         for (uint i = 0; i < scene.lightCount; i++)
         {
-            color += shading(hit, e, ndf, -direction, scene.lights[i]);
+            color += shading(hit, -direction, scene.lights[i]);
         }
         psOut.color = float4(color, 1);
     }

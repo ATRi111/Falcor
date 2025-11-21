@@ -1,5 +1,4 @@
 #pragma once
-#include "ConvexHull.slang"
 #include "Utils/HostDeviceShared.slangh"
 
 #if defined(HOST_CODE)
@@ -14,6 +13,7 @@ struct Polygon
 {
     float3 vertices[MAX_VERTEX_COUNT];
     uint count;
+    float3 normal;
 
 #if !defined(HOST_CODE)
     [mutating]
@@ -24,7 +24,7 @@ struct Polygon
     }
 
 #if defined(HOST_CODE)
-    //顶点必须有序
+    //顶点必须有序,必须至少包含三个点,必须是凸多边形
     void init(std::vector<float3>& points)
     {
         uint n = math::min(MAX_VERTEX_COUNT, (int)points.size());
@@ -33,6 +33,7 @@ struct Polygon
         {
             vertices[i] = points[i];
         }
+        normal = normalize(cross(vertices[1] - vertices[0], vertices[2] - vertices[0]));
     }
 
     void addTo(std::vector<float3>& points)
@@ -46,7 +47,6 @@ struct Polygon
 
     float area()
     {
-        // 必须至少包含三个点
         float3 s = float3(0);
         for (uint i = 0; i < count; ++i)
         {
@@ -69,12 +69,6 @@ struct Polygon
         }
     }
 
-    float3 calcNormal()
-    {
-        // 必须至少包含三个点
-        return cross(vertices[1] - vertices[0], vertices[2] - vertices[0]);
-    }
-
     bool calcSign(float3 p, float3 n, uint i)
     {
         float3 v1 = vertices[(i + 1) % count] - vertices[i];
@@ -85,42 +79,35 @@ struct Polygon
 
     bool intersectRay(float3 rayOrigin, float3 rayDir)
     {
-        // 必须至少包含三个点
-        float3 v0 = vertices[0];
-        float3 n = cross(vertices[1] - v0, vertices[2] - v0);
-
-        float denom = dot(rayDir, n);
+        float denom = dot(rayDir, normal);
         if (denom == 0.0f)
             return false;
-        float t = dot(v0 - rayOrigin, n) / denom;
+        float t = dot(vertices[0] - rayOrigin, normal) / denom;
         if (t < 0.0f)
             return false;
-
         float3 p = rayOrigin + t * rayDir;
-
-        // 必须是凸多边形
-        bool positive = calcSign(p, n, 0);
+        bool positive = calcSign(p, normal, 0);
         for (uint i = 1; i < count; ++i)
         {
-            if (calcSign(p, n, i) != positive)
+            if (calcSign(p, normal, i) != positive)
                 return false; //有正有负说明点在多边形外部
         }
 
         return true;
     }
 
-    float sampleVisibility(float3 rayOrigin, float3 rayDir, float3 n, float denom)
+    bool sampleVisible(float3 rayOrigin, float3 rayDir)
     {
-        // 默认t>0
-        float t = dot(vertices[0] - rayOrigin, n) / denom;
+        float denom = dot(rayDir, normal);
+        float t = dot(vertices[0] - rayOrigin, normal) / denom;         // 默认t>0
         float3 p = rayOrigin + t * rayDir;
-        bool positive = calcSign(p, n, 0);
+        bool positive = calcSign(p, normal, 0);
         for (uint i = 1; i < count; ++i)
         {
-            if (calcSign(p, n, i) != positive)
-                return 1;
+            if (calcSign(p, normal, i) != positive)
+                return true;
         }
-        return 0;
+        return false;
     }
 };
 

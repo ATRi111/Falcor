@@ -2,6 +2,8 @@
 #include "Falcor.h"
 #include "Profiler.h"
 #include "Polygon.slang"
+#include "SphericalHarmonics.slang"
+#include "Sampling.slang"
 #include "Triangle.slang"
 #include <unordered_set>
 #include <tuple>
@@ -153,5 +155,34 @@ public:
 
         polygon.init(vertices);
         return polygon;
+    }
+
+    static SphericalHarmonics SampleProjectArea(std::vector<Polygon>& polygonsInVoxel,int3 cellInt, uint times)
+    {
+        SphericalHarmonics SH = {};
+        SH.init();
+        float3 cellCenter = float3(cellInt) + 0.5f;
+        float weight = 4.f * PI / times / 2;
+        for (uint i = 0; i < times; i++)
+        {
+            float3 direction = sample_sphere(VoxelizationBase::Next2());
+            Basis2 basis = orthonormal_basis(direction);
+            SamplingRay ray = rayToVoxel(VoxelizationBase::Next2(), direction, basis, cellCenter);
+            bool hit = false;
+            for (size_t j = 0; j < polygonsInVoxel.size(); j++)
+            {
+                if (!polygonsInVoxel[j].sampleVisible(ray.origin, ray.direction))
+                {
+                    hit = true;
+                    break;
+                }
+            }
+            if (hit)
+            {
+                SH.accumulate(PROJECT_CIRCLE_AREA, direction, weight); //一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
+                SH.accumulate(PROJECT_CIRCLE_AREA, -direction, weight);//正反方向的采样结果总是相同
+            }
+        }
+        return SH;
     }
 };
