@@ -358,25 +358,17 @@ float3 shading(HitResult hit,  float3 v, LightData light)
     case ABSDFDrawMode::Flat:
         result = cosTerm;
         break;
-    case ABSDFDrawMode::Ellipsoid:
-        projectArea = e.projectArea(v) / PI * 2;
-        if (projectArea <= 1)
-            return projectArea;
-        return float3(projectArea, 2 - projectArea, 2 - projectArea);
-    case ABSDFDrawMode::ClippedEllipsoid:
-        projectArea = e.clippedProjectArea(v);
-        if (projectArea <= 1)
-            return projectArea;
-        return float3(projectArea, 2 - projectArea, 2 - projectArea);
-    case ABSDFDrawMode::Polygons:
-        projectArea = polygonArea.calc(v);
-        if (projectArea <= 1)
-            return projectArea;
-        return float3(projectArea, 2 - projectArea, 2 - projectArea);
-    case ABSDFDrawMode::Area:
-        if (area <= 1)
-            return area;
-        return float3(area, 2 - area, 2 - area);
+    case ABSDFDrawMode::EllipsoidProjArea:
+        return valueToColor(e.projectArea(v) / PI * 2);
+    case ABSDFDrawMode::PrimitiveProjArea:
+        return valueToColor(e.clippedProjectArea(v));
+    case ABSDFDrawMode::PolygonsProjArea:
+        return valueToColor(polygonArea.calc(v));
+    case ABSDFDrawMode::TotalArea:
+        return valueToColor(area);
+    case ABSDFDrawMode::Coverage:
+        float ck = polygonArea.calc(v) / e.clippedProjectArea(v);
+        return valueToColor(ck);
     case ABSDFDrawMode::InternalVisibility:
         return 0;
     default:

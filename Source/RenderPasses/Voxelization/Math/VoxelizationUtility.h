@@ -98,6 +98,22 @@ public:
         points.assign(temp.begin(), temp.end());
     }
 
+    static void RemoveAdjacentRepeatPoints(std::vector<float3>& points)
+    {
+        std::vector<float3> temp;
+        temp.reserve(points.size());
+        //默认points中至少有1个元素
+        if (!approximatelyEqual(points[0], points.back()))
+            temp.push_back(points[0]);
+        for (size_t i = 1; i < points.size(); i++)
+        {
+            if (!approximatelyEqual(points[i], points[i - 1]))
+                temp.push_back(points[i]);
+        }
+        if(points.size() != temp.size())
+            points.swap(temp);
+    }
+
     /// <summary>
     /// 用轴对齐长方体裁剪有向线段
     /// </summary>
@@ -154,6 +170,8 @@ public:
             greater = !greater;
         }
 
+        if (vertices.size() > 3)
+            RemoveAdjacentRepeatPoints(vertices);
         polygon.init(vertices);
         return polygon;
     }
@@ -172,7 +190,7 @@ public:
             bool hit = false;
             for (size_t j = 0; j < polygonsInVoxel.size(); j++)
             {
-                if (!polygonsInVoxel[j].sampleVisible(ray.origin, ray.direction))
+                if (polygonsInVoxel[j].sampleRay(ray.origin, ray.direction))
                 {
                     hit = true;
                     break;
@@ -180,10 +198,11 @@ public:
             }
             if (hit)
             {
-                SH.accumulate((float)PROJECT_CIRCLE_AREA, direction, weight); //一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
-                SH.accumulate((float)PROJECT_CIRCLE_AREA, -direction, weight);//正反方向的采样结果总是相同
+                SH.accumulate(direction); //一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
+                SH.accumulate(-direction);//正反方向的采样结果总是相同
             }
         }
+        SH.mul((float)PROJECT_CIRCLE_AREA * weight);
         return SH;
     }
 };

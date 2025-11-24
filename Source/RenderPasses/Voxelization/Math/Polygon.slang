@@ -14,6 +14,7 @@ struct Polygon
     float3 vertices[MAX_VERTEX_COUNT];
     uint count;
     float3 normal;
+    float area;
 
 #if !defined(HOST_CODE)
     [mutating]
@@ -24,7 +25,7 @@ struct Polygon
     }
 
 #if defined(HOST_CODE)
-    //顶点必须有序,必须至少包含三个点,必须是凸多边形
+    //顶点必须有序,必须至少包含三个点,必须是凸多边形，不能有重合的点
     void init(std::vector<float3>& points)
     {
         uint n = math::min(MAX_VERTEX_COUNT, (int)points.size());
@@ -33,7 +34,7 @@ struct Polygon
         {
             vertices[i] = points[i];
         }
-        normal = normalize(cross(vertices[1] - vertices[0], vertices[2] - vertices[0]));
+        area = calcArea();
     }
 
     void addTo(std::vector<float3>& points)
@@ -45,7 +46,7 @@ struct Polygon
     }
 #endif
 
-    float area()
+    float calcArea()
     {
         float3 s = float3(0);
         for (uint i = 0; i < count; ++i)
@@ -69,12 +70,12 @@ struct Polygon
         }
     }
 
-    bool calcSign(float3 p, float3 n, uint i)
+    bool inside(float3 p, uint i)
     {
         float3 v1 = vertices[(i + 1) % count] - vertices[i];
         float3 v2 = p - vertices[i];
-        float s = dot(cross(v1, v2), n);
-        return s >= 0;
+        float s = dot(normalize(cross(v1, v2)), normal);
+        return s >= 1e-6f;      //不论顺时针还是逆时针，大于0总表示在v1的内侧
     }
 
     bool intersectRay(float3 rayOrigin, float3 rayDir)
@@ -86,28 +87,30 @@ struct Polygon
         if (t < 0.0f)
             return false;
         float3 p = rayOrigin + t * rayDir;
-        bool positive = calcSign(p, normal, 0);
-        for (uint i = 1; i < count; ++i)
+        for (uint i = 0; i < count; ++i)
         {
-            if (calcSign(p, normal, i) != positive)
-                return false; //有正有负说明点在多边形外部
+            if (!inside(p, i))
+                return false;
         }
 
         return true;
     }
 
-    bool sampleVisible(float3 rayOrigin, float3 rayDir)
+    bool sampleRay(float3 rayOrigin, float3 rayDir)
     {
         float denom = dot(rayDir, normal);
-        float t = dot(vertices[0] - rayOrigin, normal) / denom;         // 默认t>0
+        //if (abs(denom) < epsilon)
+        //    return false;
+        float t = dot(vertices[0] - rayOrigin, normal) / denom;
+        if( t < 0)
+            return false;
         float3 p = rayOrigin + t * rayDir;
-        bool positive = calcSign(p, normal, 0);
-        for (uint i = 1; i < count; ++i)
+        for (uint i = 0; i < count; ++i)
         {
-            if (calcSign(p, normal, i) != positive)
-                return true;
+             if (!inside(p, i))
+                 return false;
         }
-        return false;
+        return true;
     }
 };
 

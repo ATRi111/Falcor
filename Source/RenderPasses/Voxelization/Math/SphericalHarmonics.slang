@@ -62,6 +62,30 @@ struct SphericalHarmonics
         }
     }
 
+#if !defined(HOST_CODE)
+    [mutating]
+#endif
+    // 不带系数统计，最后再统一乘以系数
+    void accumulate(float3 direction)
+    {
+        // 默认direction已经归一化
+        for (int i = 0; i < SH_COUNT; i++)
+        {
+            coefficients[i] += calcSH(i, direction);
+        }
+    }
+
+#if !defined(HOST_CODE)
+    [mutating]
+#endif
+    void mul(float value)
+    {
+        for (int i = 0; i < SH_COUNT; i++)
+        {
+            coefficients[i] *= value;
+        }
+    }
+
     float calc(float3 p)
     {
         float sum = 0;

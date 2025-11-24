@@ -55,5 +55,6 @@ private:
 
     uint mSampleFrequency;
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
+
     bool mComplete;
 };

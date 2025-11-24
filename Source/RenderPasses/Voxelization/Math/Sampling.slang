@@ -1,5 +1,6 @@
 #pragma once
 #include "Projection.slang"
+#include "Polygon.slang"
 #include "Utils/HostDeviceShared.slangh"
 
 BEGIN_NAMESPACE_FALCOR
@@ -22,14 +23,6 @@ inline float3 sample_sphere(float2 u)
     float cosTheta = 1.0f - 2.0f * u.x;
     float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
     return float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
-}
-
-// 从体素内表面随机一点，沿随机方向发出?
-inline SamplingRay rayFromVoxel(float3 p, float2 omega, float3 cellMin)
-{
-    float3 direction = sample_sphere(omega);
-    SamplingRay ray = { p + cellMin , direction };
-    return ray;
 }
 
 // 沿给定方向取半个球面，从半球面内的随机点(对投影面积平均)沿反方向发出射线

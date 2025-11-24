@@ -121,7 +121,7 @@ public:
         normal = calcShadingNormal(currentTBN, normal);
         if (normal.y < 0)
             normal = -normal;
-        ABSDFInput input = {baseColor, spec, normal, polygon.area()};
+        ABSDFInput input = {baseColor, spec, normal, polygon.area};
         ABSDFBuffer[index].accumulate(input);
     }
 
@@ -137,8 +137,10 @@ public:
                 {
                     int3 cellInt = int3(x, y, z);
                     float3 minPoint = float3(cellInt);
-                    Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri);
-                    sampleArea(tri, polygon, cellInt);
+                    Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri);  //多边形与三角形顶点顺序一致
+                    polygon.normal = currentTBN.getCol(2);  //几何法线
+                    if(polygon.count >= 3)
+                        sampleArea(tri, polygon, cellInt);
                 }
             }
         }

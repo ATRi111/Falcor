@@ -36,7 +36,8 @@ const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPas
 LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     mComplete = true;
-    mSampleFrequency = 0;
+
+    mSampleFrequency = 16;
     mVoxelResolution = 256;
 
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
