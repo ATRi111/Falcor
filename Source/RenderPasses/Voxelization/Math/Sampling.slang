@@ -1,6 +1,5 @@
 #pragma once
 #include "Projection.slang"
-#include "Polygon.slang"
 #include "Utils/HostDeviceShared.slangh"
 
 BEGIN_NAMESPACE_FALCOR

@@ -4,9 +4,12 @@
 #include "Profiler.h"
 #include "QuickHull/QuickHull.hpp"
 #include "Math/Polygon.slang"
+#include "Math/Triangle.slang"
 #include "Math/SphericalHarmonics.slang"
 #include <fstream>
 #include <unordered_map>
+
+using namespace Falcor;
 
 class MeshSampler
 {

@@ -378,10 +378,10 @@ float3 shading(HitResult hit,  float3 v, LightData light)
     return visibility * result / area;
 }
 
-float2 randomJitter(UniformSampleGenerator rng)
+float2 randomJitter(inout UniformSampleGenerator sg)
 {
-    float x = float((rng.next() >> 8) & 0x00FFFFFFu) / 16777216 - 0.5;
-    float y = float((rng.next() >> 8) & 0x00FFFFFFu) / 16777216 - 0.5;
+    float x = float((sg.next() >> 8) & 0x00FFFFFFu) / 16777216 - 0.5;
+    float y = float((sg.next() >> 8) & 0x00FFFFFFu) / 16777216 - 0.5;
     float2 jitter = float2(x, y);
     jitter /= pixelCount;
     return jitter;
@@ -391,8 +391,8 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
     PsOut psOut = { float4(1, 0, 1, 1) };
     uint2 pixel = uint2(texCoord * pixelCount);
-    UniformSampleGenerator rng = UniformSampleGenerator(pixel, gFrameIndex);
-    float2 jitter = randomJitter(rng);
+    UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameIndex);
+    float2 jitter = randomJitter(sg);
     texCoord += jitter;
     float3 from = screenCoordToGridCoord(texCoord, 0);
     float3 to = screenCoordToGridCoord(texCoord, 1);

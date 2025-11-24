@@ -1,6 +1,5 @@
 #pragma once
 #include "Utils/HostDeviceShared.slangh"
-#include "../Voxel/VoxelGrid.slang"
 
 #if defined(HOST_CODE)
 #include<vector>
@@ -14,6 +13,12 @@ inline float3 calcShadingNormal(float3x3 TBN, float3 normalMapColor)
     normal = normalize(mul(TBN, normal));
     return normal;
 }
+
+struct AABBInt
+{
+    int3 min;
+    int3 max;
+};
 
 struct Triangle
 {

@@ -35,6 +35,14 @@ struct BufferDesc
 };
 using BufferlList = std::vector<BufferDesc>;
 
+struct VoxelData
+{
+    ABSDF ABSDF;
+    Ellipsoid ellipsoid;
+    SphericalHarmonics primitiveArea;
+    SphericalHarmonics polygonArea;
+};
+
 class VoxelizationBase
 {
 public:

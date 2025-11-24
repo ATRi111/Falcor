@@ -7,12 +7,6 @@ BEGIN_NAMESPACE_FALCOR
 //体素外接球投影而得的圆的面积
 #define PROJECT_CIRCLE_AREA 2.35619449
 
-struct AABBInt
-{
-    int3 min;
-    int3 max;
-};
-
 struct GridData
 {
     float3 gridMin;

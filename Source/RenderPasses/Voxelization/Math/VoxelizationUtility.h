@@ -146,7 +146,7 @@ public:
     /// <summary>
     /// 用轴对齐长方体裁剪三角形
     /// </summary>
-    static Polygon BoxClipTriangle(float3 minPoint, float3 maxPoint, Triangle tri)
+    static Polygon BoxClipTriangle(float3 minPoint, float3 maxPoint, Triangle& tri)
     {
         std::vector<float3> vertices;
         std::vector<float3> temp;
@@ -190,7 +190,7 @@ public:
             bool hit = false;
             for (size_t j = 0; j < polygonsInVoxel.size(); j++)
             {
-                if (polygonsInVoxel[j].sampleRay(ray.origin, ray.direction))
+                if (polygonsInVoxel[j].intersectRay(ray.origin, ray.direction))
                 {
                     hit = true;
                     break;

@@ -1,13 +1,19 @@
 #pragma once
 #include "Utils/HostDeviceShared.slangh"
+#include "Sampling.slang"
+#include "SphericalHarmonics.slang"
 
 #if defined(HOST_CODE)
 #include<vector>
+#else
+#include "Random.slang"
 #endif
 
 BEGIN_NAMESPACE_FALCOR
 
-#define MAX_VERTEX_COUNT 12
+//忽略罕见的9边形情况
+#define MAX_VERTEX_COUNT 8
+#define MAX_POLYGON_COUNT 8
 
 struct Polygon
 {
@@ -81,28 +87,10 @@ struct Polygon
     bool intersectRay(float3 rayOrigin, float3 rayDir)
     {
         float denom = dot(rayDir, normal);
-        if (denom == 0.0f)
-            return false;
-        float t = dot(vertices[0] - rayOrigin, normal) / denom;
-        if (t < 0.0f)
-            return false;
-        float3 p = rayOrigin + t * rayDir;
-        for (uint i = 0; i < count; ++i)
-        {
-            if (!inside(p, i))
-                return false;
-        }
-
-        return true;
-    }
-
-    bool sampleRay(float3 rayOrigin, float3 rayDir)
-    {
-        float denom = dot(rayDir, normal);
         //if (abs(denom) < epsilon)
         //    return false;
         float t = dot(vertices[0] - rayOrigin, normal) / denom;
-        if( t < 0)
+        if(t < 0)
             return false;
         float3 p = rayOrigin + t * rayDir;
         for (uint i = 0; i < count; ++i)
@@ -113,5 +101,53 @@ struct Polygon
         return true;
     }
 };
+
+#if !defined(HOST_CODE)
+struct PolygonInVoxel
+{
+    Polygon polygons[8];
+    uint count;
+
+    bool intersectRay(float3 rayOrigin, float3 rayDir)
+    {
+        for (uint i = 0; i < count; i++)
+        {
+            if (polygons[i].intersectRay(rayOrigin, rayDir))
+                return true;
+        }
+        return false;
+    }
+
+    SphericalHarmonics SampleProjectArea(int3 cellInt, uint times, inout UniformSampleGenerator sg)
+    {
+        SphericalHarmonics SH = {};
+        SH.init();
+        float3 cellCenter = float3(cellInt) + 0.5f;
+        float weight = 4.f * PI / times / 2;
+        for (uint i = 0; i < times; i++)
+        {
+            float3 direction = sample_sphere(Next2(sg));
+            Basis2 basis = orthonormal_basis(direction);
+            SamplingRay ray = rayToVoxel(Next2(sg), direction, basis, cellCenter);
+            bool hit = false;
+            for (size_t j = 0; j < count; j++)
+            {
+                if (polygons[j].intersectRay(ray.origin, ray.direction))
+                {
+                    hit = true;
+                    break;
+                }
+            }
+            if (hit)
+            {
+                SH.accumulate(direction); // 一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
+                SH.accumulate(-direction); // 正反方向的采样结果总是相同
+            }
+        }
+        SH.mul(2.35619449f * weight);
+        return SH;
+    }
+};
+#endif
 
 END_NAMESPACE_FALCOR
