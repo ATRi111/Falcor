@@ -1,6 +1,7 @@
 #pragma once
 #include "Falcor.h"
 #include "Profiler.h"
+#include "Random.h"
 #include "Polygon.slang"
 #include "SphericalHarmonics.slang"
 #include "Sampling.slang"
@@ -165,9 +166,9 @@ public:
         float weight = 4.f * PI / times / 2;
         for (uint i = 0; i < times; i++)
         {
-            float3 direction = sample_sphere(VoxelizationBase::Next2());
+            float3 direction = sample_sphere(Random::Next2());
             Basis2 basis = orthonormal_basis(direction);
-            SamplingRay ray = rayToVoxel(VoxelizationBase::Next2(), direction, basis, cellCenter);
+            SamplingRay ray = rayToVoxel(Random::Next2(), direction, basis, cellCenter);
             bool hit = false;
             for (size_t j = 0; j < polygonsInVoxel.size(); j++)
             {
@@ -179,8 +180,8 @@ public:
             }
             if (hit)
             {
-                SH.accumulate(PROJECT_CIRCLE_AREA, direction, weight); //一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
-                SH.accumulate(PROJECT_CIRCLE_AREA, -direction, weight);//正反方向的采样结果总是相同
+                SH.accumulate((float)PROJECT_CIRCLE_AREA, direction, weight); //一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
+                SH.accumulate((float)PROJECT_CIRCLE_AREA, -direction, weight);//正反方向的采样结果总是相同
             }
         }
         return SH;

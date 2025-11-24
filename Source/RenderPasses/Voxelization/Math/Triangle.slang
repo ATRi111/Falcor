@@ -1,6 +1,6 @@
 #pragma once
 #include "Utils/HostDeviceShared.slangh"
-#include "Voxel/VoxelGrid.slang"
+#include "../Voxel/VoxelGrid.slang"
 
 #if defined(HOST_CODE)
 #include<vector>

@@ -12,6 +12,7 @@ target_sources(Voxelization PRIVATE
     Math/Sampling.slang
     Math/SphericalHarmonics.slang
     Math/VoxelizationUtility.h
+    Math/Random.h
 
     Image/Image.h
     Image/ImageLoader.cpp

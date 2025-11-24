@@ -18,8 +18,8 @@ bool VoxelizationBase::FileUpdated = true;
 std::string VoxelizationBase::ResourceFolder = "E:/Project/Falcor/resource/";
 
 std::random_device rd;
-std::mt19937 VoxelizationBase::Generator{ rd() };
-std::uniform_real_distribution<double> VoxelizationBase::Distribution{ 0.0, 1.0 };
+std::mt19937 Random::Generator{ rd() };
+std::uniform_real_distribution<double> Random::Distribution{ 0.0, 1.0 };
 
 const std::string kInputDiffuse = "diffuse";
 const std::string kInputSpecular = "specular";

@@ -1,8 +1,8 @@
 #pragma once
-#include "Utils/HostDeviceShared.slangh"
 #include "Projection.slang"
-#include "Voxel/VoxelGrid.slang"
+#include "Utils/HostDeviceShared.slangh"
 
+BEGIN_NAMESPACE_FALCOR
 struct SamplingRay
 {
     float3 origin;
@@ -36,7 +36,7 @@ inline SamplingRay rayFromVoxel(float3 p, float2 omega, float3 cellMin)
 inline SamplingRay rayToVoxel(float2 uDisk, float3 direction, Basis2 basis, float3 cellCenter)
 {
     float2 p = sample_disk(uDisk);
-    float r = DIAG_2;
+    float r = 0.8660254f;
     float u = p.x * r;
     float w = p.y * r;
 
@@ -45,3 +45,5 @@ inline SamplingRay rayToVoxel(float2 uDisk, float3 direction, Basis2 basis, floa
     SamplingRay ray = { point + cellCenter , -direction };
     return ray;
 }
+
+END_NAMESPACE_FALCOR
