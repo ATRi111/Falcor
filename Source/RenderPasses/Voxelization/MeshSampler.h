@@ -66,47 +66,12 @@ public:
         }
     }
 
-    void completeAccumulation()
-    {
-        using namespace quickhull;
-        std::vector<float3> points;
-        for (uint i = 0; i < voxelCount; i++)
-        {
-            if (polygonsInVoxels[i].size() > 0)
-            {
-                points.clear();
-                for (uint j = 0; j < polygonsInVoxels[i].size(); j++)
-                {
-                    polygonsInVoxels[i][j].addTo(points);
-                }
-                int3 cellInt = IndexToCell(i, gridData.voxelCount);
-                QuickHull<float> qh;
-                ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-3f);
-                VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
-                points.clear();
-                for (uint j = 0; j < vertexBuffer.size(); j++)
-                {
-                    Vector3<float> p = vertexBuffer[j];
-                    points.emplace_back(p.x, p.y, p.z);
-                };
-
-                VoxelizationUtility::RemoveRepeatPoints(points);
-                Ellipsoid e = {};
-                e.fit(points, cellInt);
-                ellipsoidBuffer[i] = e;
-                ABSDFBuffer[i].normalizeSelf();
-
-                SphericalHarmonics SH = VoxelizationUtility::SampleProjectArea(polygonsInVoxels[i], cellInt, sampleFrequency * sampleFrequency);
-                polygonAreaBuffer[i] = SH;
-            }
-        }
-    }
-
     void sampleArea(Triangle& tri, Polygon& polygon, int3 cellInt)
     {
         if (polygon.count < 3)
             return;
 
+        Tools::Profiler::BeginSample("Sample Texture");
         int index = CellToIndex(cellInt, gridData.voxelCount);
 
         polygonsInVoxels[index].push_back(polygon);
@@ -126,11 +91,14 @@ public:
             normal = -normal;
         ABSDFInput input = {baseColor, spec, normal, polygon.area};
         ABSDFBuffer[index].accumulate(input);
+
+        Tools::Profiler::EndSample("Sample Texture");
     }
 
-    void calcTriangle(Triangle& tri)
+    void clip(Triangle& tri)
     {
         currentTBN = tri.buildTBN();
+        Tools::Profiler::BeginSample("Clip");
         AABBInt aabb = tri.calcAABBInt();
         for (int z = aabb.min.z; z <= aabb.max.z; z++)
         {
@@ -147,6 +115,7 @@ public:
                 }
             }
         }
+        Tools::Profiler::EndSample("Clip");
     }
 
     void sampleMesh(MeshHeader mesh, float3* pPos, float2* pUV, uint3* pIndex)
@@ -170,23 +139,54 @@ public:
             {
                 tri.vertices[i] = (tri.vertices[i] - gridData.gridMin) / gridData.voxelSize;
             }
-            calcTriangle(tri);
+            clip(tri);
         }
     }
 
     void sampleAll(SceneHeader scene, std::vector<MeshHeader> meshList, float3* pPos, float2* pUV, uint3* pTri)
     {
-        Tools::Profiler::BeginSample("Mesh Sampling");
         for (size_t i = 0; i < meshList.size(); i++)
         {
             sampleMesh(meshList[i], pPos, pUV, pTri);
         }
-        completeAccumulation();
-        Tools::Profiler::EndSample("Mesh Sampling");
-        Tools::Profiler::Print();
-        std::cout << "TIME PER VOXEL: " << std::chrono::duration<double>(Tools::Profiler::timeDict["Mesh Sampling"]).count() / voxelCount
-                  << " s" << std::endl;
-        Tools::Profiler::Reset();
+    }
+
+    void analyzeAll()
+    {
+        using namespace quickhull;
+        std::vector<float3> points;
+        for (uint i = 0; i < voxelCount; i++)
+        {
+            Tools::Profiler::BeginSample("Fit Ellipsoid");
+            if (polygonsInVoxels[i].size() > 0)
+            {
+                points.clear();
+                for (uint j = 0; j < polygonsInVoxels[i].size(); j++)
+                {
+                    polygonsInVoxels[i][j].addTo(points);
+                }
+                int3 cellInt = IndexToCell(i, gridData.voxelCount);
+                QuickHull<float> qh;
+                ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-3f);
+                VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
+                points.clear();
+                for (uint j = 0; j < vertexBuffer.size(); j++)
+                {
+                    Vector3<float> p = vertexBuffer[j];
+                    points.emplace_back(p.x, p.y, p.z);
+                };
+                VoxelizationUtility::RemoveRepeatPoints(points);
+                Ellipsoid e = {};
+                e.fit(points, cellInt);
+                ellipsoidBuffer[i] = e;
+                Tools::Profiler::EndSample("Fit Ellipsoid");
+
+                ABSDFBuffer[i].normalizeSelf();
+
+                //SphericalHarmonics SH = VoxelizationUtility::SampleProjectArea(polygonsInVoxels[i], cellInt, sampleFrequency * sampleFrequency);
+                //polygonAreaBuffer[i] = SH;
+            }
+        }
     }
 
     void write()

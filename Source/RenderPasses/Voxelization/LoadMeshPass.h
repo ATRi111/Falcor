@@ -49,12 +49,14 @@ public:
 
 private:
     ref<ComputePass> mLoadMeshPass;
+    ref<ComputePass> mSamplePolygonPass;
 
     ref<Device> mpDevice;
     ref<Scene> mpScene;
 
     uint mSampleFrequency;
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
+    GridData& gridData;
 
     bool mComplete;
 };

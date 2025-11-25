@@ -30,10 +30,11 @@
 
 namespace
 {
-const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/LoadMesh.cs.slang";
+const std::string kLoadMeshProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/LoadMesh.cs.slang";
+const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/SamplePolygon.cs.slang";
 }; // namespace
 
-LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
+LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mComplete = true;
 
@@ -60,23 +61,32 @@ RenderPassReflection LoadMeshPass::reflect(const CompileData& compileData)
 
 void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (!mpScene)
-        return;
-
-    if (mComplete)
+    if (!mpScene || mComplete)
         return;
 
     if (!mLoadMeshPass)
     {
         ProgramDesc desc;
         desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kVoxelizationProgramFile).csEntry("main");
+        desc.addShaderLibrary(kLoadMeshProgramFile).csEntry("main");
         desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
 
         mLoadMeshPass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+    if (!mSamplePolygonPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kSamplePolygonProgramFile).csEntry("main");
+        //desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        //defines.add(mpScene->getSceneDefines());
+
+        mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
     uint meshCount = mpScene->getMeshCount();
@@ -139,16 +149,21 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
     uint3* pTri = reinterpret_cast<uint3*>(cpuTriangles->map());
     SceneHeader header = {meshCount, vertexCount, triangleCount};
 
-    {
-        MeshSampler meshSampler = {mSampleFrequency};
-        meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
-        meshSampler.write();
-    }
+    MeshSampler meshSampler = { mSampleFrequency };
+    meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
+
+    //var = mSamplePolygonPass->getRootVar();
+    //mSamplePolygonPass->execute(pRenderContext, gridData.voxelCount);
+
+    meshSampler.analyzeAll();
+    meshSampler.write();
 
     cpuPositions->unmap();
     cpuTexCoords->unmap();
     cpuTriangles->unmap();
 
+    Tools::Profiler::Print();
+    Tools::Profiler::Reset();
     mComplete = true;
 }
 

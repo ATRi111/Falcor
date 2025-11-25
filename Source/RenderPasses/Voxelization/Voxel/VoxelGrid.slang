@@ -16,7 +16,6 @@ struct GridData
     size_t totalVoxelCount() { return (size_t)voxelCount.x * (size_t)voxelCount.y * (size_t)voxelCount.z; }
 };
 
-// TODO:Z-Order Curve
 inline int CellToIndex(int3 cell, uint3 size)
 {
     return cell.x + cell.y * size.x + cell.z * size.x * size.y;

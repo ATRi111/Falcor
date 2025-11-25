@@ -21,6 +21,7 @@ target_sources(Voxelization PRIVATE
 
     VoxelizationBase.h
     VoxelizationBase.cpp
+    VoxelizationShared.slang
 
     VoxelizationPass.cpp
     VoxelizationPass.h
@@ -35,6 +36,7 @@ target_sources(Voxelization PRIVATE
     LoadMesh.cs.slang
 
     MeshSampler.h
+    SamplePolygon.cs.slang
     ReadVoxelPass.cpp
     ReadVoxelPass.h
 
