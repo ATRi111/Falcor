@@ -1,27 +1,20 @@
 #include "Voxel/VoxelGrid.slang"
-#include "Voxel/ABSDF.slang"
-#include "Math/Ellipsoid.slang"
-#include "Math/SphericalHarmonics.slang"
+#include "VoxelizationShared.slang"
 import Scene.SceneTypes;
 import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
 import Utils.Sampling.UniformSampleGenerator;
 
 ParameterBlock<Scene> scene;
-Texture3D<float3> gDiffuse;
-Texture3D<float3> gSpecular;
-Texture3D<float> gRoughness;
-Texture3D<float> gArea;
-StructuredBuffer<NDF> gNDFLobes;
-StructuredBuffer<Ellipsoid> gEllipsoid;
-StructuredBuffer<SphericalHarmonics> gVisibilitySH;
-StructuredBuffer<SphericalHarmonics> gPolygonAreaSH;
+Texture3D<int> vBuffer;
+StructuredBuffer<VoxelData> gBuffer;
 
 cbuffer GridData
 {
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
+    uint solidVoxelCount;
 }
 
 cbuffer CB
@@ -67,15 +60,15 @@ float3 cookTorrence(float3 l, float3 v, float3 h, float3 n, float3 spec, float r
     float3 specColor = ggx(n, h, rough) * fresnel(v, h, spec) * masking(n, v, rough) * masking(n, l, rough) / 4 / max(1e-4, dot(n, v));
     return specColor;
 }
-float3 weightedCookTorrence(NDF ndf, float3 l, float3 v, float3 spec, float rough)
+float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec, float rough)
 {
     float3 sum = 0;
     for (int i = 0; i < LOBE_COUNT; i++)
     {
-        float w = ndf.weightedNormals[i].w;
+        float w = NDF.weightedNormals[i].w;
         if (w > 0)
         {
-            float3 n = ndf.weightedNormals[i].xyz;
+            float3 n = NDF.weightedNormals[i].xyz;
             float cosTerm = dot(n, l);
             if (cosTerm < 0)
                 n = -n;
@@ -89,15 +82,15 @@ float3 weightedCookTorrence(NDF ndf, float3 l, float3 v, float3 spec, float roug
     return sum; // 未归一化
 }
 
-float weightedDot(NDF ndf, float3 direction)
+float weightedDot(NDF NDF, float3 direction)
 {
     float sum = 0;
     for (int i = 0; i < LOBE_COUNT; i++)
     {
-        float w = ndf.weightedNormals[i].w;
+        float w = NDF.weightedNormals[i].w;
         if (w > 0)
         {
-            float3 n = ndf.weightedNormals[i].xyz;
+            float3 n = NDF.weightedNormals[i].xyz;
             float cosTerm = abs(dot(n, direction));
             sum += cosTerm * w;
         }
@@ -105,15 +98,15 @@ float weightedDot(NDF ndf, float3 direction)
     return sum; // 未归一化
 }
 
-float3 getNormal(NDF ndf, float3 v)
+float3 getNormal(NDF NDF, float3 v)
 {
     float3 sum = 0;
     for (int i = 0; i < LOBE_COUNT; i++)
     {
-        float w = ndf.weightedNormals[i].w;
+        float w = NDF.weightedNormals[i].w;
         if (w > 0)
         {
-            float3 n = ndf.weightedNormals[i].xyz;
+            float3 n = NDF.weightedNormals[i].xyz;
             float cosTerm = dot(n, v);
             sum += sign(cosTerm) * n * w;
         }
@@ -249,19 +242,18 @@ HitResult rayMarching(float3 from, float3 to)
     {
         if (any(current.cellInt < 0) || any(current.cellInt >= voxelCount))
             break;
-        if (gArea[current.cellInt] > 0)
+        int offset = vBuffer[current.cellInt];
+        if (offset != -1)
         {
-#if CHECK_ELLIPSOID
-            int index = CellToIndex(current.cellInt, voxelCount);
-            Ellipsoid ellipsoid = gEllipsoid[index];
-            HitResult hit = checkEllipsoid(ellipsoid, current.cell, direction, current.cellInt);
-            if (hit.hit)
-                return hit;
-#else
+#if !CHECK_ELLIPSOID
             current.hit = true;
             current.cell = current.cellInt + 0.5;
             return current;
 #endif
+            Ellipsoid ellipsoid = gBuffer[offset].ellipsoid;
+            HitResult hit = checkEllipsoid(ellipsoid, current.cell, direction, current.cellInt);
+            if (hit.hit)
+                return hit;
         }
         current = leave(current, directions, direction, reciprocal_direction);
     }
@@ -285,15 +277,19 @@ float calcVisibility(HitResult hit, float3 dirW)
     return hit.hit ? 0.f : 1.f;
 }
 
-float3 shading(HitResult hit,  float3 v, LightData light)
+float3 shading(HitResult hit, float3 v, LightData light)
 {
     int index = CellToIndex(hit.cellInt, voxelCount);
-    float3 diffuse = gDiffuse[hit.cellInt];
-    float3 specular = gSpecular[hit.cellInt];
-    float area = gArea[hit.cellInt];
-    Ellipsoid e = gEllipsoid[index];
-    NDF ndf = gNDFLobes[index];
-    SphericalHarmonics polygonArea = gPolygonAreaSH[index];
+    uint offset = vBuffer[hit.cellInt];
+    VoxelData voxelData = gBuffer[offset];
+    ABSDF ABSDF = voxelData.ABSDF;
+    float3 diffuse = ABSDF.diffuse;
+    float3 specular = ABSDF.specular;
+    float roughness = ABSDF.roughness;
+    float area = ABSDF.area;
+    NDF NDF = ABSDF.NDF;
+    Ellipsoid e = voxelData.ellipsoid;
+    SphericalHarmonics coverageFunc = voxelData.coverageFunc;
 
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
@@ -340,9 +336,9 @@ float3 shading(HitResult hit,  float3 v, LightData light)
         lightColor = light.intensity;
         break;
     }
-    float cosTerm = weightedDot(ndf, l);
+    float cosTerm = weightedDot(NDF, l);
     float3 diffuseColor = lightColor * diffuse * cosTerm;
-    float3 specularColor = weightedCookTorrence(ndf, l, v, specular, gRoughness[hit.cellInt]);
+    float3 specularColor = weightedCookTorrence(NDF, l, v, specular, roughness);
     float3 result = 0;
     float projectArea = 0;
     switch (gDrawMode)
@@ -354,23 +350,17 @@ float3 shading(HitResult hit,  float3 v, LightData light)
         result = lightColor * specularColor;
         break;
     case ABSDFDrawMode::Normal:
-        return getNormal(ndf, l) * 0.5 + 0.5;
+        return getNormal(NDF, l) * 0.5 + 0.5;
     case ABSDFDrawMode::Flat:
         result = cosTerm;
         break;
     case ABSDFDrawMode::EllipsoidProjArea:
         return valueToColor(e.projectArea(v) / PI * 2);
-    case ABSDFDrawMode::PrimitiveProjArea:
-        return valueToColor(e.clippedProjectArea(v));
-    case ABSDFDrawMode::PolygonsProjArea:
-        return valueToColor(polygonArea.calc(v));
     case ABSDFDrawMode::TotalArea:
         return valueToColor(area);
     case ABSDFDrawMode::Coverage:
-        float ck = polygonArea.calc(v) / e.clippedProjectArea(v);
+        float ck = coverageFunc.calc(v);
         return valueToColor(ck);
-    case ABSDFDrawMode::InternalVisibility:
-        return 0;
     default:
         result = lightColor * (diffuseColor + specularColor);
         break;

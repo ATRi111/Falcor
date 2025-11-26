@@ -81,10 +81,10 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
         ProgramDesc desc;
         desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kSamplePolygonProgramFile).csEntry("main");
-        //desc.addTypeConformances(mpScene->getTypeConformances());
+        desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;
-        //defines.add(mpScene->getSceneDefines());
+        defines.add(mpScene->getSceneDefines());
 
         mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
@@ -177,13 +177,12 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         64,
         128,
         256,
-        360, // 128B
-        450, // 64B
-        500, // 48B
+        512,
+        1024,
     };
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < 8; i++)
+        for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
         {
             list.push_back({resolutions[i], std::to_string(resolutions[i])});
         }

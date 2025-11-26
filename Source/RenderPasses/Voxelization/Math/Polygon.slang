@@ -102,11 +102,30 @@ struct Polygon
     }
 };
 
-#if !defined(HOST_CODE)
 struct PolygonInVoxel
 {
     Polygon polygons[8];
     uint count;
+
+#if !defined(HOST_CODE)
+    [mutating]
+#endif
+    void init()
+    {
+        count = 0;
+    }
+
+#if !defined(HOST_CODE)
+    [mutating]
+#endif
+    void add(Polygon polygon)
+    {
+        if (count < MAX_POLYGON_COUNT)
+        {
+            polygons[count] = polygon;
+            count++;
+        }
+    }
 
     bool intersectRay(float3 rayOrigin, float3 rayDir)
     {
@@ -118,6 +137,7 @@ struct PolygonInVoxel
         return false;
     }
 
+#if !defined(HOST_CODE)
     SphericalHarmonics SampleProjectArea(int3 cellInt, uint times, inout UniformSampleGenerator sg)
     {
         SphericalHarmonics SH = {};
@@ -130,7 +150,7 @@ struct PolygonInVoxel
             Basis2 basis = orthonormal_basis(direction);
             SamplingRay ray = rayToVoxel(Next2(sg), direction, basis, cellCenter);
             bool hit = false;
-            for (size_t j = 0; j < count; j++)
+            for (uint j = 0; j < count; j++)
             {
                 if (polygons[j].intersectRay(ray.origin, ray.direction))
                 {
@@ -140,14 +160,14 @@ struct PolygonInVoxel
             }
             if (hit)
             {
-                SH.accumulate(direction); // 一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
+                SH.accumulate(direction); 
                 SH.accumulate(-direction); // 正反方向的采样结果总是相同
             }
         }
-        SH.mul(2.35619449f * weight);
+        SH.mul(2.35619449f * weight);   // 一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
         return SH;
     }
-};
 #endif
+};
 
 END_NAMESPACE_FALCOR

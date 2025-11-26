@@ -16,6 +16,17 @@ struct NDF
 {
     float4 weightedNormals[LOBE_COUNT];
 
+#if !defined(HOST_CODE)
+    [mutating]
+#endif
+    void init()
+    {
+        for (int i = 0; i < LOBE_COUNT; i++)
+        {
+            weightedNormals[i] = float4(0);
+        }
+    }
+
 #if defined(HOST_CODE)
     void normalizeSelf()
     {
@@ -51,6 +62,19 @@ struct ABSDF
     NDF NDF;
     float roughness;
     float area;
+
+#if !defined(HOST_CODE)
+    [mutating]
+#endif
+    void init()
+    {
+        diffuse = float3(0);
+        specular = float3(0);
+        NDF.init();
+        roughness = 0;
+        area = 0;
+    }
+
 #if defined(HOST_CODE)
     void accumulate(ABSDFInput &input)
 #else
@@ -94,11 +118,8 @@ enum class ABSDFDrawMode : uint32_t
     Flat,
     Normal,
     EllipsoidProjArea,
-    PrimitiveProjArea,
-    PolygonsProjArea,
     TotalArea,
     Coverage,
-    InternalVisibility,
 };
 FALCOR_ENUM_INFO(
     ABSDFDrawMode,
@@ -109,11 +130,8 @@ FALCOR_ENUM_INFO(
     { ABSDFDrawMode::Flat, "Flat" },
     { ABSDFDrawMode::Normal, "Normal" },
     { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
-    { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
-    { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
     { ABSDFDrawMode::TotalArea, "TotalArea" },
     { ABSDFDrawMode::Coverage, "Coverage" },
-    { ABSDFDrawMode::InternalVisibility, "InternalVisibility" },
     }
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);

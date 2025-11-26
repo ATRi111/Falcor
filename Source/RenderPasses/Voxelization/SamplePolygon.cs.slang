@@ -2,7 +2,7 @@
 #include "Voxel/VoxelGrid.slang"
 #include "Math/Polygon.slang"
 
-import Utils.Math.MathHelpers;
+//import Utils.Math.MathHelpers;
 
 RWStructuredBuffer<VoxelData> gBuffer;
 StructuredBuffer<PolygonInVoxel> polygonBuffer;

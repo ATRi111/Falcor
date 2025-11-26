@@ -12,6 +12,7 @@ struct GridData
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
+    size_t solidVoxelCount;
 
     size_t totalVoxelCount() { return (size_t)voxelCount.x * (size_t)voxelCount.y * (size_t)voxelCount.z; }
 };

@@ -55,24 +55,15 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
 
-    for (const ChannelDesc& channel : VoxelizationBase::Channels)
-    {
-        reflector.addInput(channel.name, channel.desc)
-            .bindFlags(ResourceBindFlags::ShaderResource)
-            .format(channel.format)
-            .texture3D(0, 0, 0, 1);
-    }
+    reflector.addInput(kVBuffer, kVBuffer)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::R32Uint)
+        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
 
-    for (const BufferDesc& buffer : VoxelizationBase::Buffers)
-    {
-        if (buffer.isInputOrOutut)
-        {
-            reflector.addInput(buffer.name, buffer.desc)
-                .bindFlags(ResourceBindFlags::ShaderResource)
-                .format(ResourceFormat::Unknown)
-                .rawBuffer(gridData.totalVoxelCount() * buffer.bytesPerElement);
-        }
-    }
+    reflector.addInput(kGBuffer, kGBuffer)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.solidVoxelCount * sizeof(VoxelData));
 
     reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
@@ -107,21 +98,14 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     auto var = mpFullScreenPass->getRootVar();
     mpScene->bindShaderData(var["scene"]);
 
-    for (const ChannelDesc& channel : VoxelizationBase::Channels)
-    {
-        if(channel.texname != "")
-            var[channel.texname] = renderData.getTexture(channel.name);
-    }
-    for (const BufferDesc& buffer : VoxelizationBase::Buffers)
-    {
-        if (buffer.texname != "")
-            var[buffer.texname] = renderData.getResource(buffer.name)->asBuffer();
-    }
+    var[kVBuffer] = renderData.getTexture(kVBuffer);
+    var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
 
     auto cb_GridData = mpFullScreenPass->getRootVar()["GridData"];
     cb_GridData["gridMin"] = gridData.gridMin;
     cb_GridData["voxelSize"] = gridData.voxelSize;
     cb_GridData["voxelCount"] = gridData.voxelCount;
+    cb_GridData["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
 
     auto cb = mpFullScreenPass->getRootVar()["CB"];
     cb["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());

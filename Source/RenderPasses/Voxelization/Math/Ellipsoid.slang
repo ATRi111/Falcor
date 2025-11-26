@@ -118,6 +118,7 @@ struct Ellipsoid
 {
     float3 center; // 相对于所在体素左下角的偏移量（涉及求交运算时，以椭球的中心为原点）
     float3x3 B;    // x^T B x <=1
+
 #if defined(HOST_CODE)
     void fit(std::vector<float3> &points, int3 cellInt)
     {

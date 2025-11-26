@@ -20,50 +20,44 @@ private:
     Image* currentSpecular;
     Image* currentNormal;
     float3x3 currentTBN;
-    size_t voxelCount;
 
 public:
-    uint sampleFrequency;
-    std::unordered_map<std::string, char*> bufferHeads;
-    ABSDF* ABSDFBuffer;
-    Ellipsoid* ellipsoidBuffer;
-    SphericalHarmonics* visibilityBuffer;
-    SphericalHarmonics* polygonAreaBuffer;
+    std::vector<VoxelData> gBuffer;
+    std::vector<int> vBuffer;
     std::vector<std::vector<Polygon>> polygonsInVoxels;
+    std::vector<PolygonInVoxel> polygonBuffer;
     std::string fileName;
 
     MeshSampler(uint sampleFrequency = 0)
-        : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance()), sampleFrequency(sampleFrequency)
+        : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance())
     {
-        voxelCount = gridData.totalVoxelCount();
         currentBaseColor = nullptr;
         currentNormal = nullptr;
         currentSpecular = nullptr;
         fileName = ToString(gridData.voxelCount) + "_" + std::to_string(sampleFrequency) + ".bin";
-
-        for (const BufferDesc& buffer : VoxelizationBase::Buffers)
-        {
-            if (buffer.serialized)
-            {
-                char* head = new char[buffer.bytesPerElement * voxelCount];
-                std::memset(head, 0, buffer.bytesPerElement * voxelCount);
-                bufferHeads[buffer.name] = head;
-            }
-        }
-
-        ABSDFBuffer = reinterpret_cast<ABSDF*>(bufferHeads["ABSDF"]);
-        ellipsoidBuffer = reinterpret_cast<Ellipsoid*>(bufferHeads["ellipsoid"]);
-        visibilityBuffer = reinterpret_cast<SphericalHarmonics*>(bufferHeads["visibilitySH"]);
-        polygonAreaBuffer = reinterpret_cast<SphericalHarmonics*>(bufferHeads["polygonAreaSH"]);
-        polygonsInVoxels.resize(voxelCount);
+        vBuffer.assign(gridData.totalVoxelCount(), -1);
     }
 
-    ~MeshSampler()
+    int tryGetOffset(int3 cellInt)
     {
-        for (auto& pair : bufferHeads)
+        int index = CellToIndex(cellInt, gridData.voxelCount);
+        if (vBuffer[index] == -1)
         {
-            delete[] pair.second;
+            int offset = gBuffer.size();
+            vBuffer[index] = offset;
+            gBuffer.emplace_back();
+            gBuffer[offset].init();
+            polygonsInVoxels.emplace_back();
+            polygonBuffer.emplace_back();
+            polygonBuffer[offset].init();
         }
+        return vBuffer[index];
+    }
+
+    int getOffset(int3 cellInt)
+    {
+        int index = CellToIndex(cellInt, gridData.voxelCount);
+        return vBuffer[index];
     }
 
     void sampleArea(Triangle& tri, Polygon& polygon, int3 cellInt)
@@ -72,9 +66,10 @@ public:
             return;
 
         Tools::Profiler::BeginSample("Sample Texture");
-        int index = CellToIndex(cellInt, gridData.voxelCount);
+        int offset = tryGetOffset(cellInt);
 
-        polygonsInVoxels[index].push_back(polygon);
+        polygonsInVoxels[offset].push_back(polygon);
+        polygonBuffer[offset].add(polygon);
 
         std::vector<float2> uvs;
         for (uint i = 0; i < polygon.count; i++)
@@ -90,7 +85,7 @@ public:
         if (normal.y < 0)
             normal = -normal;
         ABSDFInput input = {baseColor, spec, normal, polygon.area};
-        ABSDFBuffer[index].accumulate(input);
+        gBuffer[offset].ABSDF.accumulate(input);
 
         Tools::Profiler::EndSample("Sample Texture");
     }
@@ -98,7 +93,6 @@ public:
     void clip(Triangle& tri)
     {
         currentTBN = tri.buildTBN();
-        Tools::Profiler::BeginSample("Clip");
         AABBInt aabb = tri.calcAABBInt();
         for (int z = aabb.min.z; z <= aabb.max.z; z++)
         {
@@ -106,16 +100,17 @@ public:
             {
                 for (int x = aabb.min.x; x <= aabb.max.x; x++)
                 {
+                    Tools::Profiler::BeginSample("Clip");
                     int3 cellInt = int3(x, y, z);
                     float3 minPoint = float3(cellInt);
                     Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri);  //多边形与三角形顶点顺序一致
+                    Tools::Profiler::EndSample("Clip");
                     polygon.normal = currentTBN.getCol(2);  //几何法线
                     if(polygon.count >= 3)
                         sampleArea(tri, polygon, cellInt);
                 }
             }
         }
-        Tools::Profiler::EndSample("Clip");
     }
 
     void sampleMesh(MeshHeader mesh, float3* pPos, float2* pUV, uint3* pIndex)
@@ -149,25 +144,27 @@ public:
         {
             sampleMesh(meshList[i], pPos, pUV, pTri);
         }
+        gridData.solidVoxelCount = gBuffer.size();
     }
 
     void analyzeAll()
     {
         using namespace quickhull;
         std::vector<float3> points;
-        for (uint i = 0; i < voxelCount; i++)
+        for (uint i = 0; i < gridData.totalVoxelCount(); i++)
         {
             Tools::Profiler::BeginSample("Fit Ellipsoid");
-            if (polygonsInVoxels[i].size() > 0)
+            int offset = vBuffer[i];
+            if (offset != -1)
             {
-                points.clear();
-                for (uint j = 0; j < polygonsInVoxels[i].size(); j++)
-                {
-                    polygonsInVoxels[i][j].addTo(points);
-                }
                 int3 cellInt = IndexToCell(i, gridData.voxelCount);
+                points.clear();
+                for (uint j = 0; j < polygonsInVoxels[offset].size(); j++)
+                {
+                    polygonsInVoxels[offset][j].addTo(points);
+                }
                 QuickHull<float> qh;
-                ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-3f);
+                ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-6f);
                 VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
                 points.clear();
                 for (uint j = 0; j < vertexBuffer.size(); j++)
@@ -176,15 +173,10 @@ public:
                     points.emplace_back(p.x, p.y, p.z);
                 };
                 VoxelizationUtility::RemoveRepeatPoints(points);
-                Ellipsoid e = {};
-                e.fit(points, cellInt);
-                ellipsoidBuffer[i] = e;
+                gBuffer[offset].ellipsoid.fit(points, cellInt);
                 Tools::Profiler::EndSample("Fit Ellipsoid");
 
-                ABSDFBuffer[i].normalizeSelf();
-
-                //SphericalHarmonics SH = VoxelizationUtility::SampleProjectArea(polygonsInVoxels[i], cellInt, sampleFrequency * sampleFrequency);
-                //polygonAreaBuffer[i] = SH;
+                gBuffer[offset].ABSDF.normalizeSelf();
             }
         }
     }
@@ -196,58 +188,10 @@ public:
         f.open(s, std::ios::binary);
         f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
 
-        for (const BufferDesc& buffer : VoxelizationBase::Buffers)
-        {
-            if (buffer.serialized)
-                f.write(reinterpret_cast<const char*>(bufferHeads[buffer.name]), voxelCount * buffer.bytesPerElement);
-        }
+        f.write(reinterpret_cast<const char*>(vBuffer.data()), gridData.totalVoxelCount() * sizeof(int));
+        f.write(reinterpret_cast<const char*>(gBuffer.data()), gridData.solidVoxelCount * sizeof(VoxelData));
 
         f.close();
         VoxelizationBase::FileUpdated = true;
     }
 };
-
-//    void sampleMaterial(float3 position, float2 uv, int index)
-//{
-//    float3 baseColor = currentBaseColor->Sample(uv).xyz();
-//    float4 spec = currentSpecular ? currentSpecular->Sample(uv) : float4(0, 0, 0, 0);
-//    float3 normal = currentNormal ? currentNormal->Sample(uv).xyz() : float3(0, 0, 1);
-//    normal = VoxelizationUtility::CalcNormal(currentTBN, normal);
-//    ABSDFInput input = {baseColor, spec, normal, 1};
-//    MaterialUtility::Accumulate(ABSDFBuffer[index], input);
-//    pointsInVoxels[index].push_back(position);
-//}
-//
-// void sampleMaterial(float3 position, float2 uv)
-//{
-//    int3 p = int3(position);
-//    int index = CellToIndex(p, gridData.voxelCount);
-//    sampleMaterial(position, uv, index);
-//}
-//
-// void sampleTriangle(float3 tri[3], float2 triuv[3])
-//{
-//    float3 BC = tri[2] - tri[1];
-//    float3 AC = tri[2] - tri[0];
-//    float k = length(BC) / length(AC);
-//    float S = 0.5f * length(cross(BC, AC));
-//    float sampleCount = sampleFrequency * S;
-//    float temp = sqrt(2 * sampleCount / k);
-//    uint aCount = (uint)ceil(temp);
-//    uint bCount = (uint)ceil(temp * k);
-//
-//    float deltaA = 1.0f / (aCount + 1);
-//    float deltaB = 1.0f / (bCount + 1);
-//
-//    for (float a = deltaA; a < 1; a += deltaA)
-//    {
-//        for (float b = deltaB; b < 1; b += deltaB)
-//        {
-//            if (a + b > 1)
-//                break;
-//            float3 pos = tri[0] * a + tri[1] * b + tri[2] * (1 - a - b);
-//            float2 uv = triuv[0] * a + triuv[1] * b + triuv[2] * (1 - a - b);
-//            sampleMaterial(pos, uv);
-//        }
-//    }
-//}

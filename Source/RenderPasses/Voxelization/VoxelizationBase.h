@@ -7,9 +7,16 @@
 #include "RenderGraph/RenderPassHelpers.h"
 #include "Math/VoxelizationUtility.h"
 #include "Math/Random.h"
+#include "VoxelizationShared.slang"
 #include <random>
 using namespace Falcor;
 
+inline std::string ToString(size_t n)
+{
+    std::ostringstream oss;
+    oss << n;
+    return oss.str();
+}
 inline std::string ToString(float3 v)
 {
     std::ostringstream oss;
@@ -35,11 +42,12 @@ struct BufferDesc
 };
 using BufferlList = std::vector<BufferDesc>;
 
+inline std::string kGBuffer = "gBuffer";
+inline std::string kVBuffer = "vBuffer";
+
 class VoxelizationBase
 {
 public:
-    static const ChannelList Channels;
-    static const BufferlList Buffers;
     static const int NDFLobeCount = 8;
     static GridData GlobalGridData;
     static uint3 MinFactor; // 网格的分辨率必须是此值的整数倍
@@ -76,6 +84,7 @@ public:
             (uint)math::ceil(temp.z / MinFactor.z) * MinFactor.z
         );
         GlobalGridData.gridMin = center - 0.5f * GlobalGridData.voxelSize * float3(GlobalGridData.voxelCount);
+        GlobalGridData.solidVoxelCount = 0;
     }
 };
 

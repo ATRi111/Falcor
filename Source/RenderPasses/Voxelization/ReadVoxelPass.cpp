@@ -49,24 +49,15 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Float)
         .texture2D(0, 0, 1, 1);
 
-    for (const ChannelDesc& channel : VoxelizationBase::Channels)
-    {
-        reflector.addOutput(channel.name, channel.desc)
-            .bindFlags(ResourceBindFlags::ShaderResource)
-            .format(channel.format)
-            .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
-    }
+    reflector.addOutput(kVBuffer, kVBuffer)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::R32Uint)
+        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
 
-    for (const BufferDesc& buffer : VoxelizationBase::Buffers)
-    {
-        if (buffer.isInputOrOutut)
-        {
-            reflector.addOutput(buffer.name, buffer.desc)
-                .bindFlags(ResourceBindFlags::ShaderResource)
-                .format(ResourceFormat::Unknown)
-                .rawBuffer(gridData.totalVoxelCount() * buffer.bytesPerElement);
-        }
-    }
+    reflector.addOutput(kGBuffer, kGBuffer)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.solidVoxelCount * sizeof(VoxelData));
 
     return reflector;
 }
@@ -77,112 +68,23 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         return;
 
     size_t voxelCount = gridData.totalVoxelCount();
-    ABSDF* ABSDFBuffer = nullptr;
-    {
-        std::ifstream f;
-        size_t offset = 0;
 
-        f.open(filePaths[selectedFile], std::ios::binary | std::ios::ate);
-        size_t fileSize = std::filesystem::file_size(filePaths[selectedFile]);
-        tryRead(f, offset, sizeof(GridData), nullptr, fileSize);
+    std::ifstream f;
+    size_t offset = 0;
 
-        for (const BufferDesc& buffer : VoxelizationBase::Buffers)
-        {
-            if (buffer.serialized)
-            {
-                char* head = new char[buffer.bytesPerElement * voxelCount];
-                tryRead(f, offset, voxelCount * buffer.bytesPerElement, head, fileSize);
+    f.open(filePaths[selectedFile], std::ios::binary | std::ios::ate);
+    size_t fileSize = std::filesystem::file_size(filePaths[selectedFile]);
+    tryRead(f, offset, sizeof(GridData), nullptr, fileSize);
 
-                if (buffer.isInputOrOutut)
-                {
-                    ref<Buffer> pBuffer = renderData.getResource(buffer.name)->asBuffer();
-                    pBuffer->setBlob(head, 0, voxelCount * buffer.bytesPerElement);
-                }
+    ref<Texture> pVBuffer = renderData.getTexture(kVBuffer);
+    uint* vBuffer = new uint[gridData.totalVoxelCount()];
+    tryRead(f, offset, gridData.totalVoxelCount() * sizeof(uint), vBuffer, fileSize);
+    pVBuffer->setSubresourceBlob(0, vBuffer, gridData.totalVoxelCount() * sizeof(uint));
 
-                if (buffer.name == "ABSDF") //ABSDF必须先于NDFLobes被读取
-                    ABSDFBuffer = reinterpret_cast<ABSDF*>(head);
-                else
-                    delete[] head;
-            }
-
-            if (buffer.name == "NDFLobes")
-            {
-                ref<Buffer> pBuffer = renderData.getResource(buffer.name)->asBuffer();
-                NDF* NDFLobesBuffer = new NDF[voxelCount];
-                for (size_t i = 0; i < voxelCount; i++)
-                {
-                    NDFLobesBuffer[i] = ABSDFBuffer[i].NDF;
-                }
-                pBuffer->setBlob(NDFLobesBuffer, 0, voxelCount* buffer.bytesPerElement);
-                delete[] NDFLobesBuffer;
-            }
-        }
-        f.close();
-    }
-
-    {
-        for (const ChannelDesc& channel : VoxelizationBase::Channels)
-        {
-            ref<Texture> pTexture = renderData.getTexture(channel.name);
-            float* floatBuffer = nullptr;
-            float3* float3Buffer = nullptr;
-            switch (channel.format)
-            {
-            case ResourceFormat::R32Float:
-                floatBuffer = new float[voxelCount];
-                break;
-            case ResourceFormat::RGB32Float:
-                float3Buffer = new float3[voxelCount];
-                break;
-            default:
-                continue;
-            }
-
-            if (channel.name == "diffuse")
-            {
-                for (size_t i = 0; i < voxelCount; i++)
-                {
-                    float3Buffer[i] = ABSDFBuffer[i].diffuse;
-                }
-            }
-            else if (channel.name == "specular")
-            {
-                for (size_t i = 0; i < voxelCount; i++)
-                {
-                    float3Buffer[i] = ABSDFBuffer[i].specular;
-                }
-            }
-            else if (channel.name == "roughness")
-            {
-                for (size_t i = 0; i < voxelCount; i++)
-                {
-                    floatBuffer[i] = ABSDFBuffer[i].roughness;
-                }
-            }
-            else if (channel.name == "area")
-            {
-                for (size_t i = 0; i < voxelCount; i++)
-                {
-                    floatBuffer[i] = ABSDFBuffer[i].area;
-                }
-            }
-
-            switch (channel.format)
-            {
-            case ResourceFormat::RGB32Float:
-                pTexture->setSubresourceBlob(0, float3Buffer, voxelCount * sizeof(float3));
-                break;
-            case ResourceFormat::R32Float:
-                pTexture->setSubresourceBlob(0, floatBuffer, voxelCount * sizeof(float));
-                break;
-            }
-
-            delete[] floatBuffer;
-            delete[] float3Buffer;
-        }
-    }
-
-    delete[] reinterpret_cast<char*>(ABSDFBuffer);
+    ref<Buffer> pGBuffer = renderData.getResource(kGBuffer)->asBuffer();
+    VoxelData* gBuffer = new VoxelData[gridData.solidVoxelCount];
+    tryRead(f, offset, gridData.solidVoxelCount * sizeof(VoxelData), gBuffer, fileSize);
+    pGBuffer->setBlob(gBuffer, 0, gridData.solidVoxelCount * sizeof(VoxelData));
 
     mComplete = true;
 }
@@ -232,6 +134,7 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     widget.text("Voxel Size: " + ToString(data.voxelSize));
     widget.text("Voxel Count: " + ToString(data.voxelCount));
     widget.text("Grid Min: " + ToString(data.gridMin));
+    widget.text("Solid Voxel Count: " + ToString(data.solidVoxelCount));
 }
 
 void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
