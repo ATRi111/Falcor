@@ -171,7 +171,7 @@ public:
         }
 
         if (vertices.size() > 3)
-            RemoveAdjacentRepeatPoints(vertices);
+            RemoveAdjacentRepeatPoints(vertices);   //过短的边会影响相交判断
         polygon.init(vertices);
         return polygon;
     }

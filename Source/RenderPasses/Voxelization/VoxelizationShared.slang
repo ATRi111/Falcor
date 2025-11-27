@@ -9,7 +9,8 @@ struct VoxelData
 {
     ABSDF ABSDF;
     Ellipsoid ellipsoid;
-    SphericalHarmonics coverageFunc;
+    SphericalHarmonics primitiveProjAreaFunc;
+    SphericalHarmonics polygonsProjAreaFunc;
 
 #if !defined(HOST_CODE)
     [mutating]
@@ -17,7 +18,6 @@ struct VoxelData
     void init()
     {
         ABSDF.init();
-        coverageFunc.init();
     }
 };
 

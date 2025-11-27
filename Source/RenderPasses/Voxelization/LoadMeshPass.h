@@ -54,6 +54,7 @@ private:
     ref<Device> mpDevice;
     ref<Scene> mpScene;
 
+    bool mIgnoreCoverage;
     uint mSampleFrequency;
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
     GridData& gridData;

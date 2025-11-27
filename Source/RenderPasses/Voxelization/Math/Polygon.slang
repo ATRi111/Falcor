@@ -80,8 +80,8 @@ struct Polygon
     {
         float3 v1 = vertices[(i + 1) % count] - vertices[i];
         float3 v2 = p - vertices[i];
-        float s = dot(normalize(cross(v1, v2)), normal);
-        return s >= 1e-6f;      //不论顺时针还是逆时针，大于0总表示在v1的内侧
+        float s = dot(normalize(cross(v1, v2)), normal);    //如果删掉normalize，会有一定量的点投影面积偏小
+        return s >= 1e-6f;      //如果改成0，会有大量的点投影面积偏大
     }
 
     bool intersectRay(float3 rayOrigin, float3 rayDir)
@@ -104,7 +104,8 @@ struct Polygon
 
 struct PolygonInVoxel
 {
-    Polygon polygons[8];
+    Polygon polygons[MAX_POLYGON_COUNT];
+    float3 cellMin;
     uint count;
 
 #if !defined(HOST_CODE)
@@ -113,6 +114,7 @@ struct PolygonInVoxel
     void init()
     {
         count = 0;
+        cellMin = float3(0);
     }
 
 #if !defined(HOST_CODE)
@@ -138,11 +140,11 @@ struct PolygonInVoxel
     }
 
 #if !defined(HOST_CODE)
-    SphericalHarmonics SampleProjectArea(int3 cellInt, uint times, inout UniformSampleGenerator sg)
+    SphericalHarmonics SampleProjectArea(uint times, inout UniformSampleGenerator sg)
     {
         SphericalHarmonics SH = {};
         SH.init();
-        float3 cellCenter = float3(cellInt) + 0.5f;
+        float3 cellCenter = cellMin + 0.5f;
         float weight = 4.f * PI / times / 2;
         for (uint i = 0; i < times; i++)
         {

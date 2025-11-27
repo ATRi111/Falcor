@@ -118,6 +118,8 @@ enum class ABSDFDrawMode : uint32_t
     Flat,
     Normal,
     EllipsoidProjArea,
+    PrimitiveProjArea,
+    PolygonsProjArea,
     TotalArea,
     Coverage,
 };
@@ -130,6 +132,8 @@ FALCOR_ENUM_INFO(
     { ABSDFDrawMode::Flat, "Flat" },
     { ABSDFDrawMode::Normal, "Normal" },
     { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
+    { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
+    { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
     { ABSDFDrawMode::TotalArea, "TotalArea" },
     { ABSDFDrawMode::Coverage, "Coverage" },
     }

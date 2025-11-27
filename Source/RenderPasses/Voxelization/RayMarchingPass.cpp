@@ -37,7 +37,7 @@ const std::string kOutputColor = "color";
 RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mpDevice = pDevice;
-    mVisibilityBias = 0.5f;
+    mVisibilityBias = 1.f;
     mDebug = false;
     mUpdateScene = false;
     mCheckEllipsoid = true;
@@ -101,13 +101,13 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     var[kVBuffer] = renderData.getTexture(kVBuffer);
     var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
 
-    auto cb_GridData = mpFullScreenPass->getRootVar()["GridData"];
+    auto cb_GridData = var["GridData"];
     cb_GridData["gridMin"] = gridData.gridMin;
     cb_GridData["voxelSize"] = gridData.voxelSize;
     cb_GridData["voxelCount"] = gridData.voxelCount;
     cb_GridData["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
 
-    auto cb = mpFullScreenPass->getRootVar()["CB"];
+    auto cb = var["CB"];
     cb["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
     cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     cb["visibilityBias"] = mVisibilityBias;

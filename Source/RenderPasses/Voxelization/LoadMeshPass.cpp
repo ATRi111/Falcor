@@ -37,6 +37,7 @@ const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPa
 LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mComplete = true;
+    mIgnoreCoverage = false;
 
     mSampleFrequency = 16;
     mVoxelResolution = 256;
@@ -143,6 +144,9 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
     pRenderContext->copyResource(cpuTexCoords.get(), texCoords.get());
     pRenderContext->copyResource(cpuTriangles.get(), triangles.get());
     mpDevice->wait();
+    cpuPositions->unmap();
+    cpuTexCoords->unmap();
+    cpuTriangles->unmap();
 
     float3* pPos = reinterpret_cast<float3*>(cpuPositions->map());
     float2* pUV = reinterpret_cast<float2*>(cpuTexCoords->map());
@@ -151,16 +155,38 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
 
     MeshSampler meshSampler = { mSampleFrequency };
     meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
-
-    //var = mSamplePolygonPass->getRootVar();
-    //mSamplePolygonPass->execute(pRenderContext, gridData.voxelCount);
-
     meshSampler.analyzeAll();
-    meshSampler.write();
 
-    cpuPositions->unmap();
-    cpuTexCoords->unmap();
-    cpuTriangles->unmap();
+    if (!mIgnoreCoverage)
+    {
+        ref<Buffer> gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
+        ref<Buffer> polygonBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonInVoxel), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
+
+        size_t gBufferBytes = gridData.solidVoxelCount * sizeof(VoxelData);
+        gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gBufferBytes);
+        polygonBuffer->setBlob(meshSampler.polygonBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonInVoxel));
+
+        var = mSamplePolygonPass->getRootVar();
+        var[kGBuffer] = gBuffer;
+        var["polygonBuffer"] = polygonBuffer;
+
+        auto cb = var["CB"];
+        cb["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
+        cb["sampleFrequency"] = mSampleFrequency;
+        cb["seed"] = 0;
+
+        Tools::Profiler::BeginSample("Sample Polygons");
+        mSamplePolygonPass->execute(pRenderContext, uint3((uint)gridData.solidVoxelCount, 1, 1));
+        mpDevice->wait();
+        Tools::Profiler::EndSample("Sample Polygons");
+        ref<Buffer> cpuGBuffer = mpDevice->createBuffer(gBufferBytes, ResourceBindFlags::None, MemoryType::ReadBack);
+        pRenderContext->copyResource(cpuGBuffer.get(), gBuffer.get());
+        mpDevice->wait();
+        memcpy(meshSampler.gBuffer.data(), cpuGBuffer->map(), gBufferBytes);
+        cpuGBuffer->unmap();
+    }
+
+    meshSampler.write();
 
     Tools::Profiler::Print();
     Tools::Profiler::Reset();
@@ -205,6 +231,8 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
 
     if (mpScene && widget.button("Generate"))
         mComplete = false;
+
+    widget.checkbox("Ignore Coverage", mIgnoreCoverage);
 }
 
 void LoadMeshPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

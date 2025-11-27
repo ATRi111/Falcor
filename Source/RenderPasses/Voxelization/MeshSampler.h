@@ -50,6 +50,7 @@ public:
             polygonsInVoxels.emplace_back();
             polygonBuffer.emplace_back();
             polygonBuffer[offset].init();
+            polygonBuffer[offset].cellMin = float3(cellInt);
         }
         return vBuffer[index];
     }
@@ -151,33 +152,28 @@ public:
     {
         using namespace quickhull;
         std::vector<float3> points;
-        for (uint i = 0; i < gridData.totalVoxelCount(); i++)
+        for (uint i = 0; i < gBuffer.size(); i++)
         {
             Tools::Profiler::BeginSample("Fit Ellipsoid");
-            int offset = vBuffer[i];
-            if (offset != -1)
+            points.clear();
+            for (uint j = 0; j < polygonsInVoxels[i].size(); j++)
             {
-                int3 cellInt = IndexToCell(i, gridData.voxelCount);
-                points.clear();
-                for (uint j = 0; j < polygonsInVoxels[offset].size(); j++)
-                {
-                    polygonsInVoxels[offset][j].addTo(points);
-                }
-                QuickHull<float> qh;
-                ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-6f);
-                VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
-                points.clear();
-                for (uint j = 0; j < vertexBuffer.size(); j++)
-                {
-                    Vector3<float> p = vertexBuffer[j];
-                    points.emplace_back(p.x, p.y, p.z);
-                };
-                VoxelizationUtility::RemoveRepeatPoints(points);
-                gBuffer[offset].ellipsoid.fit(points, cellInt);
-                Tools::Profiler::EndSample("Fit Ellipsoid");
-
-                gBuffer[offset].ABSDF.normalizeSelf();
+                polygonsInVoxels[i][j].addTo(points);
             }
+            QuickHull<float> qh;
+            ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-6f);
+            VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
+            points.clear();
+            for (uint j = 0; j < vertexBuffer.size(); j++)
+            {
+                Vector3<float> p = vertexBuffer[j];
+                points.emplace_back(p.x, p.y, p.z);
+            };
+            VoxelizationUtility::RemoveRepeatPoints(points);
+            gBuffer[i].ellipsoid.fit(points, polygonBuffer[i].cellMin);
+            Tools::Profiler::EndSample("Fit Ellipsoid");
+
+            gBuffer[i].ABSDF.normalizeSelf();
         }
     }
 

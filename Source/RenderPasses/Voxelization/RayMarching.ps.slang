@@ -114,45 +114,6 @@ float3 getNormal(NDF NDF, float3 v)
     return normalize(sum);
 }
 
-float2 intersect(float p1, float p2, float p0, float q)
-{
-    float u1 = (p1 - p0) / q;
-    float u2 = (p2 - p0) / q;
-    if (u1 > u2)
-    {
-        float temp = u1;
-        u1 = u2;
-        u2 = temp;
-    }
-    return float2(u1, u2);
-}
-// 应当统一用3D纹理的纹理坐标计算
-float2 clip(float3 minPoint, float3 maxPoint, float3 from, float3 to)
-{
-    float uIn = 0, uOut = 1;
-    float3 v = to - from;
-
-    float2 u12 = intersect(minPoint.x, maxPoint.x, from.x, v.x);
-    uIn = max(uIn, u12.x);
-    uOut = min(uOut, u12.y);
-    if (uIn > uOut)
-        return float2(-1, -1);
-
-    u12 = intersect(minPoint.y, maxPoint.y, from.y, v.y);
-    uIn = max(uIn, u12.x);
-    uOut = min(uOut, u12.y);
-    if (uIn > uOut)
-        return float2(-1, -1);
-
-    u12 = intersect(minPoint.z, maxPoint.z, from.z, v.z);
-    uIn = max(uIn, u12.x);
-    uOut = min(uOut, u12.y);
-    if (uIn > uOut)
-        return float2(-1, -1);
-
-    return float2(uIn, uOut);
-}
-
 HitResult leave(HitResult current, int3 directions, float3 direction, float3 reciprocal_direction)
 {
     float3 border = current.cellInt + (directions + 1) / 2;
@@ -289,7 +250,8 @@ float3 shading(HitResult hit, float3 v, LightData light)
     float area = ABSDF.area;
     NDF NDF = ABSDF.NDF;
     Ellipsoid e = voxelData.ellipsoid;
-    SphericalHarmonics coverageFunc = voxelData.coverageFunc;
+    SphericalHarmonics polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
+    SphericalHarmonics primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
 
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
@@ -355,12 +317,25 @@ float3 shading(HitResult hit, float3 v, LightData light)
         result = cosTerm;
         break;
     case ABSDFDrawMode::EllipsoidProjArea:
+#if DEBUG
+        float delta = e.projectArea(v) / PI * 2 - dot(float3(0, 1, 0), v);
+        delta = delta * 100;
+        if (delta > 0)
+            return float3(1 - delta, 1, 1); //蓝绿色意味着椭球投影面积比预期大
+        return float3(1, 1 + delta, 1);
+#endif
         return valueToColor(e.projectArea(v) / PI * 2);
     case ABSDFDrawMode::TotalArea:
         return valueToColor(area);
+    case ABSDFDrawMode::PolygonsProjArea:
+        projectArea = polygonsProjAreaFunc.calc(v);
+        return valueToColor(projectArea);
+    case ABSDFDrawMode::PrimitiveProjArea:
+        projectArea = primitiveProjAreaFunc.calc(v);
+        return valueToColor(projectArea);
     case ABSDFDrawMode::Coverage:
-        float ck = coverageFunc.calc(v);
-        return valueToColor(ck);
+        float coverage = polygonsProjAreaFunc.calc(v) / primitiveProjAreaFunc.calc(v);
+        return valueToColor(coverage);
     default:
         result = lightColor * (diffuseColor + specularColor);
         break;

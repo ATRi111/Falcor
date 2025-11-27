@@ -120,7 +120,7 @@ struct Ellipsoid
     float3x3 B;    // x^T B x <=1
 
 #if defined(HOST_CODE)
-    void fit(std::vector<float3> &points, int3 cellInt)
+    void fit(std::vector<float3> &points, float3 cellMin)
     {
         float3 sum = float3(0);
         uint n = points.size();
@@ -170,7 +170,7 @@ struct Ellipsoid
             maxDot = std::max(maxDot, dot);
         }
         B = inv * (1.0f / maxDot);
-        center -= float3(cellInt);
+        center -= cellMin;
     }
 #endif
 
