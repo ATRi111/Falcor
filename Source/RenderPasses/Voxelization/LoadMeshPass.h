@@ -27,6 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "VoxelizationBase.h"
+#include "MeshSampler.h"
 
 using namespace Falcor;
 
@@ -48,16 +49,20 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    std::string getFileName();
     ref<ComputePass> mLoadMeshPass;
     ref<ComputePass> mSamplePolygonPass;
 
     ref<Device> mpDevice;
     ref<Scene> mpScene;
 
-    bool mIgnoreCoverage;
     uint mSampleFrequency;
+    uint mRepeatTimes;
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
     GridData& gridData;
 
-    bool mComplete;
+    MeshSampler meshSampler;
+    bool mGPUComplete;
+    bool mCPUComplete;
+    uint mCompleteTimes;
 };

@@ -20,22 +20,32 @@ private:
     Image* currentSpecular;
     Image* currentNormal;
     float3x3 currentTBN;
-
 public:
     std::vector<VoxelData> gBuffer;
     std::vector<int> vBuffer;
     std::vector<std::vector<Polygon>> polygonsInVoxels;
     std::vector<PolygonInVoxel> polygonBuffer;
-    std::string fileName;
 
-    MeshSampler(uint sampleFrequency = 0)
+    MeshSampler()
         : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance())
     {
         currentBaseColor = nullptr;
         currentNormal = nullptr;
         currentSpecular = nullptr;
-        fileName = ToString(gridData.voxelCount) + "_" + std::to_string(sampleFrequency) + ".bin";
+    }
+
+    void reset()
+    {
+        clear();
         vBuffer.assign(gridData.totalVoxelCount(), -1);
+    }
+
+    void clear()
+    {
+        gBuffer.clear();
+        vBuffer.clear();
+        polygonBuffer.clear();
+        polygonsInVoxels.clear();
     }
 
     int tryGetOffset(int3 cellInt)
@@ -177,7 +187,7 @@ public:
         }
     }
 
-    void write()
+    void write(std::string fileName)
     {
         std::ofstream f;
         std::string s = VoxelizationBase::ResourceFolder + fileName;

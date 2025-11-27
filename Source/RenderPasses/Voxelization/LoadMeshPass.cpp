@@ -26,7 +26,6 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "LoadMeshPass.h"
-#include "MeshSampler.h"
 
 namespace
 {
@@ -36,9 +35,11 @@ const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPa
 
 LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
-    mComplete = true;
-    mIgnoreCoverage = false;
+    mCPUComplete = true;
+    mGPUComplete = true;
+    mCompleteTimes = 0;
 
+    mRepeatTimes = 1;
     mSampleFrequency = 16;
     mVoxelResolution = 256;
 
@@ -62,7 +63,7 @@ RenderPassReflection LoadMeshPass::reflect(const CompileData& compileData)
 
 void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (!mpScene || mComplete)
+    if (!mpScene || mCPUComplete && mGPUComplete)
         return;
 
     if (!mLoadMeshPass)
@@ -90,74 +91,79 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
         mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
-    uint meshCount = mpScene->getMeshCount();
-    uint vertexCount = 0;
-    uint triangleCount = 0;
-    for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
+    if (!mCPUComplete)
     {
-        MeshDesc meshDesc = mpScene->getMesh(meshID);
-        vertexCount += meshDesc.vertexCount;
-        triangleCount += meshDesc.getTriangleCount();
+        uint meshCount = mpScene->getMeshCount();
+        uint vertexCount = 0;
+        uint triangleCount = 0;
+        for (MeshID meshID{ 0 }; meshID.get() < meshCount; ++meshID)
+        {
+            MeshDesc meshDesc = mpScene->getMesh(meshID);
+            vertexCount += meshDesc.vertexCount;
+            triangleCount += meshDesc.getTriangleCount();
+        }
+
+        uint positionBytes = sizeof(float3) * vertexCount;
+        uint texCoordBytes = sizeof(float2) * vertexCount;
+        uint triangleBytes = sizeof(uint3) * triangleCount;
+        ref<Buffer> positions = mpDevice->createStructuredBuffer(sizeof(float3), vertexCount, ResourceBindFlags::UnorderedAccess);
+        ref<Buffer> texCoords = mpDevice->createStructuredBuffer(sizeof(float2), vertexCount, ResourceBindFlags::UnorderedAccess);
+        ref<Buffer> triangles = mpDevice->createStructuredBuffer(sizeof(uint3), triangleCount, ResourceBindFlags::UnorderedAccess);
+
+        ref<Buffer> cpuPositions = mpDevice->createBuffer(positionBytes, ResourceBindFlags::None, MemoryType::ReadBack);
+        ref<Buffer> cpuTexCoords = mpDevice->createBuffer(texCoordBytes, ResourceBindFlags::None, MemoryType::ReadBack);
+        ref<Buffer> cpuTriangles = mpDevice->createBuffer(triangleBytes, ResourceBindFlags::None, MemoryType::ReadBack);
+
+        std::vector<MeshHeader> meshList;
+
+        ShaderVar var = mLoadMeshPass->getRootVar();
+        mpScene->bindShaderData(var["scene"]);
+        var["positions"] = positions;
+        var["texCoords"] = texCoords;
+        var["triangles"] = triangles;
+        uint triangleOffset = 0;
+        for (MeshID meshID{ 0 }; meshID.get() < meshCount; ++meshID)
+        {
+            MeshDesc meshDesc = mpScene->getMesh(meshID);
+            MeshHeader mesh = { meshDesc.materialID, meshDesc.vertexCount, meshDesc.getTriangleCount(), triangleOffset };
+            meshList.push_back(mesh);
+
+            auto meshData = mLoadMeshPass->getRootVar()["MeshData"];
+            meshData["vertexCount"] = meshDesc.vertexCount;
+            meshData["vbOffset"] = meshDesc.vbOffset;
+            meshData["triangleCount"] = meshDesc.getTriangleCount();
+            meshData["ibOffset"] = meshDesc.ibOffset;
+            meshData["triOffset"] = triangleOffset;
+            meshData["use16BitIndices"] = meshDesc.use16BitIndices();
+            mLoadMeshPass->execute(pRenderContext, uint3(meshDesc.getTriangleCount(), 1, 1));
+            pRenderContext->uavBarrier(positions.get());
+            pRenderContext->uavBarrier(texCoords.get());
+            pRenderContext->uavBarrier(triangles.get());
+
+            triangleOffset += meshDesc.getTriangleCount();
+        }
+
+        pRenderContext->copyResource(cpuPositions.get(), positions.get());
+        pRenderContext->copyResource(cpuTexCoords.get(), texCoords.get());
+        pRenderContext->copyResource(cpuTriangles.get(), triangles.get());
+        mpDevice->wait();
+
+        float3* pPos = reinterpret_cast<float3*>(cpuPositions->map());
+        float2* pUV = reinterpret_cast<float2*>(cpuTexCoords->map());
+        uint3* pTri = reinterpret_cast<uint3*>(cpuTriangles->map());
+        SceneHeader header = { meshCount, vertexCount, triangleCount };
+
+        meshSampler.reset();
+        meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
+        meshSampler.analyzeAll();
+        cpuPositions->unmap();
+        cpuTexCoords->unmap();
+        cpuTriangles->unmap();
+
+        mCPUComplete = true;
     }
-
-    uint positionBytes = sizeof(float3) * vertexCount;
-    uint texCoordBytes = sizeof(float2) * vertexCount;
-    uint triangleBytes = sizeof(uint3) * triangleCount;
-    ref<Buffer> positions = mpDevice->createStructuredBuffer(sizeof(float3), vertexCount, ResourceBindFlags::UnorderedAccess);
-    ref<Buffer> texCoords = mpDevice->createStructuredBuffer(sizeof(float2), vertexCount, ResourceBindFlags::UnorderedAccess);
-    ref<Buffer> triangles = mpDevice->createStructuredBuffer(sizeof(uint3), triangleCount, ResourceBindFlags::UnorderedAccess);
-
-    ref<Buffer> cpuPositions = mpDevice->createBuffer(positionBytes, ResourceBindFlags::None, MemoryType::ReadBack);
-    ref<Buffer> cpuTexCoords = mpDevice->createBuffer(texCoordBytes, ResourceBindFlags::None, MemoryType::ReadBack);
-    ref<Buffer> cpuTriangles = mpDevice->createBuffer(triangleBytes, ResourceBindFlags::None, MemoryType::ReadBack);
-
-    std::vector<MeshHeader> meshList;
-
-    ShaderVar var = mLoadMeshPass->getRootVar();
-    mpScene->bindShaderData(var["scene"]);
-    var["positions"] = positions;
-    var["texCoords"] = texCoords;
-    var["triangles"] = triangles;
-    uint triangleOffset = 0;
-    for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
-    {
-        MeshDesc meshDesc = mpScene->getMesh(meshID);
-        MeshHeader mesh = {meshDesc.materialID, meshDesc.vertexCount, meshDesc.getTriangleCount(), triangleOffset};
-        meshList.push_back(mesh);
-
-        auto meshData = mLoadMeshPass->getRootVar()["MeshData"];
-        meshData["vertexCount"] = meshDesc.vertexCount;
-        meshData["vbOffset"] = meshDesc.vbOffset;
-        meshData["triangleCount"] = meshDesc.getTriangleCount();
-        meshData["ibOffset"] = meshDesc.ibOffset;
-        meshData["triOffset"] = triangleOffset;
-        meshData["use16BitIndices"] = meshDesc.use16BitIndices();
-        mLoadMeshPass->execute(pRenderContext, uint3(meshDesc.getTriangleCount(), 1, 1));
-        pRenderContext->uavBarrier(positions.get());
-        pRenderContext->uavBarrier(texCoords.get());
-        pRenderContext->uavBarrier(triangles.get());
-
-        triangleOffset += meshDesc.getTriangleCount();
-    }
-
-    pRenderContext->copyResource(cpuPositions.get(), positions.get());
-    pRenderContext->copyResource(cpuTexCoords.get(), texCoords.get());
-    pRenderContext->copyResource(cpuTriangles.get(), triangles.get());
-    mpDevice->wait();
-    cpuPositions->unmap();
-    cpuTexCoords->unmap();
-    cpuTriangles->unmap();
-
-    float3* pPos = reinterpret_cast<float3*>(cpuPositions->map());
-    float2* pUV = reinterpret_cast<float2*>(cpuTexCoords->map());
-    uint3* pTri = reinterpret_cast<uint3*>(cpuTriangles->map());
-    SceneHeader header = {meshCount, vertexCount, triangleCount};
-
-    MeshSampler meshSampler = { mSampleFrequency };
-    meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
-    meshSampler.analyzeAll();
-
-    if (!mIgnoreCoverage)
+    
+    if (!mGPUComplete)
     {
         ref<Buffer> gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
         ref<Buffer> polygonBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonInVoxel), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
@@ -166,46 +172,42 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
         gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gBufferBytes);
         polygonBuffer->setBlob(meshSampler.polygonBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonInVoxel));
 
-        var = mSamplePolygonPass->getRootVar();
+        ShaderVar var = mSamplePolygonPass->getRootVar();
         var[kGBuffer] = gBuffer;
         var["polygonBuffer"] = polygonBuffer;
 
         auto cb = var["CB"];
         cb["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
         cb["sampleFrequency"] = mSampleFrequency;
-        cb["seed"] = 0;
+        cb["seed"] = mCompleteTimes;
 
         Tools::Profiler::BeginSample("Sample Polygons");
         mSamplePolygonPass->execute(pRenderContext, uint3((uint)gridData.solidVoxelCount, 1, 1));
         mpDevice->wait();
         Tools::Profiler::EndSample("Sample Polygons");
-        ref<Buffer> cpuGBuffer = mpDevice->createBuffer(gBufferBytes, ResourceBindFlags::None, MemoryType::ReadBack);
-        pRenderContext->copyResource(cpuGBuffer.get(), gBuffer.get());
-        mpDevice->wait();
-        memcpy(meshSampler.gBuffer.data(), cpuGBuffer->map(), gBufferBytes);
-        cpuGBuffer->unmap();
+        mCompleteTimes++;
+
+        if (mCompleteTimes >= mRepeatTimes)
+        {
+            ref<Buffer> cpuGBuffer = mpDevice->createBuffer(gBufferBytes, ResourceBindFlags::None, MemoryType::ReadBack);
+            pRenderContext->copyResource(cpuGBuffer.get(), gBuffer.get());
+            mpDevice->wait();
+            memcpy(meshSampler.gBuffer.data(), cpuGBuffer->map(), gBufferBytes);
+            cpuGBuffer->unmap();
+            meshSampler.write(getFileName());
+            Tools::Profiler::Print();
+            Tools::Profiler::Reset();
+            meshSampler.clear();
+            mGPUComplete = true;
+        }
     }
-
-    meshSampler.write();
-
-    Tools::Profiler::Print();
-    Tools::Profiler::Reset();
-    mComplete = true;
 }
 
 void LoadMeshPass::compile(RenderContext* pRenderContext, const CompileData& compileData) {}
 
 void LoadMeshPass::renderUI(Gui::Widgets& widget)
 {
-    static const uint resolutions[] = {
-        16,
-        32,
-        64,
-        128,
-        256,
-        512,
-        1024,
-    };
+    static const uint resolutions[] = {16,32,64,128,256,512,1024};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
@@ -227,12 +229,24 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
             list.push_back({samplePoints[i], std::to_string(samplePoints[i])});
         }
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
+            
+    }
+    static const uint repeatTimes[] = { 0, 1, 2, 4, 8, 16, 32, 64, 128, 256 };
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < 10; i++)
+        {
+            list.push_back({ repeatTimes[i], std::to_string(repeatTimes[i]) });
+        }
+        widget.dropdown("Repeat times", list, mRepeatTimes);
     }
 
-    if (mpScene && widget.button("Generate"))
-        mComplete = false;
-
-    widget.checkbox("Ignore Coverage", mIgnoreCoverage);
+    if (mpScene && mCPUComplete && mGPUComplete && widget.button("Generate"))
+    {
+        mCPUComplete = false;
+        mGPUComplete = false;
+        mCompleteTimes = 0;
+    }
 }
 
 void LoadMeshPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -240,4 +254,16 @@ void LoadMeshPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
     mpScene = pScene;
     mLoadMeshPass = nullptr;
     VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
+}
+
+std::string LoadMeshPass::getFileName()
+{
+    std::ostringstream oss;
+    oss << ToString(gridData.voxelCount);
+    oss << "_";
+    oss << std::to_string(mSampleFrequency);
+    oss << "_";
+    oss << std::to_string(mRepeatTimes);
+    oss << ".bin";
+    return oss.str();
 }
