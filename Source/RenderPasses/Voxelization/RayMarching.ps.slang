@@ -40,10 +40,9 @@ struct PsOut
 
 float ggx(float3 n, float3 h, float rough)
 {
-    float Pi = 3.14159265359;
     float rough2 = rough * rough;
     float temp = dot(n, h) * dot(n, h) * (rough2 - 1) + 1;
-    return rough2 / Pi / temp / temp;
+    return rough2 / PI / temp / temp;
 }
 float3 fresnel(float3 v, float3 h, float3 spec)
 {
@@ -82,38 +81,6 @@ float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec, float roug
     return sum; // 未归一化
 }
 
-float weightedDot(NDF NDF, float3 direction)
-{
-    float sum = 0;
-    for (int i = 0; i < LOBE_COUNT; i++)
-    {
-        float w = NDF.weightedNormals[i].w;
-        if (w > 0)
-        {
-            float3 n = NDF.weightedNormals[i].xyz;
-            float cosTerm = abs(dot(n, direction));
-            sum += cosTerm * w;
-        }
-    }
-    return sum; // 未归一化
-}
-
-float3 getNormal(NDF NDF, float3 v)
-{
-    float3 sum = 0;
-    for (int i = 0; i < LOBE_COUNT; i++)
-    {
-        float w = NDF.weightedNormals[i].w;
-        if (w > 0)
-        {
-            float3 n = NDF.weightedNormals[i].xyz;
-            float cosTerm = dot(n, v);
-            sum += sign(cosTerm) * n * w;
-        }
-    }
-    return normalize(sum);
-}
-
 HitResult leave(HitResult current, int3 directions, float3 direction, float3 reciprocal_direction)
 {
     float3 border = current.cellInt + (directions + 1) / 2;
@@ -140,34 +107,6 @@ HitResult leave(HitResult current, int3 directions, float3 direction, float3 rec
     return current;
 }
 
-float2 ellipsoidClip(Ellipsoid e, float3 from, float3 to)
-{
-    float3 v = to - from;
-    from -= e.center;
-    // quadratic equation
-    float a = dot(v, mul(e.B, v));
-    float b = 2.f * dot(v, mul(e.B, from));
-    float c = dot(from, mul(e.B, from)) - 1.f;
-    float d = b * b - 4 * a * c;
-    if (d < 0)
-        return float2(-1, -1);
-    float uIn = 0, uOut = 1;
-    float s = sqrt(d);
-    if (a >= 0)
-    {
-        uIn = max(uIn, (-b - s) / 2 / a);
-        uOut = min(uOut, (-b + s) / 2 / a);
-    }
-    else
-    {
-        uIn = max(uIn, (-b + s) / 2 / a);
-        uOut = min(uOut, (-b - s) / 2 / a);
-    }
-    if (uIn > uOut)
-        return float2(-1, -1);
-    return float2(uIn, uOut);
-}
-
 HitResult checkEllipsoid(Ellipsoid ellipsoid, float3 cell, float3 direction, int3 cellInt)
 {
     float3 from = cell - cellInt;
@@ -182,7 +121,7 @@ HitResult checkEllipsoid(Ellipsoid ellipsoid, float3 cell, float3 direction, int
     if (direction.z != 0 && t.z < tMin)
         tMin = t.z;
     float3 to = from + tMin * direction;
-    float2 inOut = ellipsoidClip(ellipsoid, from, to);
+    float2 inOut = ellipsoid.clip(from, to);
     HitResult result = { inOut.x >= 0, cellInt, cell + inOut.x * (to - from) };
     return result;
 }
@@ -238,6 +177,40 @@ float calcVisibility(HitResult hit, float3 dirW)
     return hit.hit ? 0.f : 1.f;
 }
 
+float3 debugShading(HitResult hit, float3 v)
+{
+    int index = CellToIndex(hit.cellInt, voxelCount);
+    uint offset = vBuffer[hit.cellInt];
+    VoxelData voxelData = gBuffer[offset];
+    ABSDF ABSDF = voxelData.ABSDF;
+    NDF NDF = ABSDF.NDF;
+    Ellipsoid e = voxelData.ellipsoid;
+    SphericalHarmonics polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
+    SphericalHarmonics primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
+    float result = 0;
+    switch (gDrawMode)
+    {
+    case ABSDFDrawMode::EllipsoidProjArea:
+        result = e.projectArea(v) / PI * 2;
+        break;
+    case ABSDFDrawMode::TotalArea:
+        result = ABSDF.area;
+        break;
+    case ABSDFDrawMode::PolygonsProjArea:
+        result = polygonsProjAreaFunc.calc(v);
+        break;
+    case ABSDFDrawMode::PrimitiveProjArea:
+        result = primitiveProjAreaFunc.calc(v);
+        break;
+    case ABSDFDrawMode::Coverage:
+        result = polygonsProjAreaFunc.calc(v) / primitiveProjAreaFunc.calc(v);
+        break;
+    default:
+        break;
+    }
+    return valueToColor(result);
+}
+
 float3 shading(HitResult hit, float3 v, LightData light)
 {
     int index = CellToIndex(hit.cellInt, voxelCount);
@@ -249,9 +222,6 @@ float3 shading(HitResult hit, float3 v, LightData light)
     float roughness = ABSDF.roughness;
     float area = ABSDF.area;
     NDF NDF = ABSDF.NDF;
-    Ellipsoid e = voxelData.ellipsoid;
-    SphericalHarmonics polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
-    SphericalHarmonics primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
 
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
@@ -298,46 +268,26 @@ float3 shading(HitResult hit, float3 v, LightData light)
         lightColor = light.intensity;
         break;
     }
-    float cosTerm = weightedDot(NDF, l);
+    float cosTerm = NDF.weightedDot(l);
     float3 diffuseColor = lightColor * diffuse * cosTerm;
-    float3 specularColor = weightedCookTorrence(NDF, l, v, specular, roughness);
+    float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular, roughness);
     float3 result = 0;
     float projectArea = 0;
     switch (gDrawMode)
     {
+    case ABSDFDrawMode::Normal:
+        return NDF.getAverageNormal(l) * 0.5 + 0.5;
     case ABSDFDrawMode::Diffuse:
-        result = lightColor * diffuseColor;
+        result = diffuseColor;
         break;
     case ABSDFDrawMode::Specular:
-        result = lightColor * specularColor;
+        result = specularColor;
         break;
-    case ABSDFDrawMode::Normal:
-        return getNormal(NDF, l) * 0.5 + 0.5;
     case ABSDFDrawMode::Flat:
         result = cosTerm;
         break;
-    case ABSDFDrawMode::EllipsoidProjArea:
-#if DEBUG
-        float delta = e.projectArea(v) / PI * 2 - dot(float3(0, 1, 0), v);
-        delta = delta * 100;
-        if (delta > 0)
-            return float3(1 - delta, 1, 1); //蓝绿色意味着椭球投影面积比预期大
-        return float3(1, 1 + delta, 1);
-#endif
-        return valueToColor(e.projectArea(v) / PI * 2);
-    case ABSDFDrawMode::TotalArea:
-        return valueToColor(area);
-    case ABSDFDrawMode::PolygonsProjArea:
-        projectArea = polygonsProjAreaFunc.calc(v);
-        return valueToColor(projectArea);
-    case ABSDFDrawMode::PrimitiveProjArea:
-        projectArea = primitiveProjAreaFunc.calc(v);
-        return valueToColor(projectArea);
-    case ABSDFDrawMode::Coverage:
-        float coverage = polygonsProjAreaFunc.calc(v) / primitiveProjAreaFunc.calc(v);
-        return valueToColor(coverage);
     default:
-        result = lightColor * (diffuseColor + specularColor);
+        result = diffuseColor + specularColor;
         break;
     }
     return visibility * result / area;
@@ -373,10 +323,23 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     if (hit.hit)
     {
         float3 color = 0;
-        for (uint i = 0; i < scene.lightCount; i++)
+        float coverage = 1;
+        switch (gDrawMode)
         {
-            color += shading(hit, -direction, scene.lights[i]);
+        case ABSDFDrawMode::Default:
+        case ABSDFDrawMode::Diffuse:
+        case ABSDFDrawMode::Specular:
+        case ABSDFDrawMode::Flat:
+            for (uint i = 0; i < scene.lightCount; i++)
+            {
+                color += shading(hit, -direction, scene.lights[i]);
+            }
+            break;
+        default:
+            color = debugShading(hit, -direction);
+            break;
         }
+        
         psOut.color = float4(color, 1);
     }
 

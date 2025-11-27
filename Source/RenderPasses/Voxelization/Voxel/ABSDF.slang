@@ -1,5 +1,5 @@
 #pragma once
-#include "Utils/HostDeviceShared.slangh"
+#include "../HostDeviceShared.slang"
 
 BEGIN_NAMESPACE_FALCOR
 
@@ -16,9 +16,7 @@ struct NDF
 {
     float4 weightedNormals[LOBE_COUNT];
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void init()
     {
         for (int i = 0; i < LOBE_COUNT; i++)
@@ -44,7 +42,41 @@ struct NDF
             weightedNormals[i] = float4(normalize(weightedNormals[i].xyz), weightedNormals[i].w);
         }
     }
+
+    float3 getAverageNormal(float3 direction)
+    {
+        float3 sum = 0;
+        for (int i = 0; i < LOBE_COUNT; i++)
+        {
+            float w = weightedNormals[i].w;
+            if (w > 0)
+            {
+                float3 n = weightedNormals[i].xyz;
+                float cosTerm = dot(n, direction);
+                if(cosTerm > 0)
+                    sum += n * w;
+            }
+        }
+        return normalize(sum);
+    }
+
+    float weightedDot(float3 direction)
+    {
+        float sum = 0;
+        for (int i = 0; i < LOBE_COUNT; i++)
+        {
+            float w = weightedNormals[i].w;
+            if (w > 0)
+            {
+                float3 n = weightedNormals[i].xyz;
+                float cosTerm = abs(dot(n, direction));
+                sum += cosTerm * w;
+            }
+        }
+        return sum; // 未归一化
+    }
 #endif
+
 };
 
 struct ABSDFInput

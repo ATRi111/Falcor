@@ -1,9 +1,6 @@
 #pragma once
-#include "Utils/HostDeviceShared.slangh"
-
-#if defined(HOST_CODE)
-#include<vector>
-#endif
+#include "../HostDeviceShared.slang"
+#include "AABB.slang"
 
 BEGIN_NAMESPACE_FALCOR
 
@@ -14,20 +11,12 @@ inline float3 calcShadingNormal(float3x3 TBN, float3 normalMapColor)
     return normal;
 }
 
-struct AABBInt
-{
-    int3 min;
-    int3 max;
-};
-
 struct Triangle
 {
     float3 vertices[3];
     float2 uvs[3];
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void init()
     {
         for (int i = 0; i < 3; i++)
@@ -86,6 +75,7 @@ struct Triangle
         return uvs[0] * coord.x + uvs[1] * coord.y + uvs[2] * coord.z;
     }
 
+#if defined(HOST_CODE)
     AABBInt calcAABBInt()
     {
         AABBInt aabb;
@@ -97,6 +87,7 @@ struct Triangle
         }
         return aabb;
     }
+#endif
 
     float3x3 buildTBN()
     {

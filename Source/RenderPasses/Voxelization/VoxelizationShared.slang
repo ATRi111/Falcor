@@ -1,7 +1,8 @@
 #pragma once
-#include "Utils/HostDeviceShared.slangh"
+#include "HostDeviceShared.slang"
 #include "Voxel/ABSDF.slang"
 #include "Math/Ellipsoid.slang"
+#include "Math/Triangle.slang"
 #include "Math/SphericalHarmonics.slang"
 BEGIN_NAMESPACE_FALCOR
 
@@ -12,9 +13,7 @@ struct VoxelData
     SphericalHarmonics primitiveProjAreaFunc;
     SphericalHarmonics polygonsProjAreaFunc;
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void init()
     {
         ABSDF.init();

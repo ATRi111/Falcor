@@ -1,11 +1,9 @@
 #pragma once
-#include "Utils/HostDeviceShared.slangh"
+#include "../HostDeviceShared.slang"
 #include "Sampling.slang"
 #include "SphericalHarmonics.slang"
 
-#if defined(HOST_CODE)
-#include<vector>
-#else
+#if !defined(HOST_CODE)
 #include "Random.slang"
 #endif
 
@@ -22,9 +20,7 @@ struct Polygon
     float3 normal;
     float area;
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void init()
     {
         count = 0;
@@ -64,9 +60,7 @@ struct Polygon
         return sqrt(dot(s,s)) / 2;
     }
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void add(float3 point)
     {
         if (count < MAX_VERTEX_COUNT)
@@ -108,18 +102,14 @@ struct PolygonInVoxel
     float3 cellMin;
     uint count;
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void init()
     {
         count = 0;
         cellMin = float3(0);
     }
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void add(Polygon polygon)
     {
         if (count < MAX_POLYGON_COUNT)

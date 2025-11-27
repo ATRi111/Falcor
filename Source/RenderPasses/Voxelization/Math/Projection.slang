@@ -1,9 +1,9 @@
 #pragma once
-#include "Utils/HostDeviceShared.slangh"
+#include "../HostDeviceShared.slang"
 
 BEGIN_NAMESPACE_FALCOR
 
-#define PI 3.14159265358
+#define PI 3.14159265359
 
 struct Basis2
 {
@@ -18,13 +18,5 @@ inline Basis2 orthonormal_basis(float3 v)
     ret.w = normalize(cross(v, ret.u));
     return ret;
 }
-
-#if !defined(HOST_CODE)
-inline float2x2 mulT(float2 a, float2 b)
-{
-    return float2x2(a.x * b.x, a.x * b.y, a.y * b.x, a.y * b.y);
-}
-
-#endif
 
 END_NAMESPACE_FALCOR

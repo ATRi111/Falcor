@@ -1,11 +1,13 @@
 add_plugin(Voxelization)
 
 target_sources(Voxelization PRIVATE
+    HostDeviceShared.slang
+
     Voxel/ABSDF.slang
     Voxel/VoxelGrid.slang
-
+    
+    Math/AABB.slang
     Math/Projection.slang
-    Math/ConvexHull.slang
     Math/Ellipsoid.slang
     Math/Polygon.slang
     Math/Triangle.slang

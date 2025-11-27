@@ -1,6 +1,6 @@
 #pragma once
 #include "Projection.slang"
-#include "Utils/HostDeviceShared.slangh"
+#include "../HostDeviceShared.slang"
 
 BEGIN_NAMESPACE_FALCOR
 struct SamplingRay

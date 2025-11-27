@@ -1,5 +1,5 @@
 #pragma once
-#include "Utils/HostDeviceShared.slangh"
+#include "../HostDeviceShared.slang"
 
 BEGIN_NAMESPACE_FALCOR
 
@@ -39,9 +39,7 @@ struct SphericalHarmonics
 {
     float coefficients[SH_COUNT];
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void init()
     {
         for (int i = 0; i < SH_COUNT;i++)
@@ -49,9 +47,8 @@ struct SphericalHarmonics
             coefficients[i] = 0;
         }
     }
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+
+    MUTATING
     // 所有采样方向的权重总和应当为4PI
     void accumulate(float value, float3 direction, float weight)
     {
@@ -62,9 +59,7 @@ struct SphericalHarmonics
         }
     }
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     // 不带系数统计，最后再统一乘以系数
     void accumulate(float3 direction)
     {
@@ -75,9 +70,7 @@ struct SphericalHarmonics
         }
     }
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void mul(float value)
     {
         for (int i = 0; i < SH_COUNT; i++)
