@@ -22,8 +22,9 @@ cbuffer CB
     uint2 pixelCount;
     float4x4 invVP;
     float visibilityBias;
-    uint gDrawMode;
-    uint gFrameIndex;
+    uint drawMode;
+    uint frameIndex;
+    float transmittanceThreshould;
 }
 
 struct HitResult
@@ -78,13 +79,13 @@ float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec, float roug
             sum += cookTorrence(l, v, h, n, spec, rough) * w;
         }
     }
-    return sum; // 未归一化
+    return sum; // 未归一化，已经带有余弦项
 }
 
-HitResult leave(HitResult current, int3 directions, float3 direction, float3 reciprocal_direction)
+void leave(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
 {
-    float3 border = current.cellInt + (directions + 1) / 2;
-    float3 t = (border - current.cell) * reciprocal_direction;
+    float3 border = cellInt + (directions + 1) / 2;
+    float3 t = (border - cell) * reciprocal_direction;
     float tMin = 2.0f;
     int3 selectedDirection = 0;
     if (direction.x != 0 && t.x < tMin)
@@ -102,9 +103,8 @@ HitResult leave(HitResult current, int3 directions, float3 direction, float3 rec
         tMin = t.z;
         selectedDirection = int3(0, 0, directions.z);
     }
-    current.cell += tMin * direction;
-    current.cellInt += selectedDirection;
-    return current;
+    cell += tMin * direction;
+    cellInt += selectedDirection;
 }
 
 HitResult checkEllipsoid(Ellipsoid ellipsoid, float3 cell, float3 direction, int3 cellInt)
@@ -126,61 +126,60 @@ HitResult checkEllipsoid(Ellipsoid ellipsoid, float3 cell, float3 direction, int
     return result;
 }
 
-// 统一用3D纹理坐标表示
-HitResult rayMarching(float3 from, float3 to)
+// 统一用网格坐标表示
+HitResult rayMarching(float3 from, float3 direction, bool ignoreFirst)
 {
-    HitResult current = { false, int3(from * voxelCount), from * voxelCount };
-    float3 v = to - from;
-    float3 direction = normalize(v * voxelCount);
+    float3 cell = from;
+    int3 cellInt = int3(floor(from));
 
     float3 reciprocal_direction = 1.0f / direction;
     // 可选的前进方向
     int3 directions = int3(sign(direction));
+    if (ignoreFirst)
+        leave(cell, cellInt, directions, direction, reciprocal_direction);
 
     uint maxTimes = voxelCount.x + voxelCount.y + voxelCount.z;
     for (uint i = 0; i < maxTimes; i++)
     {
-        if (any(current.cellInt < 0) || any(current.cellInt >= voxelCount))
+        if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
             break;
-        int offset = vBuffer[current.cellInt];
+        int offset = vBuffer[cellInt];
         if (offset != -1)
         {
 #if !CHECK_ELLIPSOID
-            current.hit = true;
-            current.cell = current.cellInt + 0.5;
-            return current;
-#endif
+            HitResult hit = { true, cellInt, cellInt + 0.5f };
+            return hit;
+#else
             Ellipsoid ellipsoid = gBuffer[offset].ellipsoid;
-            HitResult hit = checkEllipsoid(ellipsoid, current.cell, direction, current.cellInt);
+            HitResult hit = checkEllipsoid(ellipsoid, cell, direction, cellInt);
             if (hit.hit)
                 return hit;
+#endif
         }
-        current = leave(current, directions, direction, reciprocal_direction);
+        leave(cell, cellInt, directions, direction, reciprocal_direction);
     }
-    return current;
+    HitResult hit = { false, cellInt, cellInt + 0.5f };
+    return hit;
 }
 
-float3 screenCoordToGridCoord(float2 screenCoord, float NDCDepth)
+float3 screenCoordToCell(float2 screenCoord, float NDCDepth)
 {
     float4 NDC = float4(2 * screenCoord.x - 1, 1 - 2 * screenCoord.y, NDCDepth, 1);
     float4 temp = mul(invVP, NDC);
     float4 posWorld = temp / temp.w;
     float3 cell = (posWorld.xyz - gridMin) / voxelSize;
-    return cell / voxelCount;
+    return cell;
 }
 
-float calcVisibility(HitResult hit, float3 dirW)
+float calcVisibility(HitResult hit, float3 direction)
 {
-    float3 from = (hit.cell + visibilityBias * dirW) / voxelCount;
-    float3 direction = normalize(dirW / voxelCount);
-    hit = rayMarching(from, from + 2 * direction);
+    float3 from = hit.cell + visibilityBias * direction;
+    hit = rayMarching(from, direction, true);
     return hit.hit ? 0.f : 1.f;
 }
 
-float3 debugShading(HitResult hit, float3 v)
+float3 debugShading(HitResult hit, uint offset, float3 v)
 {
-    int index = CellToIndex(hit.cellInt, voxelCount);
-    uint offset = vBuffer[hit.cellInt];
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
     NDF NDF = ABSDF.NDF;
@@ -188,7 +187,7 @@ float3 debugShading(HitResult hit, float3 v)
     SphericalHarmonics polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
     SphericalHarmonics primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
     float result = 0;
-    switch (gDrawMode)
+    switch (drawMode)
     {
     case ABSDFDrawMode::EllipsoidProjArea:
         result = e.projectArea(v) / PI * 2;
@@ -211,16 +210,23 @@ float3 debugShading(HitResult hit, float3 v)
     return valueToColor(result);
 }
 
-float3 shading(HitResult hit, float3 v, LightData light)
+float calcCoverage(HitResult hit, uint offset, float3 v)
 {
-    int index = CellToIndex(hit.cellInt, voxelCount);
-    uint offset = vBuffer[hit.cellInt];
+    VoxelData voxelData = gBuffer[offset];
+    SphericalHarmonics polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
+    SphericalHarmonics primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
+    float coverage = polygonsProjAreaFunc.calc(v) / primitiveProjAreaFunc.calc(v);
+    return saturate(coverage);
+}
+
+float3 shading(HitResult hit, uint offset, float3 v, LightData light)
+{
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
+    float area = ABSDF.area;    //area必然大于0
     float3 diffuse = ABSDF.diffuse;
     float3 specular = ABSDF.specular;
     float roughness = ABSDF.roughness;
-    float area = ABSDF.area;
     NDF NDF = ABSDF.NDF;
 
     float3 posW = gridMin + hit.cell * voxelSize;
@@ -273,8 +279,11 @@ float3 shading(HitResult hit, float3 v, LightData light)
     float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular, roughness);
     float3 result = 0;
     float projectArea = 0;
-    switch (gDrawMode)
+    switch (drawMode)
     {
+    case ABSDFDrawMode::Default:
+        result = diffuseColor + specularColor;
+        break;
     case ABSDFDrawMode::Normal:
         return NDF.getAverageNormal(l) * 0.5 + 0.5;
     case ABSDFDrawMode::Diffuse:
@@ -287,7 +296,6 @@ float3 shading(HitResult hit, float3 v, LightData light)
         result = cosTerm;
         break;
     default:
-        result = diffuseColor + specularColor;
         break;
     }
     return visibility * result / area;
@@ -304,44 +312,70 @@ float2 randomJitter(inout UniformSampleGenerator sg)
 
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
-    PsOut psOut = { float4(1, 0, 1, 1) };
+    PsOut psOut = { float4(0) };
     uint2 pixel = uint2(texCoord * pixelCount);
-    UniformSampleGenerator sg = UniformSampleGenerator(pixel, gFrameIndex);
+    UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
     float2 jitter = randomJitter(sg);
     texCoord += jitter;
-    float3 from = screenCoordToGridCoord(texCoord, 0);
-    float3 to = screenCoordToGridCoord(texCoord, 1);
+    float3 from = screenCoordToCell(texCoord, 0);
+    float3 to = screenCoordToCell(texCoord, 1);
 
-    float2 inOut = clip(float3(0), float3(1), from, to);
+    float2 inOut = clip(float3(0), float3(voxelCount), from, to);
     if (inOut.x < 0)
         return psOut;
     float3 v = to - from;
-    float3 direction = normalize(v * voxelCount); // 网格/世界空间下的方向
-    from = from + (inOut.x + 1e-5f) * v;          // 避免边界处误差
+    float3 direction = normalize(v);                    // 网格/世界空间下的方向相同
+    from = from + inOut.x * v + 1e-6f * direction;      // 避免边界处向下取整时的误差
+    HitResult hit = rayMarching(from, direction, false);
 
-    HitResult hit = rayMarching(from, to); // to足够远即可
-    if (hit.hit)
+    float transmittance = 1;
+    float times = 10;
+    while (hit.hit && times > 0)
     {
+        times--;
         float3 color = 0;
         float coverage = 1;
-        switch (gDrawMode)
+        int index = CellToIndex(hit.cellInt, voxelCount);
+        uint offset = vBuffer[hit.cellInt];
+        switch (drawMode)
         {
         case ABSDFDrawMode::Default:
         case ABSDFDrawMode::Diffuse:
         case ABSDFDrawMode::Specular:
         case ABSDFDrawMode::Flat:
+        case ABSDFDrawMode::Normal:
+            coverage = calcCoverage(hit, offset, -direction);
             for (uint i = 0; i < scene.lightCount; i++)
             {
-                color += shading(hit, -direction, scene.lights[i]);
+                color += shading(hit, offset, -direction, scene.lights[i]);
             }
             break;
         default:
-            color = debugShading(hit, -direction);
+            color = debugShading(hit, offset, -direction);
             break;
         }
-        
-        psOut.color = float4(color, 1);
+        float k = transmittance * coverage;
+        psOut.color += float4(color * k, k);
+        transmittance -= k;
+
+        if (transmittance > transmittanceThreshould)
+        {
+            from = hit.cell;
+            hit = rayMarching(from, direction, true);
+        }
+        else
+        {
+            break;
+        }
     }
 
+    if (psOut.color.w > 0)
+    {
+#if !DEBUG
+        psOut.color /= psOut.color.w;
+#endif
+    }
+    else
+        psOut.color = float4(1, 0, 1, 1);
     return psOut;
 }

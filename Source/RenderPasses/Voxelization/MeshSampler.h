@@ -95,7 +95,7 @@ public:
         normal = calcShadingNormal(currentTBN, normal);
         if (normal.y < 0)
             normal = -normal;
-        ABSDFInput input = {baseColor, spec, normal, polygon.area};
+        ABSDFInput input = {baseColor, spec, normal, polygon.calcArea()};
         gBuffer[offset].ABSDF.accumulate(input);
 
         Tools::Profiler::EndSample("Sample Texture");

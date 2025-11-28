@@ -13,9 +13,9 @@ enum TextureType
 class ImageLoader
 {
 private:
-    std::string textureFolder;
     std::unordered_map<TextureType, std::string> typeToName;
-    std::unordered_map<uint, std::string> idToName_Arcade;
+    std::unordered_map<uint, std::string> idToPath_Arcade;
+    std::unordered_map<uint, std::string>* pIdToPath;
 
     std::unordered_map<std::string, Image*> imageCache;
 
@@ -25,4 +25,5 @@ private:
 public:
     static ImageLoader& Instance();
     Image* loadImage(uint materialId, TextureType type);
+    void setSceneName(std::string sceneName);
 };

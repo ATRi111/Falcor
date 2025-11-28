@@ -35,6 +35,8 @@ const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPa
 
 LoadMeshPass::LoadMeshPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
+    mSceneNameIndex = 0;
+    mSceneName = "Arcade";
     mCPUComplete = true;
     mGPUComplete = true;
     mCompleteTimes = 0;
@@ -87,7 +89,6 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
 
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
-
         mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
@@ -222,10 +223,23 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         }
     }
 
+    static const std::string sceneNames[] = { "Arcade"};
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)
+        {
+            list.push_back({ i, sceneNames[i] });
+        }
+        if (widget.dropdown("Scene Name", list, mSceneNameIndex))
+        {
+            mSceneName = sceneNames[mSceneNameIndex];
+        }
+    }
+
     static const uint samplePoints[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256};
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < 10; i++)
+        for (uint32_t i = 0; i < sizeof(samplePoints) / sizeof(uint); i++)
         {
             list.push_back({samplePoints[i], std::to_string(samplePoints[i])});
         }
@@ -235,7 +249,7 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
     static const uint repeatTimes[] = { 0, 1, 2, 4, 8, 16, 32, 64, 128, 256 };
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < 10; i++)
+        for (uint32_t i = 0; i < sizeof(repeatTimes) / sizeof(uint); i++)
         {
             list.push_back({ repeatTimes[i], std::to_string(repeatTimes[i]) });
         }
@@ -244,6 +258,7 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
 
     if (mpScene && mCPUComplete && mGPUComplete && widget.button("Generate"))
     {
+        ImageLoader::Instance().setSceneName(mSceneName);
         mCPUComplete = false;
         mGPUComplete = false;
         mCompleteTimes = 0;
@@ -260,6 +275,8 @@ void LoadMeshPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pSc
 std::string LoadMeshPass::getFileName()
 {
     std::ostringstream oss;
+    oss << mSceneName;
+    oss << "_";
     oss << ToString(gridData.voxelCount);
     oss << "_";
     oss << std::to_string(mSampleFrequency);

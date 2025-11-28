@@ -9,16 +9,15 @@
 
 BEGIN_NAMESPACE_FALCOR
 
-//忽略罕见的9边形情况
-#define MAX_VERTEX_COUNT 8
-#define MAX_POLYGON_COUNT 8
+//忽略罕见的7/8/9边形情况
+#define MAX_VERTEX_COUNT 6
+#define MAX_POLYGON_COUNT 16
 
 struct Polygon
 {
     float3 vertices[MAX_VERTEX_COUNT];
     uint count;
     float3 normal;
-    float area;
 
     MUTATING
     void init()
@@ -36,7 +35,6 @@ struct Polygon
         {
             vertices[i] = points[i];
         }
-        area = calcArea();
     }
 
     void addTo(std::vector<float3>& points)

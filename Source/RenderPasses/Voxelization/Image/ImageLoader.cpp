@@ -4,26 +4,21 @@
 
 ImageLoader::ImageLoader()
 {
-    textureFolder = "E:/Project/Falcor/media/Arcade/Textures/";
+    pIdToPath = nullptr;
     {
         typeToName[BaseColor] = "BaseColor";
         typeToName[Specular] = "Specular";
         typeToName[Normal] = "Normal";
     }
+
     {
-        idToName_Arcade[0] = "Wall";
-        idToName_Arcade[1] = "CheckerTile";
-        idToName_Arcade[2] = "Poster";
-        idToName_Arcade[3] = "Chair_Orange";
-        idToName_Arcade[4] = "Chair_Blue";
-        idToName_Arcade[5] = "Cabinet";
-    }
-    // 提前生成缓存
-    for (uint i = 0; i < idToName_Arcade.size(); i++)
-    {
-        loadImage(i, BaseColor);
-        loadImage(i, Specular);
-        loadImage(i, Normal);
+        std::string folder = "E:/Project/Falcor/media/Arcade/Textures/";
+        idToPath_Arcade[0] = folder + "Wall";
+        idToPath_Arcade[1] = folder + "CheckerTile";
+        idToPath_Arcade[2] = folder + "Poster";
+        idToPath_Arcade[3] = folder + "Chair_Orange";
+        idToPath_Arcade[4] = folder + "Chair_Blue";
+        idToPath_Arcade[5] = folder + "Cabinet";
     }
 }
 
@@ -43,7 +38,9 @@ ImageLoader::~ImageLoader()
 
 Image* ImageLoader::loadImage(uint materialId, TextureType type)
 {
-    std::string filePath = textureFolder + idToName_Arcade[materialId] + "_" + typeToName[type] + ".png";
+    if (!pIdToPath)
+        return nullptr;
+    std::string filePath = (*pIdToPath)[materialId] + "_" + typeToName[type] + ".png";
     auto it = imageCache.find(filePath);
     if (it != imageCache.end())
         return it->second;
@@ -68,7 +65,10 @@ Image* ImageLoader::loadImage(uint materialId, TextureType type)
     int w, h, c;
     float* pixels = stbi_loadf(filePath.c_str(), &w, &h, &c, 4);
     if (!pixels)
+    {
+        imageCache[filePath] = nullptr;
         return nullptr;
+    }
 
     Image* image = new Image(reinterpret_cast<float4*>(pixels), uint2(w, h), filterFunction);
     image->name = filePath;
@@ -76,4 +76,12 @@ Image* ImageLoader::loadImage(uint materialId, TextureType type)
 
     stbi_image_free(pixels);
     return image;
+}
+
+void ImageLoader::setSceneName(std::string sceneName)
+{
+    if (sceneName == "Arcade")
+        pIdToPath = &idToPath_Arcade;
+    else
+        pIdToPath = nullptr;
 }

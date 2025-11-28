@@ -38,6 +38,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
 {
     mpDevice = pDevice;
     mVisibilityBias = 1.f;
+    mTransmittanceThreshould = 0.01f;
     mDebug = false;
     mUpdateScene = false;
     mCheckEllipsoid = true;
@@ -111,8 +112,9 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     cb["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
     cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     cb["visibilityBias"] = mVisibilityBias;
-    cb["gDrawMode"] = mDrawMode;
-    cb["gFrameIndex"] = mFrameIndex;
+    cb["drawMode"] = mDrawMode;
+    cb["frameIndex"] = mFrameIndex;
+    cb["transmittanceThreshould"] = mTransmittanceThreshould;
     mFrameIndex++;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
@@ -127,6 +129,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
     widget.checkbox("Check Visibility", mCheckVisibility);
     if (mCheckVisibility)
         widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f);
+    widget.slider("Transmittance Threshould", mTransmittanceThreshould, 0.0f, 1.0f);
     widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode));
 }
 

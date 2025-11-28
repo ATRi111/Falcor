@@ -53,8 +53,7 @@ struct NDF
             {
                 float3 n = weightedNormals[i].xyz;
                 float cosTerm = dot(n, direction);
-                if(cosTerm > 0)
-                    sum += n * w;
+                sum += sign(cosTerm) * n * w;   //夹角大于90°的法线，系数小于0，负负得正
             }
         }
         return normalize(sum);
