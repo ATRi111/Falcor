@@ -223,7 +223,7 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         }
     }
 
-    static const std::string sceneNames[] = { "Arcade"};
+    static const std::string sceneNames[] = { "Arcade", "Tree"};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)
@@ -236,17 +236,17 @@ void LoadMeshPass::renderUI(Gui::Widgets& widget)
         }
     }
 
-    static const uint samplePoints[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256};
+    static const uint sampleFrequencies[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256};
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < sizeof(samplePoints) / sizeof(uint); i++)
+        for (uint32_t i = 0; i < sizeof(sampleFrequencies) / sizeof(uint); i++)
         {
-            list.push_back({samplePoints[i], std::to_string(samplePoints[i])});
+            list.push_back({sampleFrequencies[i], std::to_string(sampleFrequencies[i])});
         }
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
             
     }
-    static const uint repeatTimes[] = { 0, 1, 2, 4, 8, 16, 32, 64, 128, 256 };
+    static const uint repeatTimes[] = { 1, 4, 16, 64, 256, 1024 };
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(repeatTimes) / sizeof(uint); i++)

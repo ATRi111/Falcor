@@ -23,7 +23,6 @@ private:
 public:
     std::vector<VoxelData> gBuffer;
     std::vector<int> vBuffer;
-    std::vector<std::vector<Polygon>> polygonsInVoxels;
     std::vector<PolygonInVoxel> polygonBuffer;
 
     MeshSampler()
@@ -45,7 +44,6 @@ public:
         gBuffer.clear();
         vBuffer.clear();
         polygonBuffer.clear();
-        polygonsInVoxels.clear();
     }
 
     int tryGetOffset(int3 cellInt)
@@ -57,7 +55,6 @@ public:
             vBuffer[index] = offset;
             gBuffer.emplace_back();
             gBuffer[offset].init();
-            polygonsInVoxels.emplace_back();
             polygonBuffer.emplace_back();
             polygonBuffer[offset].init();
             polygonBuffer[offset].cellMin = float3(cellInt);
@@ -79,7 +76,6 @@ public:
         Tools::Profiler::BeginSample("Sample Texture");
         int offset = tryGetOffset(cellInt);
 
-        polygonsInVoxels[offset].push_back(polygon);
         polygonBuffer[offset].add(polygon);
 
         std::vector<float2> uvs;
@@ -89,7 +85,7 @@ public:
             uvs.push_back(uv);
         }
 
-        float3 baseColor = currentBaseColor->SampleArea(uvs).xyz();
+        float3 baseColor = currentBaseColor ? currentBaseColor->SampleArea(uvs).xyz() : float3(0.5f);
         float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0, 0, 0);
         float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
         normal = calcShadingNormal(currentTBN, normal);
@@ -166,10 +162,7 @@ public:
         {
             Tools::Profiler::BeginSample("Fit Ellipsoid");
             points.clear();
-            for (uint j = 0; j < polygonsInVoxels[i].size(); j++)
-            {
-                polygonsInVoxels[i][j].addTo(points);
-            }
+            polygonBuffer[i].addTo(points);
             QuickHull<float> qh;
             ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-6f);
             VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();

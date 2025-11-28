@@ -127,7 +127,15 @@ struct PolygonInVoxel
         return false;
     }
 
-#if !defined(HOST_CODE)
+#if defined(HOST_CODE)
+    void addTo(std::vector<float3> &points)
+    {
+        for (uint i = 0; i < count; i++)
+        {
+            polygons[i].addTo(points);
+        }
+    }
+#else
     SphericalHarmonics SampleProjectArea(uint times, inout UniformSampleGenerator sg)
     {
         SphericalHarmonics SH = {};

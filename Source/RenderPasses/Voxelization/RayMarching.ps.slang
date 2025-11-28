@@ -213,10 +213,11 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
 float calcCoverage(HitResult hit, uint offset, float3 v)
 {
     VoxelData voxelData = gBuffer[offset];
-    SphericalHarmonics polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
-    SphericalHarmonics primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
-    float coverage = polygonsProjAreaFunc.calc(v) / primitiveProjAreaFunc.calc(v);
-    return saturate(coverage);
+    float primitiveProjArea = voxelData.primitiveProjAreaFunc.calc(v);
+    if (primitiveProjArea <= 0)
+        return 1;
+    float polygonsProjArea = voxelData.polygonsProjAreaFunc.calc(v);
+    return saturate(polygonsProjArea / primitiveProjArea);
 }
 
 float3 shading(HitResult hit, uint offset, float3 v, LightData light)
@@ -322,11 +323,14 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 
     float2 inOut = clip(float3(0), float3(voxelCount), from, to);
     if (inOut.x < 0)
+    {
+        psOut.color = float4(1, 0, 1, 1);
         return psOut;
+    }
     float3 v = to - from;
-    float3 direction = normalize(v);                    // 网格/世界空间下的方向相同
-    from = from + inOut.x * v + 1e-6f * direction;      // 避免边界处向下取整时的误差
-    HitResult hit = rayMarching(from, direction, false);
+    float3 direction = normalize(v); // 网格/世界空间下的方向相同
+    from = from + inOut.x * v;
+    HitResult hit = rayMarching(from, direction, true);
 
     float transmittance = 1;
     float times = 10;
