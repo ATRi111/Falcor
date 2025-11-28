@@ -17,6 +17,8 @@ struct VoxelData
     void init()
     {
         ABSDF.init();
+        primitiveProjAreaFunc.init();
+        polygonsProjAreaFunc.init();
     }
 };
 

@@ -56,6 +56,9 @@ private:
     ref<Device> mpDevice;
     ref<Scene> mpScene;
 
+    ref<Buffer> gBuffer;
+    ref<Buffer> polygonBuffer;
+
     uint mSampleFrequency;
     uint mRepeatTimes;
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量

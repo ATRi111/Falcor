@@ -9,13 +9,12 @@ cbuffer CB
 {
     uint solidVoxelCount;
     uint sampleFrequency;
-    uint seed;
+    uint completeTimes;
+    uint repeatTimes;
 }
 
 void SampleCoverage(Ellipsoid e, PolygonInVoxel p, uint times, inout UniformSampleGenerator sg, inout SphericalHarmonics polygonSH, inout SphericalHarmonics primitiveSH)
 {
-    polygonSH.init();
-    primitiveSH.init();
     float3 cellCenter = p.cellMin + 0.5f;
     for (uint i = 0; i < times; i++)
     {
@@ -47,21 +46,21 @@ void SampleCoverage(Ellipsoid e, PolygonInVoxel p, uint times, inout UniformSamp
             polygonSH.accumulate(-direction);
         }
     }
-    polygonSH.mul(2.35619449f * 4.f * PI / times / 2);
-    primitiveSH.mul(2.35619449f * 4.f * PI / times / 2);
+    if (completeTimes == repeatTimes - 1)
+    {
+        uint totalTimes = times * 2 * repeatTimes;
+        polygonSH.mul(2.35619449f * 4.f * PI / totalTimes);
+        primitiveSH.mul(2.35619449f * 4.f * PI / totalTimes);
+    }
 }
 
 void calc(uint offset)
 {
-    UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), seed);
+    UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), completeTimes);
     if (offset >= solidVoxelCount)
         return;
 
-    SphericalHarmonics polygonSH = {};
-    SphericalHarmonics primitiveSH = {};
-    SampleCoverage(gBuffer[offset].ellipsoid, polygonBuffer[offset], sampleFrequency * sampleFrequency, sg, polygonSH, primitiveSH);
-    gBuffer[offset].polygonsProjAreaFunc = polygonSH;
-    gBuffer[offset].primitiveProjAreaFunc = primitiveSH;
+    SampleCoverage(gBuffer[offset].ellipsoid, polygonBuffer[offset], sampleFrequency * sampleFrequency, sg, gBuffer[offset].polygonsProjAreaFunc, gBuffer[offset].primitiveProjAreaFunc);
 }
 
 [numthreads(256, 1, 1)]

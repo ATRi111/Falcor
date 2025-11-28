@@ -91,6 +91,8 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
         mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
+
+    size_t gBufferBytes = gridData.solidVoxelCount * sizeof(VoxelData);
     if (!mCPUComplete)
     {
         uint meshCount = mpScene->getMeshCount();
@@ -160,18 +162,16 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
         cpuTexCoords->unmap();
         cpuTriangles->unmap();
 
+        gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
+        polygonBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonInVoxel), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
+        gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gBufferBytes);
+        polygonBuffer->setBlob(meshSampler.polygonBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonInVoxel));
+
         mCPUComplete = true;
     }
     
     if (!mGPUComplete)
     {
-        ref<Buffer> gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
-        ref<Buffer> polygonBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonInVoxel), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
-
-        size_t gBufferBytes = gridData.solidVoxelCount * sizeof(VoxelData);
-        gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gBufferBytes);
-        polygonBuffer->setBlob(meshSampler.polygonBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonInVoxel));
-
         ShaderVar var = mSamplePolygonPass->getRootVar();
         var[kGBuffer] = gBuffer;
         var["polygonBuffer"] = polygonBuffer;
@@ -179,7 +179,8 @@ void LoadMeshPass::execute(RenderContext* pRenderContext, const RenderData& rend
         auto cb = var["CB"];
         cb["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
         cb["sampleFrequency"] = mSampleFrequency;
-        cb["seed"] = mCompleteTimes;
+        cb["completeTimes"] = mCompleteTimes;
+        cb["repeatTimes"] = mRepeatTimes;
 
         Tools::Profiler::BeginSample("Sample Polygons");
         mSamplePolygonPass->execute(pRenderContext, uint3((uint)gridData.solidVoxelCount, 1, 1));
