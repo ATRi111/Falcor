@@ -44,6 +44,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mCheckEllipsoid = true;
     mCheckVisibility = true;
     mDrawMode = 0;
+    mIlluminateMode = 0;
     mFrameIndex = 0;
 
     Sampler::Desc samplerDesc;
@@ -113,6 +114,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     cb["visibilityBias"] = mVisibilityBias;
     cb["drawMode"] = mDrawMode;
+    cb["illuminateMode"] = mIlluminateMode;
     cb["frameIndex"] = mFrameIndex;
     cb["transmittanceThreshould"] = mTransmittanceThreshould;
     mFrameIndex++;
@@ -131,6 +133,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f);
     widget.slider("Transmittance Threshould", mTransmittanceThreshould, 0.0f, 1.0f);
     widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode));
+    widget.dropdown("Illuminate Mode", reinterpret_cast<IlluminateMode&>(mIlluminateMode));
 }
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

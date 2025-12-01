@@ -1,4 +1,5 @@
 #include "Voxel/VoxelGrid.slang"
+#include "Voxel/Shading.slang"
 #include "VoxelizationShared.slang"
 #include "Math/Sampling.slang"
 #include "Math/Random.slang"
@@ -25,6 +26,7 @@ cbuffer CB
     float4x4 invVP;
     float visibilityBias;
     uint drawMode;
+    uint illuminateMode;
     uint frameIndex;
     float transmittanceThreshould;
 }
@@ -40,49 +42,6 @@ struct PsOut
 {
     float4 color : SV_Target0;
 };
-
-float ggx(float3 n, float3 h, float rough)
-{
-    float rough2 = rough * rough;
-    float temp = dot(n, h) * dot(n, h) * (rough2 - 1) + 1;
-    return rough2 / PI / temp / temp;
-}
-float3 fresnel(float3 v, float3 h, float3 spec)
-{
-    return spec + (1 - spec) * pow(1 - dot(v, h), 5);
-}
-float masking(float3 n, float3 x, float rough)
-{
-    float k = (rough + 1) * (rough + 1) / 8;
-    float temp = dot(n, x);
-    return temp / (temp * (1 - k) + k);
-}
-float3 cookTorrence(float3 l, float3 v, float3 h, float3 n, float3 spec, float rough)
-{
-    float3 specColor = ggx(n, h, rough) * fresnel(v, h, spec) * masking(n, v, rough) * masking(n, l, rough) / 4 / max(1e-4, dot(n, v));
-    return specColor;
-}
-float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec, float rough)
-{
-    float3 sum = 0;
-    for (int i = 0; i < LOBE_COUNT; i++)
-    {
-        float w = NDF.weightedNormals[i].w;
-        if (w > 0)
-        {
-            float3 n = NDF.weightedNormals[i].xyz;
-            float cosTerm = dot(n, l);
-            if (cosTerm < 0)
-                n = -n;
-            cosTerm = dot(n, v);
-            if (cosTerm <= 0)
-                continue;
-            float3 h = normalize(l + v);
-            sum += cookTorrence(l, v, h, n, spec, rough) * w;
-        }
-    }
-    return sum; // 未归一化，已经带有余弦项
-}
 
 void leave(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
 {
@@ -222,7 +181,7 @@ float calcCoverage(HitResult hit, uint offset, float3 v)
     return saturate(polygonsProjArea / primitiveProjArea);
 }
 
-float3 shading(HitResult hit, uint offset, float3 v, float3 l, float3 lightColor)
+float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
 {
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
@@ -310,7 +269,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
         break;
     }
 
-    float3 color = shading(hit, offset, v, l, lightColor);
+    float3 color = shading(offset, v, l, lightColor);
     return visibility * color;
 }
 
@@ -327,7 +286,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     uint2 pixel = uint2(texCoord * pixelCount);
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
     float2 jitter = randomJitter(sg);
-    texCoord += jitter;
+    texCoord = saturate(texCoord + jitter);
     float3 from = screenCoordToCell(texCoord, 0);
     float3 to = screenCoordToCell(texCoord, 1);
 
@@ -349,7 +308,6 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         times--;
         float3 color = 0;
         float coverage = 1;
-        int index = CellToIndex(hit.cellInt, voxelCount);
         uint offset = vBuffer[hit.cellInt];
         switch (drawMode)
         {
@@ -358,13 +316,34 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         case ABSDFDrawMode::Specular:
         case ABSDFDrawMode::Flat:
         case ABSDFDrawMode::Normal:
-            coverage = calcCoverage(hit, offset, -direction);
+            coverage = calcCoverage(hit, offset, direction);    //采样线命中图元的条件下，命中整体的概率
             for (uint i = 0; i < scene.lightCount; i++)
             {
                 color += shadingDirect(hit, offset, -direction, scene.lights[i]);
             }
-            float3 randomDirection = sample_sphere(Next2(sg));
-            //HitResult secondaryLight = rayMarching(hit.cell, direction, true);
+            float3 indirectColor = 0;
+            float3 sampleDirection = sample_sphere(Next2(sg));
+            HitResult subHit = rayMarching(hit.cell, sampleDirection, true);
+            if (subHit.hit)
+            {
+                int subOffset = vBuffer[subHit.cellInt];
+                float3 subLightColor = 0;
+                for (uint i = 0; i < scene.lightCount; i++)
+                {
+                    subLightColor += shadingDirect(subHit, subOffset, -sampleDirection, scene.lights[i]);
+                }
+                subLightColor *= calcCoverage(subHit, subOffset, -sampleDirection); // 采样线命中图元的条件下，命中整体的概率
+                indirectColor = shading(offset, -direction, sampleDirection, subLightColor);
+            }
+            switch(illuminateMode)
+            {
+            case IlluminateMode::Global:
+                color += indirectColor;
+                break;
+            case IlluminateMode::Indirect:
+                color = indirectColor;
+                break;
+            }
             break;
         default:
             color = debugShading(hit, offset, -direction);
@@ -385,11 +364,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     }
 
     if (psOut.color.w > 0)
-    {
-#if !DEBUG
         psOut.color /= psOut.color.w;
-#endif
-    }
     else
         psOut.color = float4(1, 0, 1, 1);
     return psOut;

@@ -5,6 +5,7 @@ target_sources(Voxelization PRIVATE
 
     Voxel/ABSDF.slang
     Voxel/VoxelGrid.slang
+    Voxel/Shading.slang
     
     Math/AABB.slang
     Math/Projection.slang

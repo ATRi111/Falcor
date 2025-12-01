@@ -7,8 +7,8 @@ BEGIN_NAMESPACE_FALCOR
 
 inline uint NormalIndex(float3 n)
 {
-    uint bx = (n.x >= 0) ? 1 : 0; // x≥0 -> 1
-    uint bz = (n.z >= 0) ? 1 : 0; // z≥0 -> 1
+    uint bx = (n.x >= 0) ? 1 : 0;
+    uint bz = (n.z >= 0) ? 1 : 0;
     return (bx) | (bz << 1);
 }
 
@@ -59,7 +59,7 @@ struct NDF
         return normalize(sum);
     }
 
-    float weightedDot(float3 l, float3 v)   //v不影响结果的大小,但影响正反面的判断
+    float weightedDot(float3 l, float3 v)   //v不影响漫反射强度,但影响受光面的判断
     {
         float sum = 0;
         for (int i = 0; i < LOBE_COUNT; i++)
@@ -72,13 +72,12 @@ struct NDF
                 if (cosTerm < 0)
                     n = -n;
                 cosTerm = dot(n, l);
-                sum += max(cosTerm,0) * w;
+                sum += max(cosTerm, 0) * w;
             }
         }
         return sum; // 未归一化
     }
 #endif
-
 };
 
 struct ABSDFInput
@@ -166,6 +165,22 @@ FALCOR_ENUM_INFO(
     }
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);
+
+enum class IlluminateMode : uint32_t
+{
+    Global,
+    Direct,
+    Indirect,
+};
+FALCOR_ENUM_INFO(
+    IlluminateMode,
+    {
+    { IlluminateMode::Global, "Global" },
+    { IlluminateMode::Direct, "Direct" },
+    { IlluminateMode::Indirect, "Indirect" },
+    }
+);
+FALCOR_ENUM_REGISTER(IlluminateMode);
 
 inline float3 valueToColor(float value)
 {

@@ -52,6 +52,7 @@ private:
 
     GridData& gridData;
     uint mDrawMode;
+    uint mIlluminateMode;
     uint mFrameIndex;
     float mVisibilityBias;
     float mTransmittanceThreshould;
