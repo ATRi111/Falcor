@@ -1,5 +1,7 @@
 #include "Voxel/VoxelGrid.slang"
 #include "VoxelizationShared.slang"
+#include "Math/Sampling.slang"
+#include "Math/Random.slang"
 import Scene.SceneTypes;
 import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
@@ -220,16 +222,44 @@ float calcCoverage(HitResult hit, uint offset, float3 v)
     return saturate(polygonsProjArea / primitiveProjArea);
 }
 
-float3 shading(HitResult hit, uint offset, float3 v, LightData light)
+float3 shading(HitResult hit, uint offset, float3 v, float3 l, float3 lightColor)
 {
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
-    float area = ABSDF.area;    //area必然大于0
+    float area = ABSDF.area; // area必然大于0
     float3 diffuse = ABSDF.diffuse;
     float3 specular = ABSDF.specular;
     float roughness = ABSDF.roughness;
     NDF NDF = ABSDF.NDF;
 
+    float cosTerm = NDF.weightedDot(l, v);
+    float3 diffuseColor = lightColor * diffuse * cosTerm;
+    float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular, roughness);
+    float3 result = 0;
+    switch (drawMode)
+    {
+    case ABSDFDrawMode::Default:
+        result = diffuseColor + specularColor;
+        break;
+    case ABSDFDrawMode::Normal:
+        return NDF.getAverageNormal(l) * 0.5 + 0.5;
+    case ABSDFDrawMode::Diffuse:
+        result = diffuseColor;
+        break;
+    case ABSDFDrawMode::Specular:
+        result = specularColor;
+        break;
+    case ABSDFDrawMode::Flat:
+        result = cosTerm;
+        break;
+    default:
+        break;
+    }
+    return result / area;
+}
+
+float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
+{
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
     float3 lightColor = 0;
@@ -243,11 +273,15 @@ float3 shading(HitResult hit, uint offset, float3 v, LightData light)
         l = -light.dirW;
         break;
     }
+
 #if CHECK_VISIBILITY
     float visibility = calcVisibility(hit, l);
 #else
     float visibility = 1.f;
 #endif
+
+    if (visibility == 0)
+        return 0;
 
     switch (light.type)
     {
@@ -275,38 +309,14 @@ float3 shading(HitResult hit, uint offset, float3 v, LightData light)
         lightColor = light.intensity;
         break;
     }
-    float cosTerm = NDF.weightedDot(l);
-    float3 diffuseColor = lightColor * diffuse * cosTerm;
-    float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular, roughness);
-    float3 result = 0;
-    float projectArea = 0;
-    switch (drawMode)
-    {
-    case ABSDFDrawMode::Default:
-        result = diffuseColor + specularColor;
-        break;
-    case ABSDFDrawMode::Normal:
-        return NDF.getAverageNormal(l) * 0.5 + 0.5;
-    case ABSDFDrawMode::Diffuse:
-        result = diffuseColor;
-        break;
-    case ABSDFDrawMode::Specular:
-        result = specularColor;
-        break;
-    case ABSDFDrawMode::Flat:
-        result = cosTerm;
-        break;
-    default:
-        break;
-    }
-    return visibility * result / area;
+
+    float3 color = shading(hit, offset, v, l, lightColor);
+    return visibility * color;
 }
 
 float2 randomJitter(inout UniformSampleGenerator sg)
 {
-    float x = float((sg.next() >> 8) & 0x00FFFFFFu) / 16777216 - 0.5;
-    float y = float((sg.next() >> 8) & 0x00FFFFFFu) / 16777216 - 0.5;
-    float2 jitter = float2(x, y);
+    float2 jitter = Next2(sg) - 0.5f;
     jitter /= pixelCount;
     return jitter;
 }
@@ -351,8 +361,10 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
             coverage = calcCoverage(hit, offset, -direction);
             for (uint i = 0; i < scene.lightCount; i++)
             {
-                color += shading(hit, offset, -direction, scene.lights[i]);
+                color += shadingDirect(hit, offset, -direction, scene.lights[i]);
             }
+            float3 randomDirection = sample_sphere(Next2(sg));
+            //HitResult secondaryLight = rayMarching(hit.cell, direction, true);
             break;
         default:
             color = debugShading(hit, offset, -direction);
@@ -364,8 +376,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 
         if (transmittance > transmittanceThreshould)
         {
-            from = hit.cell;
-            hit = rayMarching(from, direction, true);
+            hit = rayMarching(hit.cell, direction, true);
         }
         else
         {

@@ -59,7 +59,7 @@ struct NDF
         return normalize(sum);
     }
 
-    float weightedDot(float3 direction)
+    float weightedDot(float3 l, float3 v)   //v不影响结果的大小,但影响正反面的判断
     {
         float sum = 0;
         for (int i = 0; i < LOBE_COUNT; i++)
@@ -68,8 +68,11 @@ struct NDF
             if (w > 0)
             {
                 float3 n = weightedNormals[i].xyz;
-                float cosTerm = abs(dot(n, direction));
-                sum += cosTerm * w;
+                float cosTerm = dot(n, v);
+                if (cosTerm < 0)
+                    n = -n;
+                cosTerm = dot(n, l);
+                sum += max(cosTerm,0) * w;
             }
         }
         return sum; // 未归一化
@@ -94,9 +97,7 @@ struct ABSDF
     float roughness;
     float area;
 
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+    MUTATING
     void init()
     {
         diffuse = float3(0);
@@ -106,12 +107,8 @@ struct ABSDF
         area = 0;
     }
 
-#if defined(HOST_CODE)
-    void accumulate(ABSDFInput &input)
-#else
-    [mutating]
+    MUTATING
     void accumulate(ABSDFInput input)
-#endif
     {
         // StandardMaterial.slang
         float IoR = 1.5f;
@@ -127,9 +124,8 @@ struct ABSDF
 
         area += input.area;
     }
-#if !defined(HOST_CODE)
-    [mutating]
-#endif
+
+    MUTATING
     void normalizeSelf()
     {
         if (area == 0)
