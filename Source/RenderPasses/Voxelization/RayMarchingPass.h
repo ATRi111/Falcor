@@ -53,11 +53,13 @@ private:
     GridData& gridData;
     uint mDrawMode;
     uint mIlluminateMode;
-    uint mFrameIndex;
     float mVisibilityBias;
     float mTransmittanceThreshould;
     bool mUpdateScene;
     bool mCheckEllipsoid;
     bool mCheckVisibility;
     bool mDebug;
+
+    bool mOptionsChanged;
+    uint mFrameIndex;
 };

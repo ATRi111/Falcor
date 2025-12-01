@@ -27,6 +27,7 @@
  **************************************************************************/
 #include "RayMarchingPass.h"
 #include "Math/SphericalHarmonics.slang"
+#include "RenderGraph/RenderPassStandardFlags.h"
 
 namespace
 {
@@ -45,6 +46,8 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mCheckVisibility = true;
     mDrawMode = 0;
     mIlluminateMode = 0;
+
+    mOptionsChanged = false;
     mFrameIndex = 0;
 
     Sampler::Desc samplerDesc;
@@ -78,6 +81,15 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 {
     if (!mpScene)
         return;
+
+    auto& dict = renderData.getDictionary();
+    if (mOptionsChanged)
+    {
+        auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+        dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
+        mOptionsChanged = false;
+    }
+
 
     if (mUpdateScene)
     {
@@ -126,14 +138,20 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
 void RayMarchingPass::renderUI(Gui::Widgets& widget)
 {
-    widget.checkbox("Debug", mDebug);
-    widget.checkbox("Check Ellipsoid", mCheckEllipsoid);
-    widget.checkbox("Check Visibility", mCheckVisibility);
-    if (mCheckVisibility)
-        widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f);
-    widget.slider("Transmittance Threshould", mTransmittanceThreshould, 0.0f, 1.0f);
-    widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode));
-    widget.dropdown("Illuminate Mode", reinterpret_cast<IlluminateMode&>(mIlluminateMode));
+    if (widget.checkbox("Debug", mDebug))
+        mOptionsChanged = true;
+    if (widget.checkbox("Check Ellipsoid", mCheckEllipsoid))
+        mOptionsChanged = true;
+    if (widget.checkbox("Check Visibility", mCheckVisibility))
+        mOptionsChanged = true;
+    if (mCheckVisibility && widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f))
+        mOptionsChanged = true;
+    if (widget.slider("Transmittance Threshould", mTransmittanceThreshould, 0.0f, 1.0f))
+        mOptionsChanged = true;
+    if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
+        mOptionsChanged = true;
+    if (widget.dropdown("Illuminate Mode", reinterpret_cast<IlluminateMode&>(mIlluminateMode)))
+        mOptionsChanged = true;
 }
 
 void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
