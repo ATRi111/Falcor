@@ -1,5 +1,6 @@
 #include "Voxel/VoxelGrid.slang"
 #include "Math/Ellipsoid.slang"
+#include "Math/Triangle.slang"
 #include "Scene/VertexAttrib.slangh"
 
 import Scene.SceneTypes;
@@ -69,32 +70,9 @@ void sampleMaterial(float3 position, float2 texCoord, float2 dduv, uint triangle
     }
 }
 
-void sampleTriangle(float3[3] positions, float2[3] texCoords, uint triangleId)
+void clipTriangle(Triangle triangle)
 {
-    float3 BC = positions[2] - positions[1];
-    float3 AC = positions[2] - positions[0];
-    float k = length(BC) / length(AC);
-    float S = 0.5f * length(cross(BC, AC));
-    float sampleCount = sampleFrequency * S;
-    float temp = sqrt(2 * sampleCount / k);
-    uint aCount = (uint)ceil(temp);
-    uint bCount = (uint)ceil(temp * k);
 
-    float deltaA = 1.0f / (aCount + 1);
-    float deltaB = 1.0f / (bCount + 1);
-    float2 deltaUV = abs(texCoords[0] * deltaA + texCoords[1] * deltaB + texCoords[2] * (-deltaA - deltaB));
-
-    for (float a = deltaA; a < 1; a += deltaA)
-    {
-        for (float b = deltaB; b < 1; b += deltaB)
-        {
-            if (a + b > 1)
-                break;
-            float3 pos = positions[0] * a + positions[1] * b + positions[2] * (1 - a - b);
-            float2 texCoord = frac(texCoords[0] * a + texCoords[1] * b + texCoords[2] * (1 - a - b));
-            sampleMaterial(pos, texCoord, deltaUV, triangleId);
-        }
-    }
 }
 
 void voxelizeTriangle(uint triangleId)
@@ -102,19 +80,20 @@ void voxelizeTriangle(uint triangleId)
     // 实际启动的线程数是线程组大小的整数倍，因此此语句必不可少
     if (triangleId >= triangleCount)
         return;
+    
+    Triangle triangle = {};
     uint3 vtxIndices = scene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     if (any(vtxIndices >= vertexCount))
         return;
     vtxIndices += vbOffset;
     StaticVertexData[3] vertices = { scene.getVertex(vtxIndices.x), scene.getVertex(vtxIndices.y), scene.getVertex(vtxIndices.z) };
-    float3[3] positions = { vertices[0].position, vertices[1].position, vertices[2].position };
     // 世界坐标处理成网格坐标
     for (int i = 0; i < 3; i++)
     {
-        positions[i] = (positions[i] - gridMin) / voxelSize;
+        triangle.vertices[i] = (vertices[i].position - gridMin) / voxelSize;
+        triangle.uvs[i] = vertices[i].texCrd;
     }
-    float2[3] texCoords = { vertices[0].texCrd, vertices[1].texCrd, vertices[2].texCrd };
-    sampleTriangle(positions, texCoords, triangleId);
+
 }
 
 [numthreads(256, 1, 1)]

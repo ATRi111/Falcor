@@ -22,6 +22,7 @@ struct Triangle
         for (int i = 0; i < 3; i++)
         {
             vertices[i] = float3(0);
+            uvs[i] = float2(0);
         }
     }
 

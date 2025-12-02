@@ -28,18 +28,21 @@ target_sources(Voxelization PRIVATE
 
     VoxelizationPass.cpp
     VoxelizationPass.h
+
+    VoxelizationPass_CPU.cpp
+    VoxelizationPass_CPU.h
+    MeshSampler.h
+    LoadMesh.cs.slang
+
+    VoxelizationPass_GPU.cpp
+    VoxelizationPass_GPU.h
     Voxelization.cs.slang
+    SamplePolygon.cs.slang
 
     RayMarchingPass.cpp
     RayMarchingPass.h
     RayMarching.ps.slang
-    
-    LoadMeshPass.cpp
-    LoadMeshPass.h
-    LoadMesh.cs.slang
 
-    MeshSampler.h
-    SamplePolygon.cs.slang
     ReadVoxelPass.cpp
     ReadVoxelPass.h
 

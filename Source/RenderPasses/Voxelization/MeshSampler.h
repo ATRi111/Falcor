@@ -6,7 +6,6 @@
 #include "Math/Polygon.slang"
 #include "Math/Triangle.slang"
 #include "Math/SphericalHarmonics.slang"
-#include <fstream>
 #include <unordered_map>
 
 using namespace Falcor;
@@ -178,19 +177,5 @@ public:
 
             gBuffer[i].ABSDF.normalizeSelf();
         }
-    }
-
-    void write(std::string fileName)
-    {
-        std::ofstream f;
-        std::string s = VoxelizationBase::ResourceFolder + fileName;
-        f.open(s, std::ios::binary);
-        f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
-
-        f.write(reinterpret_cast<const char*>(vBuffer.data()), gridData.totalVoxelCount() * sizeof(int));
-        f.write(reinterpret_cast<const char*>(gBuffer.data()), gridData.solidVoxelCount * sizeof(VoxelData));
-
-        f.close();
-        VoxelizationBase::FileUpdated = true;
     }
 };

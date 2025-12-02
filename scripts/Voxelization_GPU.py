@@ -3,17 +3,17 @@ import falcor
 def render_graph_Pass():
     g = RenderGraph("Voxelization")
 
-    load_pass = createPass("LoadMeshPass")
+    voxel_pass = createPass("VoxelizationPass_GPU")
     read_pass = createPass("ReadVoxelPass")
     marching_pass = createPass("RayMarchingPass")
-    accumulate_pass = createPass("AccumulatePass", {"enabled": False, "precisionMode": "Single"})
+    accumulate_pass = createPass("AccumulatePass", {"enabled": True, "precisionMode": "Single"})
 
-    g.addPass(load_pass,"LoadMeshPass")
+    g.addPass(voxel_pass,"VoxelizationPass")
     g.addPass(read_pass,"ReadVoxelPass")
     g.addPass(marching_pass,"RayMarchingPass")
     g.addPass(accumulate_pass,"AccumulatePass")
 
-    g.addEdge("LoadMeshPass.dummy","ReadVoxelPass.dummy")
+    g.addEdge("VoxelizationPass.dummy","ReadVoxelPass.dummy")
     g.addEdge("ReadVoxelPass.vBuffer","RayMarchingPass.vBuffer")
     g.addEdge("ReadVoxelPass.gBuffer","RayMarchingPass.gBuffer")
 

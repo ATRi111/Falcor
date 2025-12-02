@@ -26,117 +26,86 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "VoxelizationPass.h"
+#include "Image/ImageLoader.h"
+#include <fstream>
 
 namespace
 {
-const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/Voxelization.cs.slang";
-const std::string kOutputDiffuse = "diffuse";
-const std::string kOutputEllipsoids = "ellipsoids";
-
+const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/SamplePolygon.cs.slang";
 }; // namespace
 
-VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
-    : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
+VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
-    mVoxelResolution = 256u;
-    mSampleFrequency = 16u;
-    mAutoLoD = true;
-    mComplete = false;
-    mDebug = false;
+    mSceneNameIndex = 0;
+    mSceneName = "Arcade";
+    mVoxelizationComplete = true;
+    mSamplingComplete = true;
+    mCompleteTimes = 0;
+    pVBuffer_CPU = nullptr;
+
+    mRepeatTimes = 256;
+    mSampleFrequency = 16;
+    mVoxelResolution = 256;
 
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
 
-    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
     Sampler::Desc samplerDesc;
     samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
         .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
-    mpSampler = pDevice->createSampler(samplerDesc);
     mpDevice = pDevice;
 }
 
 RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
-
-    reflector.addOutput(kOutputDiffuse, "Diffuse Voxel Texture")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
+    reflector.addOutput("dummy", "Dummy")
+        .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
-        .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
-
-    reflector.addOutput(kOutputEllipsoids, "Ellipsoids")
-        .bindFlags(ResourceBindFlags::UnorderedAccess)
-        .format(ResourceFormat::Unknown)
-        .rawBuffer(gridData.totalVoxelCount() * sizeof(Ellipsoid));
+        .texture2D(0, 0, 1, 1);
     return reflector;
 }
 
 void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (!mpScene)
+    if (!mpScene || mVoxelizationComplete && mSamplingComplete)
         return;
 
-    if (mComplete && !mDebug)
-        return;
-
-    ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
-    ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
-
-    pRenderContext->clearUAV(pDiffuse->getUAV().get(), float4(0));
-    if (!mVoxelizationPass)
+    if (!mVoxelizationComplete)
     {
-        ProgramDesc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kVoxelizationProgramFile).csEntry("main");
-        desc.addTypeConformances(mpScene->getTypeConformances());
-
-        DefineList defines;
-        defines.add(mpScene->getSceneDefines());
-        defines.add(mpSampleGenerator->getDefines());
-
-        mVoxelizationPass = ComputePass::create(mpDevice, desc, defines, true);
+        voxelize(pRenderContext, renderData);
+        mVoxelizationComplete = true;
     }
-
-    mVoxelizationPass->addDefine("AUTO_LOD", mAutoLoD ? "1" : "0");
-    ShaderVar var = mVoxelizationPass->getRootVar();
-    var["s"] = mpSampler;
-    mpScene->bindShaderData(var["scene"]);
-    var["gDiffuse"] = pDiffuse;
-    var["gEllipsoids"] = pEllipsoids;
-
-    auto cb_grid = var["GridData"];
-    cb_grid["gridMin"] = gridData.gridMin;
-    cb_grid["voxelSize"] = gridData.voxelSize;
-    cb_grid["voxelCount"] = gridData.voxelCount;
-    cb_grid["sampleFrequency"] = mSampleFrequency;
-
-    uint meshCount = mpScene->getMeshCount();
-    for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
+    else
     {
-        MeshDesc meshDesc = mpScene->getMesh(meshID);
-        uint triangleCount = meshDesc.getTriangleCount();
-
-        auto cb_mesh = mVoxelizationPass->getRootVar()["MeshData"];
-        cb_mesh["vertexCount"] = meshDesc.vertexCount;
-        cb_mesh["vbOffset"] = meshDesc.vbOffset;
-        cb_mesh["triangleCount"] = triangleCount;
-        cb_mesh["ibOffset"] = meshDesc.ibOffset;
-        cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
-        cb_mesh["materialID"] = meshDesc.materialID;
-        mVoxelizationPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
-        pRenderContext->uavBarrier(pDiffuse.get());
-        pRenderContext->uavBarrier(pEllipsoids.get());
+        if (mCompleteTimes < mRepeatTimes)
+        {
+            sample(pRenderContext, renderData);
+            mCompleteTimes++;
+        }
+        else
+        {
+            size_t gBufferBytes = gridData.solidVoxelCount * sizeof(VoxelData);
+            ref<Buffer> cpuGBuffer = mpDevice->createBuffer(gBufferBytes, ResourceBindFlags::None, MemoryType::ReadBack);
+            pRenderContext->copyResource(cpuGBuffer.get(), gBuffer.get());
+            mpDevice->wait();
+            void* pGBuffer_CPU = cpuGBuffer->map();
+            write(getFileName(), pGBuffer_CPU, pVBuffer_CPU);
+            cpuGBuffer->unmap();
+            Tools::Profiler::Print();
+            Tools::Profiler::Reset();
+            mSamplingComplete = true;
+        }
     }
-    mComplete = true;
 }
 
 void VoxelizationPass::compile(RenderContext* pRenderContext, const CompileData& compileData) {}
 
 void VoxelizationPass::renderUI(Gui::Widgets& widget)
 {
-    static const uint resolutions[] = {16, 32, 64, 128, 256, 400};
+    static const uint resolutions[] = {16,32,64,128,256,512,1024};
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < 6; i++)
+        for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
         {
             list.push_back({resolutions[i], std::to_string(resolutions[i])});
         }
@@ -144,37 +113,120 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         {
             VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
             requestRecompile();
-            mComplete = false;
         }
     }
 
-    static const uint samplePoints[] = {1, 2, 4, 8, 16, 32, 64};
+    static const std::string sceneNames[] = { "Arcade", "Tree"};
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < 7; i++)
+        for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)
         {
-            list.push_back({samplePoints[i], std::to_string(samplePoints[i])});
+            list.push_back({ i, sceneNames[i] });
         }
-        if (widget.dropdown("Sample Frequency", list, mSampleFrequency))
+        if (widget.dropdown("Scene Name", list, mSceneNameIndex))
         {
-            mComplete = false;
+            mSceneName = sceneNames[mSceneNameIndex];
         }
     }
 
-    if (widget.checkbox("Auto LoD", mAutoLoD))
-        mComplete = false;
-    if (widget.checkbox("Debug", mDebug))
-        mComplete = false;
+    static const uint sampleFrequencies[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256};
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < sizeof(sampleFrequencies) / sizeof(uint); i++)
+        {
+            list.push_back({sampleFrequencies[i], std::to_string(sampleFrequencies[i])});
+        }
+        widget.dropdown("Sample Frequency", list, mSampleFrequency);
+            
+    }
+    static const uint repeatTimes[] = { 1, 4, 16, 64, 256, 1024 };
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < sizeof(repeatTimes) / sizeof(uint); i++)
+        {
+            list.push_back({ repeatTimes[i], std::to_string(repeatTimes[i]) });
+        }
+        widget.dropdown("Repeat times", list, mRepeatTimes);
+    }
 
-    widget.text("Voxel Size: " + ToString(gridData.voxelSize));
-    widget.text("Voxel Count: " + ToString(gridData.voxelCount));
-    widget.text("Grid Min: " + ToString(gridData.gridMin));
+    if (mpScene && mVoxelizationComplete && mSamplingComplete && widget.button("Generate"))
+    {
+        ImageLoader::Instance().setSceneName(mSceneName);
+        mVoxelizationComplete = false;
+        mSamplingComplete = false;
+        mCompleteTimes = 0;
+    }
 }
 
 void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
+    mSamplePolygonPass = nullptr;
     VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
-    mVoxelizationPass = nullptr;
-    mComplete = false;
+}
+
+void VoxelizationPass::voxelize(RenderContext* pRenderContext, const RenderData& renderData)
+{
+
+}
+
+void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& renderData)
+{
+    if (!mSamplePolygonPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kSamplePolygonProgramFile).csEntry("main");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+    if (!mSamplingComplete)
+    {
+        ShaderVar var = mSamplePolygonPass->getRootVar();
+        var[kGBuffer] = gBuffer;
+        var["polygonBuffer"] = polygonBuffer;
+
+        auto cb = var["CB"];
+        cb["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
+        cb["sampleFrequency"] = mSampleFrequency;
+        cb["completeTimes"] = mCompleteTimes;
+        cb["repeatTimes"] = mRepeatTimes;
+
+        Tools::Profiler::BeginSample("Sample Polygons");
+        mSamplePolygonPass->execute(pRenderContext, uint3((uint)gridData.solidVoxelCount, 1, 1));
+        mpDevice->wait();
+        Tools::Profiler::EndSample("Sample Polygons");
+        mCompleteTimes++;
+    }
+}
+
+std::string VoxelizationPass::getFileName()
+{
+    std::ostringstream oss;
+    oss << mSceneName;
+    oss << "_";
+    oss << ToString(gridData.voxelCount);
+    oss << "_";
+    oss << std::to_string(mSampleFrequency);
+    oss << "_";
+    oss << std::to_string(mRepeatTimes);
+    oss << ".bin";
+    return oss.str();
+}
+
+void VoxelizationPass::write(std::string fileName, void* pGBuffer, void* pVBuffer)
+{
+    std::ofstream f;
+    std::string s = VoxelizationBase::ResourceFolder + fileName;
+    f.open(s, std::ios::binary);
+    f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
+
+    f.write(reinterpret_cast<const char*>(pVBuffer), gridData.totalVoxelCount() * sizeof(int));
+    f.write(reinterpret_cast<const char*>(pGBuffer), gridData.solidVoxelCount * sizeof(VoxelData));
+
+    f.close();
+    VoxelizationBase::FileUpdated = true;
 }
