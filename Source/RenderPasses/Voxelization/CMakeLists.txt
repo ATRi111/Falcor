@@ -15,6 +15,7 @@ target_sources(Voxelization PRIVATE
     Math/Sampling.slang
     Math/SphericalHarmonics.slang
     Math/VoxelizationUtility.h
+    Math/VoxelizationUtility.slang
     Math/Random.h
     Math/Random.slang
 

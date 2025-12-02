@@ -38,6 +38,7 @@ const std::string kOutputEllipsoids = "ellipsoids";
 VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props)
     : VoxelizationPass(pDevice, props)
 {
+    maxSolidVoxelCount = (uint)ceil(4294967296.0 / sizeof(PolygonInVoxel)); //缓冲区最大容量为4G
 }
 
 RenderPassReflection VoxelizationPass_GPU::reflect(const CompileData& compileData)
@@ -64,10 +65,8 @@ void VoxelizationPass_GPU::setScene(RenderContext* pRenderContext, const ref<Sce
 
 void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    ref<Texture> pDiffuse = renderData.getTexture(kOutputDiffuse);
-    ref<Buffer> pEllipsoids = renderData.getResource(kOutputEllipsoids)->asBuffer();
+    gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
 
-    pRenderContext->clearUAV(pDiffuse->getUAV().get(), float4(0));
     if (!mVoxelizationPass)
     {
         ProgramDesc desc;
@@ -85,8 +84,7 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     ShaderVar var = mVoxelizationPass->getRootVar();
     var["s"] = mpSampler;
     mpScene->bindShaderData(var["scene"]);
-    var["gDiffuse"] = pDiffuse;
-    var["gEllipsoids"] = pEllipsoids;
+    var["gBuffer"] = gBuffer;
 
     auto cb_grid = var["GridData"];
     cb_grid["gridMin"] = gridData.gridMin;
@@ -108,8 +106,7 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
         cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
         cb_mesh["materialID"] = meshDesc.materialID;
         mVoxelizationPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
-        pRenderContext->uavBarrier(pDiffuse.get());
-        pRenderContext->uavBarrier(pEllipsoids.get());
+        pRenderContext->uavBarrier(gBuffer.get());
     }
 }
 

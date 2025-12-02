@@ -18,7 +18,6 @@ private:
     Image* currentBaseColor;
     Image* currentSpecular;
     Image* currentNormal;
-    float3x3 currentTBN;
 public:
     std::vector<VoxelData> gBuffer;
     std::vector<int> vBuffer;
@@ -87,7 +86,7 @@ public:
         float3 baseColor = currentBaseColor ? currentBaseColor->SampleArea(uvs).xyz() : float3(0.5f);
         float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0, 0, 0);
         float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
-        normal = calcShadingNormal(currentTBN, normal);
+        normal = calcShadingNormal(tri.TBN, normal);
         if (normal.y < 0)
             normal = -normal;
         ABSDFInput input = {baseColor, spec, normal, polygon.calcArea()};
@@ -98,24 +97,17 @@ public:
 
     void clip(Triangle& tri)
     {
-        currentTBN = tri.buildTBN();
         AABBInt aabb = tri.calcAABBInt();
-        for (int z = aabb.min.z; z <= aabb.max.z; z++)
+        for (int i = 0; i < aabb.count(); i++)
         {
-            for (int y = aabb.min.y; y <= aabb.max.y; y++)
-            {
-                for (int x = aabb.min.x; x <= aabb.max.x; x++)
-                {
-                    Tools::Profiler::BeginSample("Clip");
-                    int3 cellInt = int3(x, y, z);
-                    float3 minPoint = float3(cellInt);
-                    Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri);  //多边形与三角形顶点顺序一致
-                    Tools::Profiler::EndSample("Clip");
-                    polygon.normal = currentTBN.getCol(2);  //几何法线
-                    if(polygon.count >= 3)
-                        sampleArea(tri, polygon, cellInt);
-                }
-            }
+            Tools::Profiler::BeginSample("Clip");
+            int3 cellInt = aabb.indexToCell(i);
+            float3 minPoint = float3(cellInt);
+            Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri);  //多边形与三角形顶点顺序一致
+            Tools::Profiler::EndSample("Clip");
+            polygon.normal = tri.TBN.getCol(2);  //几何法线
+            if (polygon.count >= 3)
+                sampleArea(tri, polygon, cellInt);
         }
     }
 
@@ -140,6 +132,7 @@ public:
             {
                 tri.vertices[i] = (tri.vertices[i] - gridData.gridMin) / gridData.voxelSize;
             }
+            tri.buildTBN();
             clip(tri);
         }
     }

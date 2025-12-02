@@ -1,12 +1,64 @@
 #pragma once
 #include "../HostDeviceShared.slang"
 
+#if !defined(HOST_CODE)
+#define INT_MAX 1000000000
+#define INT_MIN -1000000000
+#endif
+
 BEGIN_NAMESPACE_FALCOR
 
 struct AABBInt
 {
-    int3 min;
-    int3 max;
+    int xMin, xMax, yMin, yMax, zMin, zMax;
+    int deltaX, deltaY, deltaZ, deltaXY;
+
+    MUTATING
+    void init()
+    {
+        xMin = yMin = zMin = INT_MAX;
+        xMax = yMax = zMax = INT_MIN;
+        deltaX = deltaY = deltaZ = deltaXY = 0;
+    }
+
+    MUTATING
+    void accumulate(int3 point)
+    {
+        xMin = min(xMin, point.x);
+        yMin = min(yMin, point.y);
+        zMin = min(zMin, point.z);
+        xMax = max(xMax, point.x);
+        yMax = max(yMax, point.y);
+        zMax = max(zMax, point.z);
+    }
+
+    MUTATING
+    void complete()
+    {
+        deltaX = xMax - xMin + 1;
+        deltaY = yMax - yMin + 1;
+        deltaZ = zMax - zMin + 1;
+        deltaXY = deltaX * deltaY;
+    }
+
+    int count()
+    {
+        return deltaX * deltaY * deltaZ;
+    }
+
+    int3 indexToCell(int index)
+    {
+        int zLocal = index / deltaXY;
+        int temp = index % deltaXY;
+        int yLocal = temp / deltaX;
+        int xLocal = temp % deltaX;
+
+        return int3(
+            xMin + xLocal,
+            yMin + yLocal,
+            zMin + zLocal
+        );
+    }
 };
 
 inline float2 intersect(float p1, float p2, float p0, float q)

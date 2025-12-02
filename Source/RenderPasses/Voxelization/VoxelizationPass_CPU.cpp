@@ -56,7 +56,7 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
 
         mLoadMeshPass = ComputePass::create(mpDevice, desc, defines, true);
     }
-    size_t gBufferBytes = gridData.solidVoxelCount * sizeof(VoxelData);
+
     uint meshCount = mpScene->getMeshCount();
     uint vertexCount = 0;
     uint triangleCount = 0;
@@ -119,6 +119,7 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
 
     meshSampler.reset();
     meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
+    gridData.solidVoxelCount = meshSampler.gBuffer.size();
     meshSampler.analyzeAll();
     cpuPositions->unmap();
     cpuTexCoords->unmap();
@@ -126,7 +127,7 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
 
     gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
     polygonBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonInVoxel), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
-    gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gBufferBytes);
+    gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gridData.solidVoxelCount * sizeof(VoxelData));
     polygonBuffer->setBlob(meshSampler.polygonBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonInVoxel));
 
     pVBuffer_CPU = meshSampler.vBuffer.data();

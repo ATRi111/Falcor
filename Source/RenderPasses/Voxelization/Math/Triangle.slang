@@ -15,6 +15,7 @@ struct Triangle
 {
     float3 vertices[3];
     float2 uvs[3];
+    float3x3 TBN;
 
     MUTATING
     void init()
@@ -76,21 +77,20 @@ struct Triangle
         return uvs[0] * coord.x + uvs[1] * coord.y + uvs[2] * coord.z;
     }
 
-#if defined(HOST_CODE)
     AABBInt calcAABBInt()
     {
         AABBInt aabb;
-        aabb.min = aabb.max = (int3)floor(vertices[0]);
-        for (size_t i = 1; i < 3; i++)
+        aabb.init();
+        for (int i = 0; i < 3; i++)
         {
-            aabb.min = min(aabb.min, (int3)floor(vertices[i]));
-            aabb.max = max(aabb.max, (int3)floor(vertices[i]));
+            aabb.accumulate((int3)floor(vertices[i]));
         }
+        aabb.complete();
         return aabb;
     }
-#endif
 
-    float3x3 buildTBN()
+    MUTATING
+    void buildTBN()
     {
         float3 e1 = vertices[1] - vertices[0];
         float3 e2 = vertices[2] - vertices[0];
@@ -116,15 +116,13 @@ struct Triangle
         }
 
 #if defined(HOST_CODE)
-        float3x3 ret;
-        ret.setCol(0, T);
-        ret.setCol(1, B);
-        ret.setCol(2, N);
+        TBN.setCol(0, T);
+        TBN.setCol(1, B);
+        TBN.setCol(2, N);
 #else
-        float3x3 ret = float3x3(T, B, N);
-        ret = transpose(ret);
+        TBN = float3x3(T, B, N);
+        TBN = transpose(TBN);
 #endif
-        return ret;
     }
 };
 
