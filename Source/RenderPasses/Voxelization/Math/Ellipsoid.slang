@@ -1,6 +1,11 @@
 #pragma once
 #include "../HostDeviceShared.slang"
 #include "Projection.slang"
+#if !defined(HOST_CODE)
+import Utils.Math.MathHelpers;
+#endif
+
+#define MAX_FIT_POINT_COUNT 100
 
 BEGIN_NAMESPACE_FALCOR
 
@@ -35,23 +40,22 @@ struct Ellipsoid
 
 #if defined(HOST_CODE)
     void fit(std::vector<float3> &points, float3 cellMin)
+#else
+    [mutating]
+    void fit(float3[MAX_FIT_POINT_COUNT] points, uint n, float3 cellMin)
+#endif
     {
         float3 sum = float3(0);
+#if defined(HOST_CODE)
         uint n = points.size();
-        if (n == 0)
-        {
-            center = float3(0.5f);
-            B = float3x3::identity();
-            return;
-        }
-
+#endif
         for (uint i = 0; i < n; i++)
         {
             sum += points[i];
         }
         center = sum / (float)n;
         // 二次方程
-        float3x3 cov = float3x3::zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
+        float3x3 cov = zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
         for (uint i = 0; i < n; i++)
         {
             float3 v = points[i] - center;
@@ -67,26 +71,25 @@ struct Ellipsoid
         }
         cov = cov * (1.f / n);
 
-        cov = (math::transpose(cov) + cov) * 0.5f;
+        cov = (transpose(cov) + cov) * 0.5f;
         // 避免出现奇异矩阵
         float tr = cov[0][0] + cov[1][1] + cov[2][2];
-        float lam = 1e-6f * std::max(tr, 1e-6f);
+        float lam = 1e-6f * max(tr, 1e-6f);
         cov[0][0] += lam;
         cov[1][1] += lam;
         cov[2][2] += lam;
 
-        float3x3 inv = math::inverse(cov);
+        float3x3 inv = inverse(cov);
         float maxDot = 1e-12f;
         for (uint i = 0; i < n; i++)
         {
             float3 v = points[i] - center;
-            float dot = math::dot(v, mul(inv, v));
-            maxDot = std::max(maxDot, dot);
+            float temp = dot(v, mul(inv, v));
+            maxDot = max(maxDot, temp);
         }
         B = inv * (1.0f / maxDot);
         center -= cellMin;
     }
-#endif
 
     float2 clip(float3 from, float3 to)
     {
@@ -140,38 +143,6 @@ struct Ellipsoid
         return ee.area();
     }
 #endif
-
-    // 椭球与所在体素相交的部分的投影面积
-    //float clippedProjectArea(float3 v)
-    //{
-    //    static float3 vertices[8] = {
-    //        float3(0, 0, 0),
-    //        float3(0, 0, 1),
-    //        float3(0, 1, 0),
-    //        float3(0, 1, 1),
-    //        float3(1, 0, 0),
-    //        float3(1, 0, 1),
-    //        float3(1, 1, 0),
-    //        float3(1, 1, 1),
-    //    };
-    //    float2 projection[8];
-    //    Basis2 basis = orthonormal_basis(v);
-    //    Ellipse ee = project(v, basis);
-    //    float2x2 LT = ee.transformToUnitCircle();
-    //    Circle circle;
-    //    circle.r = 1;
-
-    //    for (int i = 0; i < 8; i++)
-    //    {
-    //        float3 temp = vertices[i] - center;
-    //        projection[i] = float2(dot(basis.u, temp), dot(basis.w, temp));
-    //        projection[i] = mul(LT, projection[i]);
-    //    }
-    //    float3 voxelCenter = 0.5f - center;
-    //    float k = circle.intersectArea(projection) / circle.area(); // 同时在椭圆和多边形内的点，占椭圆内所有点的比例
-    //    float area = k * ee.area();
-    //    return area;
-    //}
 };
 
 END_NAMESPACE_FALCOR

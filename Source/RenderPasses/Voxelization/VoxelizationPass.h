@@ -55,6 +55,7 @@ protected:
 
     ref<Buffer> gBuffer;
     ref<Buffer> polygonBuffer;
+    ref<Buffer> solidVoxelCount;
 
     void* pVBuffer_CPU;
 

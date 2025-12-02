@@ -1,208 +1,128 @@
 #pragma once
-#include "Falcor.h"
-#include "Profiler.h"
-#include "Random.h"
 #include "Polygon.slang"
-#include "SphericalHarmonics.slang"
-#include "Sampling.slang"
 #include "Triangle.slang"
-#include <unordered_set>
-#include <tuple>
-using namespace Falcor;
 
-struct Float3Hash
+#define MAX_VERTEX_COUNT_PROCESSING 12
+
+inline float3 intersectAxisPlane(float3 S, float3 E, int axis, float bound)
 {
-    size_t operator()(const float3& v) const noexcept
-    {
-        size_t h1 = std::hash<float>{}(v.x);
-        size_t h2 = std::hash<float>{}(v.y);
-        size_t h3 = std::hash<float>{}(v.z);
-        size_t h = h1;
-        h ^= h2 + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-        h ^= h3 + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-        return h;
-    }
-};
-struct Float3Equal
+    float s = S[axis];
+    float e = E[axis];
+    float t = (bound - s) / (e - s);
+    return lerp(S, E, t);
+}
+
+inline uint removeAdjacentRepeatPoints(inout float3 v[MAX_VERTEX_COUNT_PROCESSING], uint count)
 {
-    bool operator()(const float3& a, const float3& b) const noexcept { return a.x == b.x && a.y == b.y && a.z == b.z; }
-};
+    if (count == 0)
+        return 0;
 
-class VoxelizationUtility
+    uint writeIndex = 0;
+    for (uint i = 0; i < count; ++i)
+    {
+        uint next = (i + 1) % count;
+
+        if (all(v[i] == v[next]))
+            continue;
+
+        v[writeIndex++] = v[i];
+    }
+    return writeIndex;
+}
+
+inline uint planeClip(float3 inPoly[MAX_VERTEX_COUNT_PROCESSING], uint inCount, out float3 outPoly[MAX_VERTEX_COUNT_PROCESSING], int axis, float bound, bool greater)
 {
-private:
-    static float2 intersect(float p1, float p2, float p0, float q)
+    uint outCount = 0;
+
+    if (inCount == 0)
+        return 0;
+
+    float3 S = inPoly[inCount - 1];
+    bool Sin = greater ? (S[axis] >= bound) : (S[axis] <= bound);
+
+    for (uint i = 0; i < inCount; ++i)
     {
-        float u1 = (p1 - p0) / q;
-        float u2 = (p2 - p0) / q;
-        if (u1 > u2)
+        float3 E = inPoly[i];
+        bool Ein = greater ? (E[axis] >= bound) : (E[axis] <= bound);
+
+        if (Ein)
         {
-            float temp = u1;
-            u1 = u2;
-            u2 = temp;
-        }
-        return float2(u1, u2);
-    }
-
-    static bool approximatelyEqual(float a, float b, float tolerance = 1e-6) { return abs(a - b) <= tolerance; }
-    static bool approximatelyEqual(float3 a, float3 b, float tolerance = 1e-6)
-    {
-        return approximatelyEqual(a.x, b.x, tolerance) && approximatelyEqual(a.y, b.y, tolerance) &&
-               approximatelyEqual(a.z, b.z, tolerance);
-    }
-
-    static float3 intersectAxisPlane(const float3& s, const float3& e, int axis, float planeVal)
-    {
-        float denom = e[axis] - s[axis];
-        if (denom == 0.0)
-            return s;
-        float t = (planeVal - s[axis]) / denom;
-        return math::lerp(s, e, t);
-    }
-
-    static void planeClip(const std::vector<float3>& inPoly, std::vector<float3>& outPoly, int axis, float bound, bool greater)
-    {
-        outPoly.clear();
-        if (inPoly.empty())
-            return;
-
-        float3 S = inPoly.back();
-        bool Sin = greater ? S[axis] >= bound : S[axis] <= bound;
-
-        for (uint i = 0; i < inPoly.size(); ++i)
-        {
-            const float3 E = inPoly[i];
-            const bool Ein = greater ? E[axis] >= bound : E[axis] <= bound;
-
-            if (Ein)
+            if (!Sin && outCount < MAX_VERTEX_COUNT_PROCESSING)
             {
-                if (!Sin)
-                    outPoly.push_back(intersectAxisPlane(S, E, axis, bound));
-                outPoly.push_back(E);
+                outPoly[outCount++] = intersectAxisPlane(S, E, axis, bound);
             }
-            else
+            if (outCount < MAX_VERTEX_COUNT_PROCESSING)
             {
-                if (Sin)
-                    outPoly.push_back(intersectAxisPlane(S, E, axis, bound));
-            }
-
-            S = E;
-            Sin = Ein;
-        }
-    }
-
-public:
-    static void RemoveRepeatPoints(std::vector<float3>& points)
-    {
-        std::unordered_set<float3, Float3Hash, Float3Equal> temp(points.begin(), points.end());
-        points.assign(temp.begin(), temp.end());
-    }
-
-    static void RemoveAdjacentRepeatPoints(std::vector<float3>& points)
-    {
-        std::vector<float3> temp;
-        temp.reserve(points.size());
-        //默认points中至少有1个元素
-        if (!approximatelyEqual(points[0], points.back()))
-            temp.push_back(points[0]);
-        for (size_t i = 1; i < points.size(); i++)
-        {
-            if (!approximatelyEqual(points[i], points[i - 1]))
-                temp.push_back(points[i]);
-        }
-        if(points.size() != temp.size())
-            points.swap(temp);
-    }
-
-    /// <summary>
-    /// 用轴对齐长方体裁剪有向线段
-    /// </summary>
-    static float2 BoxClip(float3 minPoint, float3 maxPoint, float3 from, float3 to)
-    {
-        float uIn = 0, uOut = 1;
-        float3 v = to - from;
-
-        float2 u12 = intersect(minPoint.x, maxPoint.x, from.x, v.x);
-        uIn = math::max(uIn, u12.x);
-        uOut = math::min(uOut, u12.y);
-        if (uIn > uOut)
-            return float2(-1, -1);
-
-        u12 = intersect(minPoint.y, maxPoint.y, from.y, v.y);
-        uIn = math::max(uIn, u12.x);
-        uOut = math::min(uOut, u12.y);
-        if (uIn > uOut)
-            return float2(-1, -1);
-
-        u12 = intersect(minPoint.z, maxPoint.z, from.z, v.z);
-        uIn = math::max(uIn, u12.x);
-        uOut = math::min(uOut, u12.y);
-        if (uIn > uOut)
-            return float2(-1, -1);
-
-        return float2(uIn, uOut);
-    }
-
-    /// <summary>
-    /// 用轴对齐长方体裁剪三角形
-    /// </summary>
-    static Polygon BoxClipTriangle(float3 minPoint, float3 maxPoint, Triangle& tri)
-    {
-        std::vector<float3> vertices;
-        std::vector<float3> temp;
-        vertices.reserve(12); // 返回结果理论上不超过9个点
-        temp.reserve(12);
-
-        Polygon polygon = {};
-        polygon.init();
-        // 初始三角形
-        tri.addTo(vertices);
-
-        // 依次对六个面裁剪
-        float bounds[6] = {minPoint.x, maxPoint.x, minPoint.y, maxPoint.y, minPoint.z, maxPoint.z};
-        bool greater = true;
-        for (uint i = 0; i < 6; i++)
-        {
-            planeClip(vertices, temp, i >> 1, bounds[i], greater);
-            vertices.swap(temp);
-            if (vertices.empty())
-                return polygon;
-            greater = !greater;
-        }
-
-        if (vertices.size() > 3)
-            RemoveAdjacentRepeatPoints(vertices);   //过短的边会影响相交判断
-        polygon.init(vertices);
-        return polygon;
-    }
-
-    static SphericalHarmonics SampleProjectArea(std::vector<Polygon>& polygonsInVoxel,int3 cellInt, uint times)
-    {
-        SphericalHarmonics SH = {};
-        SH.init();
-        float3 cellCenter = float3(cellInt) + 0.5f;
-        float weight = 4.f * PI / times / 2;
-        for (uint i = 0; i < times; i++)
-        {
-            float3 direction = sample_sphere(Random::Next2());
-            Basis2 basis = orthonormal_basis(direction);
-            SamplingRay ray = rayToVoxel(Random::Next2(), direction, basis, cellCenter);
-            bool hit = false;
-            for (size_t j = 0; j < polygonsInVoxel.size(); j++)
-            {
-                if (polygonsInVoxel[j].intersectRay(ray.origin, ray.direction))
-                {
-                    hit = true;
-                    break;
-                }
-            }
-            if (hit)
-            {
-                SH.accumulate(direction); //一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
-                SH.accumulate(-direction);//正反方向的采样结果总是相同
+                outPoly[outCount++] = E;
             }
         }
-        SH.mul((float)PROJECT_CIRCLE_AREA * weight);
-        return SH;
+        else
+        {
+            if (Sin && outCount < MAX_VERTEX_COUNT_PROCESSING)
+            {
+                outPoly[outCount++] = intersectAxisPlane(S, E, axis, bound);
+            }
+        }
+
+        S = E;
+        Sin = Ein;
     }
-};
+
+    return outCount;
+}
+
+// 用轴对齐包围盒裁剪三角形
+inline Polygon boxClipTriangle(float3 minPoint, float3 maxPoint, Triangle tri)
+{
+    Polygon poly;
+    poly.count = 0;
+
+    float3 vertices[MAX_VERTEX_COUNT_PROCESSING];
+    float3 temp[MAX_VERTEX_COUNT_PROCESSING];
+
+    uint vCount = 3;
+    vertices[0] = tri.vertices[0];
+    vertices[1] = tri.vertices[1];
+    vertices[2] = tri.vertices[2];
+
+    // 六个平面
+    float bounds[6] =
+    {
+        minPoint.x, maxPoint.x,
+        minPoint.y, maxPoint.y,
+        minPoint.z, maxPoint.z
+    };
+
+    bool greater = true;
+
+    for (uint i = 0; i < 6; ++i)
+    {
+        uint newCount = planeClip(vertices, vCount, temp, (int)(i >> 1), bounds[i], greater);
+
+        if (newCount == 0)
+        {
+            poly.count = 0;
+            return poly;
+        }
+
+        // 把 temp 拷回 vertices
+        vCount = newCount;
+        for (uint k = 0; k < vCount; ++k)
+        {
+            vertices[k] = temp[k];
+        }
+
+        greater = !greater;
+    }
+
+    if (vCount > 3)
+    {
+        vCount = removeAdjacentRepeatPoints(vertices, vCount);
+    }
+
+    for (uint i = 0; i < vCount; ++i)
+    {
+        poly.add(vertices[i]);
+    }
+    return poly;
+}

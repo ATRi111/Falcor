@@ -37,7 +37,8 @@ target_sources(Voxelization PRIVATE
 
     VoxelizationPass_GPU.cpp
     VoxelizationPass_GPU.h
-    Voxelization.cs.slang
+    ClipMesh.cs.slang
+    AnalyzePolygon.cs.slang
     SamplePolygon.cs.slang
 
     RayMarchingPass.cpp

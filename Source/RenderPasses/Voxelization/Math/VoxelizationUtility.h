@@ -175,34 +175,4 @@ public:
         polygon.init(vertices);
         return polygon;
     }
-
-    static SphericalHarmonics SampleProjectArea(std::vector<Polygon>& polygonsInVoxel,int3 cellInt, uint times)
-    {
-        SphericalHarmonics SH = {};
-        SH.init();
-        float3 cellCenter = float3(cellInt) + 0.5f;
-        float weight = 4.f * PI / times / 2;
-        for (uint i = 0; i < times; i++)
-        {
-            float3 direction = sample_sphere(Random::Next2());
-            Basis2 basis = orthonormal_basis(direction);
-            SamplingRay ray = rayToVoxel(Random::Next2(), direction, basis, cellCenter);
-            bool hit = false;
-            for (size_t j = 0; j < polygonsInVoxel.size(); j++)
-            {
-                if (polygonsInVoxel[j].intersectRay(ray.origin, ray.direction))
-                {
-                    hit = true;
-                    break;
-                }
-            }
-            if (hit)
-            {
-                SH.accumulate(direction); //一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
-                SH.accumulate(-direction);//正反方向的采样结果总是相同
-            }
-        }
-        SH.mul((float)PROJECT_CIRCLE_AREA * weight);
-        return SH;
-    }
 };

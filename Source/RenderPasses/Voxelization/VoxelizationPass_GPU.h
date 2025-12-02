@@ -40,15 +40,18 @@ public:
 
     VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props);
 
-    virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
     virtual void voxelize(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void sample(RenderContext* pRenderContext, const RenderData& renderData) override;
 private:
     uint maxSolidVoxelCount;
-    ref<ComputePass> mVoxelizationPass;
+    ref<ComputePass> mClipPass;
+    ref<ComputePass> mAnalyzePass;
 
     ref<SampleGenerator> mpSampleGenerator;
     ref<Sampler> mpSampler;
+
+    ref<Buffer> vBuffer;
+    ref<Buffer> cpuVBuffer;
 };

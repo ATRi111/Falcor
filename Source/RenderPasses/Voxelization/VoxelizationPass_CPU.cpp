@@ -129,8 +129,9 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
     polygonBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonInVoxel), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
     gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gridData.solidVoxelCount * sizeof(VoxelData));
     polygonBuffer->setBlob(meshSampler.polygonBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonInVoxel));
-
     pVBuffer_CPU = meshSampler.vBuffer.data();
+
+    mpDevice->wait();
 }
 
 void VoxelizationPass_CPU::sample(RenderContext* pRenderContext, const RenderData& renderData)

@@ -322,7 +322,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
                 color += shadingDirect(hit, offset, -direction, scene.lights[i]);
             }
             float3 indirectColor = 0;
-            float3 sampleDirection = sample_sphere(Next2(sg));
+            float3 sampleDirection = sampleSphere(Next2(sg));
             HitResult subHit = rayMarching(hit.cell, sampleDirection, true);
             if (subHit.hit)
             {

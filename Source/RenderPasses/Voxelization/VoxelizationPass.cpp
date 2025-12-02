@@ -49,9 +49,6 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
 
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
 
-    Sampler::Desc samplerDesc;
-    samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
-        .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
     mpDevice = pDevice;
 }
 
@@ -84,8 +81,7 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
         }
         else
         {
-            size_t gBufferBytes = gridData.solidVoxelCount * sizeof(VoxelData);
-            ref<Buffer> cpuGBuffer = mpDevice->createBuffer(gBufferBytes, ResourceBindFlags::None, MemoryType::ReadBack);
+            ref<Buffer> cpuGBuffer = mpDevice->createBuffer(gBuffer->getSize(), ResourceBindFlags::None, MemoryType::ReadBack);
             pRenderContext->copyResource(cpuGBuffer.get(), gBuffer.get());
             mpDevice->wait();
             void* pGBuffer_CPU = cpuGBuffer->map();
@@ -187,7 +183,7 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     {
         ShaderVar var = mSamplePolygonPass->getRootVar();
         var[kGBuffer] = gBuffer;
-        var["polygonBuffer"] = polygonBuffer;
+        var[kPolygonBuffer] = polygonBuffer;
 
         auto cb = var["CB"];
         cb["solidVoxelCount"] = (uint)gridData.solidVoxelCount;

@@ -1,8 +1,8 @@
 #include "VoxelizationShared.slang"
 #include "Voxel/VoxelGrid.slang"
-#include "Math/Ellipsoid.slang"
 #include "Math/Triangle.slang"
 #include "Math/Polygon.slang"
+#include "Math/VoxelizationUtility.slang"
 #include "Scene/VertexAttrib.slangh"
 
 import Scene.SceneTypes;
@@ -13,7 +13,7 @@ import Rendering.Materials.TexLODHelpers;
 import Scene.Material.BasicMaterialData;
 
 ParameterBlock<Scene> scene;
-RWTexture3D<int> vBuffer;
+RWStructuredBuffer<int> vBuffer;
 RWStructuredBuffer<VoxelData> gBuffer;
 RWStructuredBuffer<PolygonInVoxel> polygonBuffer;
 RWStructuredBuffer<uint> gBufferLock;
@@ -25,7 +25,6 @@ cbuffer GridData
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
-    uint sampleFrequency;
 };
 
 cbuffer MeshData
@@ -51,7 +50,7 @@ int tryGetOffset(int3 cellInt)
         InterlockedCompareExchange(solidVoxelCount[1], 1u, 0u, old);
     }
 #endif
-    if(vBuffer[index] == -1)
+    if (vBuffer[index] == -1)
     {
         // 分配全局唯一的 offset
         uint offset;
@@ -71,9 +70,6 @@ int tryGetOffset(int3 cellInt)
 
 void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
 {
-    if (polygon.count < 3)
-        return;
-
     MaterialSystem ms = scene.materials;
     MaterialType type = ms.getMaterialType(materialID);
 
@@ -85,7 +81,7 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
     }
     float area = 0;
     float2 center = 0;
-    for (size_t i = 0; i < polygon.count; ++i)
+    for (uint i = 0; i < polygon.count; ++i)
     {
         float2 a = uvs[i];
         float2 b = uvs[(i + 1) % polygon.count];
@@ -99,7 +95,7 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
 
     float3 baseColor = ms.sampleTexture(data.texBaseColor, s, center, data.baseColor, lod).rgb;
     float4 spec = ms.sampleTexture(data.texSpecular, s, center, data.specular, lod); // G - Roughness; B - Metallic
-    float3 normal = ms.sampleTexture(data.texNormalMap, s, center, data.specular, lod);
+    float3 normal = ms.sampleTexture(data.texNormalMap, s, center, data.specular, lod).rgb;
     normal = calcShadingNormal(tri.TBN, normal);
     
     if (normal.y < 0)
@@ -122,14 +118,23 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
 #endif
 }
 
-void clipTriangle(Triangle triangle)
+void clipTriangle(Triangle tri)
 {
-    //TODO
+    AABBInt aabb = tri.calcAABBInt();
+    for (int i = 0; i < aabb.count(); i++)
+    {
+        int3 cellInt = aabb.indexToCell(i);
+        float3 minPoint = float3(cellInt);
+        Polygon polygon = boxClipTriangle(minPoint, minPoint + 1.f, tri); // 多边形与三角形顶点顺序一致
+
+        polygon.normal = float3(tri.TBN[0][2], tri.TBN[1][2], tri.TBN[2][2]); // 几何法线
+        if (polygon.count >= 3)
+            sampleArea(tri, polygon, cellInt);
+    }
 }
 
 void voxelizeTriangle(uint triangleId)
 {
-    // 实际启动的线程数是线程组大小的整数倍，因此此语句必不可少
     if (triangleId >= triangleCount)
         return;
     
@@ -152,7 +157,5 @@ void voxelizeTriangle(uint triangleId)
 [numthreads(256, 1, 1)]
 void main(uint3 tid: SV_DispatchThreadID)
 {
-    if (tid.x == 0)
-        solidVoxelCount[0] = 0;
     voxelizeTriangle(tid.x);
 }
