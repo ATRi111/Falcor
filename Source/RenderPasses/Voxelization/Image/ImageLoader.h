@@ -15,6 +15,7 @@ class ImageLoader
 private:
     std::unordered_map<TextureType, std::string> typeToName;
     std::unordered_map<uint, std::string> idToPath_Arcade;
+    std::unordered_map<uint, std::string> idToPath_Box;
     std::unordered_map<uint, std::string>* pIdToPath;
 
     std::unordered_map<std::string, Image*> imageCache;

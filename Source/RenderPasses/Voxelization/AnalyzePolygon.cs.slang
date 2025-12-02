@@ -25,6 +25,7 @@ void analyze(uint offset)
         {
             points[count] = polygon.vertices[j];    //不检查容量
         }
+        count++;
     }
     gBuffer[offset].ellipsoid.fit(points, count, polygonBuffer[offset].cellMin);
     gBuffer[offset].ABSDF.normalizeSelf();

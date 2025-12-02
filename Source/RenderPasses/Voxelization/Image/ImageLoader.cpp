@@ -12,13 +12,21 @@ ImageLoader::ImageLoader()
     }
 
     {
-        std::string folder = "E:/Project/Falcor/media/Arcade/Textures/";
+        std::string folder = "E:/Project/Falcor/Scene/Arcade/Textures/";
         idToPath_Arcade[0] = folder + "Wall";
         idToPath_Arcade[1] = folder + "CheckerTile";
         idToPath_Arcade[2] = folder + "Poster";
         idToPath_Arcade[3] = folder + "Chair_Orange";
         idToPath_Arcade[4] = folder + "Chair_Blue";
         idToPath_Arcade[5] = folder + "Cabinet";
+    }
+
+    {
+        std::string folder = "E:/Project/Falcor/Scene/Box/Textures/";
+        idToPath_Box[0] = folder + "Floor";
+        idToPath_Box[1] = folder + "LeftWall";
+        idToPath_Box[2] = folder + "RightWall";
+        idToPath_Box[3] = folder + "Bunny";
     }
 }
 
@@ -82,6 +90,8 @@ void ImageLoader::setSceneName(std::string sceneName)
 {
     if (sceneName == "Arcade")
         pIdToPath = &idToPath_Arcade;
+    else if (sceneName == "Box")
+        pIdToPath = &idToPath_Box;
     else
         pIdToPath = nullptr;
 }

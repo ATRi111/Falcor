@@ -84,7 +84,7 @@ public:
         }
 
         float3 baseColor = currentBaseColor ? currentBaseColor->SampleArea(uvs).xyz() : float3(0.5f);
-        float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0, 0, 0);
+        float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0.5f, 0, 0);
         float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
         normal = calcShadingNormal(tri.TBN, normal);
         if (normal.y < 0)
