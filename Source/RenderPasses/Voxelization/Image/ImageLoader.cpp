@@ -26,7 +26,14 @@ ImageLoader::ImageLoader()
         idToPath_Box[0] = folder + "Floor";
         idToPath_Box[1] = folder + "LeftWall";
         idToPath_Box[2] = folder + "RightWall";
-        idToPath_Box[3] = folder + "Bunny";
+    }
+
+    {
+        std::string folder = "E:/Project/Falcor/Scene/BoxBunny/Textures/";
+        idToPath_BoxBunny[0] = folder + "Floor";
+        idToPath_BoxBunny[1] = folder + "LeftWall";
+        idToPath_BoxBunny[2] = folder + "RightWall";
+        idToPath_BoxBunny[3] = folder + "Bunny";
     }
 }
 
@@ -92,6 +99,8 @@ void ImageLoader::setSceneName(std::string sceneName)
         pIdToPath = &idToPath_Arcade;
     else if (sceneName == "Box")
         pIdToPath = &idToPath_Box;
+    else if (sceneName == "BoxBunny")
+        pIdToPath = &idToPath_BoxBunny;
     else
         pIdToPath = nullptr;
 }

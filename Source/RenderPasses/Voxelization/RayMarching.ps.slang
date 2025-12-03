@@ -188,7 +188,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
 {
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
-    float area = ABSDF.area; // area必然大于0
+    float area = ABSDF.area;
     float3 specular = ABSDF.specular;
     float3 diffuse = ABSDF.diffuse / PI * (1 - fresnel(v, normalize(v + l), specular));
     float roughness = ABSDF.roughness;
