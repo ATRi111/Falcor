@@ -179,24 +179,20 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
         defines.add(mpScene->getSceneDefines());
         mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
-    if (!mSamplingComplete)
-    {
-        ShaderVar var = mSamplePolygonPass->getRootVar();
-        var[kGBuffer] = gBuffer;
-        var[kPolygonBuffer] = polygonBuffer;
+    ShaderVar var = mSamplePolygonPass->getRootVar();
+    var[kGBuffer] = gBuffer;
+    var[kPolygonBuffer] = polygonBuffer;
 
-        auto cb = var["CB"];
-        cb["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
-        cb["sampleFrequency"] = mSampleFrequency;
-        cb["completeTimes"] = mCompleteTimes;
-        cb["repeatTimes"] = mRepeatTimes;
+    auto cb = var["CB"];
+    cb["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
+    cb["sampleFrequency"] = mSampleFrequency;
+    cb["completeTimes"] = mCompleteTimes;
+    cb["repeatTimes"] = mRepeatTimes;
 
-        Tools::Profiler::BeginSample("Sample Polygons");
-        mSamplePolygonPass->execute(pRenderContext, uint3((uint)gridData.solidVoxelCount, 1, 1));
-        mpDevice->wait();
-        Tools::Profiler::EndSample("Sample Polygons");
-        mCompleteTimes++;
-    }
+    Tools::Profiler::BeginSample("Sample Polygons");
+    mSamplePolygonPass->execute(pRenderContext, uint3((uint)gridData.solidVoxelCount, 1, 1));
+    mpDevice->wait();
+    Tools::Profiler::EndSample("Sample Polygons");
 }
 
 std::string VoxelizationPass::getFileName()
