@@ -4,6 +4,57 @@
 
 #define MAX_VERTEX_COUNT_PROCESSING 12
 
+inline float3x3 rotateMatrix(float cosAngle, float3 axis)
+{
+    float c = cosAngle;
+    float s = sqrt(1 - cosAngle * cosAngle);    //默认角度小于180°
+
+    float3 temp = (1 - c) * axis;
+
+    float3x3 rotate;
+    rotate[0][0] = c + temp[0] * axis[0];
+    rotate[0][1] = temp[1] * axis[0] - s * axis[2];
+    rotate[0][2] = temp[2] * axis[0] + s * axis[1];
+
+    rotate[1][0] = temp[0] * axis[1] + s * axis[2];
+    rotate[1][1] = c + temp[1] * axis[1];
+    rotate[1][2] = temp[2] * axis[1] - s * axis[0];
+
+    rotate[2][0] = temp[0] * axis[2] - s * axis[1];
+    rotate[2][1] = temp[1] * axis[2] + s * axis[0];
+    rotate[2][2] = c + temp[2] * axis[2];
+
+    return rotate;
+}
+
+inline float3x3 rotateMatrix(float3 from, float3 to)
+{
+    float3 f = normalize(from);
+    float3 t = normalize(to);
+
+    float cosAngle = dot(f, t);
+    float3 axis = cross(f, t);
+    float s = length(axis);
+
+    if (s < 1e-6f)  //几乎共线
+    {
+        if (cosAngle > 0.0f)
+        {
+            return float3x3(1.0f, 0, 0, 0, 1.0f, 0, 0, 0, 1.0f);
+        }
+        else
+        {
+            float3 ortho = (abs(f.x) < 0.9f) ? float3(1, 0, 0) : float3(0, 1, 0);
+            float3 axis180 = normalize(cross(f, ortho));
+            return rotateMatrix(-1.0f, axis180);
+        }
+    }
+
+    axis /= s;
+    return rotateMatrix(cosAngle, axis);
+}
+
+
 inline float3 intersectAxisPlane(float3 S, float3 E, int axis, float bound)
 {
     float s = S[axis];

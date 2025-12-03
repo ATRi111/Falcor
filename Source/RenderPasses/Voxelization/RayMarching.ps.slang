@@ -3,6 +3,7 @@
 #include "VoxelizationShared.slang"
 #include "Math/Sampling.slang"
 #include "Math/Random.slang"
+#include "Math/VoxelizationUtility.slang"
 import Scene.SceneTypes;
 import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
@@ -188,8 +189,8 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
     float area = ABSDF.area; // area必然大于0
-    float3 diffuse = ABSDF.diffuse;
     float3 specular = ABSDF.specular;
+    float3 diffuse = ABSDF.diffuse / PI * (1 - fresnel(v, normalize(v + l), specular));
     float roughness = ABSDF.roughness;
     NDF NDF = ABSDF.NDF;
 
@@ -203,7 +204,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
         result = diffuseColor + specularColor;
         break;
     case ABSDFDrawMode::Normal:
-        return NDF.getAverageNormal(l) * 0.5 + 0.5;
+        return NDF.getAverageNormal(l + v) * 0.5 + 0.5;
     case ABSDFDrawMode::Diffuse:
         result = diffuseColor;
         break;
@@ -326,18 +327,24 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
                 color += shadingDirect(hit, offset, -direction, scene.lights[i]);
             }
             float3 indirectColor = 0;
-            float3 sampleDirection = sampleSphere(Next2(sg));
+            float pdf = 1;
+            float3 sampleDirection = sample_cosine_hemisphere_concentric(Next2(sg), pdf);
+            float3 normal = gBuffer[offset].ABSDF.NDF.getAverageNormal(-direction);
+            float3x3 rotate = rotateMatrix(float3(0, 0, 1), normal);
+            sampleDirection = mul(rotate, sampleDirection);
             HitResult subHit = rayMarching(hit.cell, sampleDirection, -1, true);
             if (subHit.hit)
             {
                 int subOffset = vBuffer[subHit.cellInt];
                 float3 subLightColor = 0;
+                
                 for (uint i = 0; i < scene.lightCount; i++)
                 {
                     subLightColor += shadingDirect(subHit, subOffset, -sampleDirection, scene.lights[i]);
                 }
                 subLightColor *= calcCoverage(subHit, subOffset, -sampleDirection); // 采样线命中图元的条件下，命中整体的概率
-                indirectColor = shading(offset, -direction, sampleDirection, subLightColor);
+                float pdf = 0.25 / PI;
+                indirectColor = shading(offset, -direction, sampleDirection, subLightColor) / pdf;
             }
             switch(illuminateMode)
             {
