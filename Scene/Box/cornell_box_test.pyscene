@@ -108,6 +108,6 @@ camera.focalLength = 35.0
 sceneBuilder.addCamera(camera)
 
 pointLight = PointLight('Point light')
-pointLight.intensity = float3(0.5, 0.5, 0.5)
-pointLight.position = float3(0, 0.549, 0)
+pointLight.intensity = float3(0.2, 0.2, 0.2)
+pointLight.position = float3(0, 0.54, 0)
 sceneBuilder.addLight(pointLight)

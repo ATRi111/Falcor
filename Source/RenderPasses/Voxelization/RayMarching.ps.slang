@@ -88,7 +88,7 @@ HitResult checkEllipsoid(Ellipsoid ellipsoid, float3 cell, float3 direction, int
 }
 
 // 统一用网格坐标表示
-HitResult rayMarching(float3 from, float3 direction, bool ignoreFirst)
+HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ignoreFirst )
 {
     float3 cell = from;
     int3 cellInt = int3(floor(from));
@@ -104,8 +104,10 @@ HitResult rayMarching(float3 from, float3 direction, bool ignoreFirst)
     {
         if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
             break;
+        if (maxDistance > 0 && length(cell - from) > maxDistance)   //负数表示不限制距离
+            break;
         int offset = vBuffer[cellInt];
-        if (offset != -1)
+        if (offset != -1 && gBuffer[offset].ABSDF.area > 0) //理论上不会出现面积为0的情况
         {
 #if !CHECK_ELLIPSOID
             HitResult hit = { true, cellInt, cellInt + 0.5f };
@@ -132,10 +134,10 @@ float3 screenCoordToCell(float2 screenCoord, float NDCDepth)
     return cell;
 }
 
-float calcVisibility(HitResult hit, float3 direction)
+float calcVisibility(HitResult hit, float3 direction, float maxDistance)
 {
     float3 from = hit.cell + visibilityBias * direction;
-    hit = rayMarching(from, direction, true);
+    hit = rayMarching(from, direction, maxDistance, true);
     return hit.hit ? 0.f : 1.f;
 }
 
@@ -212,7 +214,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
         result = cosTerm;
         break;
     default:
-        break;
+        break; 
     }
     return result / area;
 }
@@ -222,11 +224,13 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
     float3 lightColor = 0;
+    float maxDistance = -1;
 
     switch (light.type)
     {
     case LightType::Point:
         l = normalize(light.posW - posW);
+        maxDistance = length((light.posW - posW) / voxelSize);
         break;
     case LightType::Directional:
         l = -light.dirW;
@@ -234,7 +238,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
     }
 
 #if CHECK_VISIBILITY
-    float visibility = calcVisibility(hit, l);
+    float visibility = calcVisibility(hit, l, maxDistance);
 #else
     float visibility = 1.f;
 #endif
@@ -299,7 +303,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     float3 v = to - from;
     float3 direction = normalize(v); // 网格/世界空间下的方向相同
     from = from + inOut.x * v;
-    HitResult hit = rayMarching(from, direction, true);
+    HitResult hit = rayMarching(from, direction, -1, true);
 
     float transmittance = 1;
     float times = 10;
@@ -323,7 +327,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
             }
             float3 indirectColor = 0;
             float3 sampleDirection = sampleSphere(Next2(sg));
-            HitResult subHit = rayMarching(hit.cell, sampleDirection, true);
+            HitResult subHit = rayMarching(hit.cell, sampleDirection, -1, true);
             if (subHit.hit)
             {
                 int subOffset = vBuffer[subHit.cellInt];
@@ -355,7 +359,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 
         if (transmittance > transmittanceThreshould)
         {
-            hit = rayMarching(hit.cell, direction, true);
+            hit = rayMarching(hit.cell, direction, -1, true);
         }
         else
         {
