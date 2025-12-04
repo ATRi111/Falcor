@@ -164,13 +164,12 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
     float area = ABSDF.area;
-    float3 specular = ABSDF.specular;
-    float3 diffuse = ABSDF.diffuse / PI * (1 - fresnel(v, normalize(v + l), specular));
+    float3 specular = ABSDF.specular;   //(半程向量和法线重合时的)菲涅尔反射率
+    float3 diffuse = ABSDF.diffuse;     //兰伯特反射率
     float roughness = ABSDF.roughness;
     NDF NDF = ABSDF.NDF;
 
-    float cosTerm = NDF.weightedDot(l, v);
-    float3 diffuseColor = lightColor * diffuse * cosTerm;
+    float3 diffuseColor = lightColor * lambertian(NDF, l, v, diffuse, specular, roughness);
     float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular, roughness);
     float3 result = 0;
     switch (drawMode)
@@ -185,9 +184,6 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
         break;
     case ABSDFDrawMode::Specular:
         result = specularColor;
-        break;
-    case ABSDFDrawMode::Flat:
-        result = cosTerm;
         break;
     default:
         break; 
@@ -345,12 +341,9 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         float3 color = 0;
         float coverage = 1;
         uint offset = vBuffer[hit.cellInt];
-        uint bounce = maxBounce;
         switch (drawMode)
         {
-        case ABSDFDrawMode::Flat:
         case ABSDFDrawMode::Normal:
-            bounce = 0;
         case ABSDFDrawMode::Default:
         case ABSDFDrawMode::Diffuse:
         case ABSDFDrawMode::Specular:
