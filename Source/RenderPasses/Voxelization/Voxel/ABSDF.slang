@@ -166,22 +166,6 @@ FALCOR_ENUM_INFO(
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);
 
-enum class IlluminateMode : uint32_t
-{
-    Global,
-    Direct,
-    Indirect,
-};
-FALCOR_ENUM_INFO(
-    IlluminateMode,
-    {
-    { IlluminateMode::Global, "Global" },
-    { IlluminateMode::Direct, "Direct" },
-    { IlluminateMode::Indirect, "Indirect" },
-    }
-);
-FALCOR_ENUM_REGISTER(IlluminateMode);
-
 inline float3 valueToColor(float value)
 {
     if (value <= 1)

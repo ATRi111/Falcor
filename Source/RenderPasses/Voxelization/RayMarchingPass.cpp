@@ -45,7 +45,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
     mCheckEllipsoid = true;
     mCheckVisibility = true;
     mDrawMode = 0;
-    mIlluminateMode = 0;
+    mMaxBounce = 1;
 
     mOptionsChanged = false;
     mFrameIndex = 0;
@@ -90,7 +90,6 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mOptionsChanged = false;
     }
 
-
     if (mUpdateScene)
     {
         ProgramDesc desc;
@@ -126,7 +125,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     cb["visibilityBias"] = mVisibilityBias;
     cb["drawMode"] = mDrawMode;
-    cb["illuminateMode"] = mIlluminateMode;
+    cb["maxBounce"] = mMaxBounce;
     cb["frameIndex"] = mFrameIndex;
     cb["transmittanceThreshould"] = mTransmittanceThreshould;
     mFrameIndex++;
@@ -150,7 +149,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
         mOptionsChanged = true;
-    if (widget.dropdown("Illuminate Mode", reinterpret_cast<IlluminateMode&>(mIlluminateMode)))
+    if (widget.slider("Max Bounce", mMaxBounce, 0u, 10u))
         mOptionsChanged = true;
 }
 

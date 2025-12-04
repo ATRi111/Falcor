@@ -59,4 +59,5 @@ private:
     uint selectedFile;
 
     bool mComplete;
+    bool mOptionsChanged;
 };

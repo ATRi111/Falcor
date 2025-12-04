@@ -13,7 +13,7 @@ StructuredBuffer<PolygonInVoxel> polygonBuffer;
 
 void analyze(uint offset)
 {
-    if (offset >= solidVoxelCount)
+    if (offset >= solidVoxelCount || gBuffer[offset].ABSDF.area <= 0)
         return;
     float3[MAX_FIT_POINT_COUNT] points;
     int count = 0;

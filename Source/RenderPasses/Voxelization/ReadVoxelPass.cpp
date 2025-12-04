@@ -26,6 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 **************************************************************************/
 #include "ReadVoxelPass.h"
+#include "RenderGraph/RenderPassStandardFlags.h"
 
 namespace
 {
@@ -66,6 +67,14 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
 {
     if (mComplete)
         return;
+
+    auto& dict = renderData.getDictionary();
+    if (mOptionsChanged)
+    {
+        auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
+        dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
+        mOptionsChanged = false;
+    }
 
     size_t voxelCount = gridData.totalVoxelCount();
 
@@ -128,6 +137,7 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 
         requestRecompile();
         mComplete = false;
+        mOptionsChanged = true;
     }
 
     GridData& data = VoxelizationBase::GlobalGridData;

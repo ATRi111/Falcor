@@ -20,6 +20,15 @@ struct VoxelData
         primitiveProjAreaFunc.init();
         polygonsProjAreaFunc.init();
     }
+
+    float calcCoverage(float3 v)
+    {
+        float primitiveProjArea = primitiveProjAreaFunc.calc(v);
+        if (primitiveProjArea <= 0)
+            return 1;
+        float polygonsProjArea = polygonsProjAreaFunc.calc(v);
+        return saturate(polygonsProjArea / primitiveProjArea);
+    }
 };
 
 END_NAMESPACE_FALCOR

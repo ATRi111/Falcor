@@ -9,6 +9,8 @@ import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
 import Utils.Sampling.UniformSampleGenerator;
 
+#define MAX_BOUNCE 10
+
 ParameterBlock<Scene> scene;
 Texture3D<int> vBuffer;
 StructuredBuffer<VoxelData> gBuffer;
@@ -27,9 +29,10 @@ cbuffer CB
     float4x4 invVP;
     float visibilityBias;
     uint drawMode;
-    uint illuminateMode;
+    uint maxBounce;
     uint frameIndex;
     float transmittanceThreshould;
+    float4 clearColor;
 }
 
 struct HitResult
@@ -44,32 +47,14 @@ struct PsOut
     float4 color : SV_Target0;
 };
 
-void leave(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
+bool isSolidVoxel(int3 cellInt, out int offset)
 {
-    float3 border = cellInt + (directions + 1) / 2;
-    float3 t = (border - cell) * reciprocal_direction;
-    float tMin = 2.0f;
-    int3 selectedDirection = 0;
-    if (direction.x != 0 && t.x < tMin)
-    {
-        tMin = t.x;
-        selectedDirection = int3(directions.x, 0, 0);
-    }
-    if (direction.y != 0 && t.y < tMin)
-    {
-        tMin = t.y;
-        selectedDirection = int3(0, directions.y, 0);
-    }
-    if (direction.z != 0 && t.z < tMin)
-    {
-        tMin = t.z;
-        selectedDirection = int3(0, 0, directions.z);
-    }
-    cell += tMin * direction;
-    cellInt += selectedDirection;
+    offset = vBuffer[cellInt];
+    return offset >= 0 && gBuffer[offset].ABSDF.area > 0;
 }
 
-HitResult checkEllipsoid(Ellipsoid ellipsoid, float3 cell, float3 direction, int3 cellInt)
+//先后用体素和椭球裁剪线段
+HitResult checkPrimitive(Ellipsoid ellipsoid, float3 cell, float3 direction, int3 cellInt)
 {
     float3 from = cell - cellInt;
     int3 directions = int3(sign(direction));
@@ -107,15 +92,15 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
             break;
         if (maxDistance > 0 && length(cell - from) > maxDistance)   //负数表示不限制距离
             break;
-        int offset = vBuffer[cellInt];
-        if (offset != -1 && gBuffer[offset].ABSDF.area > 0) //理论上不会出现面积为0的情况
+        int offset;
+        if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
         {
 #if !CHECK_ELLIPSOID
             HitResult hit = { true, cellInt, cellInt + 0.5f };
             return hit;
 #else
             Ellipsoid ellipsoid = gBuffer[offset].ellipsoid;
-            HitResult hit = checkEllipsoid(ellipsoid, cell, direction, cellInt);
+            HitResult hit = checkPrimitive(ellipsoid, cell, direction, cellInt);
             if (hit.hit)
                 return hit;
 #endif
@@ -172,16 +157,6 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
         break;
     }
     return valueToColor(result);
-}
-
-float calcCoverage(HitResult hit, uint offset, float3 v)
-{
-    VoxelData voxelData = gBuffer[offset];
-    float primitiveProjArea = voxelData.primitiveProjAreaFunc.calc(v);
-    if (primitiveProjArea <= 0)
-        return 1;
-    float polygonsProjArea = voxelData.polygonsProjAreaFunc.calc(v);
-    return saturate(polygonsProjArea / primitiveProjArea);
 }
 
 float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
@@ -278,6 +253,62 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
     return visibility * color;
 }
 
+float3 shadingDirect(HitResult hit, uint offset, float3 v)
+{
+    float3 directColor = 0;
+    for (uint i = 0; i < scene.lightCount; i++)
+    {
+        directColor += shadingDirect(hit, offset, v, scene.lights[i]);
+    }
+    return directColor;
+}
+
+float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGenerator sg)
+{
+    // 当前图元的命中率由外部计算；作为间接光源的图元的命中率由此函数计算
+    // 非递归版本，先计算所有命中点，再倒回来统计
+    HitResult[MAX_BOUNCE + 1] hits;
+    float3[MAX_BOUNCE + 1] sampleDirections; // 第i个采样方向即第i个体素指向第i+1个体素的方向
+    float[MAX_BOUNCE + 1] pdfs;              // 第i个pdf即第i+1个体素对第i个体素的贡献权重
+    uint hitCount = 1;
+    hits[0] = hit;
+    for (int i = 0; i < bounce; i++)
+    {
+        sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]);
+        uint offset = vBuffer[hits[i].cellInt];
+        float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
+        float3 normal = gBuffer[offset].ABSDF.NDF.getAverageNormal(currentV);
+        float3x3 rotate = rotateMatrix(float3(0, 0, 1), normal);
+        sampleDirections[i] = mul(rotate, sampleDirections[i]);
+        hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
+        if (!hits[i + 1].hit)
+        {
+            hitCount = i + 1;
+            break;
+        }
+        else
+            hitCount = i + 2;
+    }
+
+    float3 reflectLights[MAX_BOUNCE + 1];
+    for (int i = hitCount - 1; i >= 0; i--)
+    {
+        reflectLights[i] = 0;
+        HitResult currentHit = hits[i];
+        uint currentOffset = vBuffer[currentHit.cellInt];
+        float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
+        reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV);
+        if (i < hitCount - 1 && pdfs[i] > 0)
+        {
+            HitResult nextHit = hits[i + 1];
+            uint nextOffset = vBuffer[nextHit.cellInt];
+            float3 incidentLight = gBuffer[nextOffset].calcCoverage(sampleDirections[i]) * reflectLights[i + 1];
+            reflectLights[i] += shading(currentOffset, currentV, sampleDirections[i], incidentLight) / pdfs[i];
+        }
+    }
+    return reflectLights[0];
+}
+
 float2 randomJitter(inout UniformSampleGenerator sg)
 {
     float2 jitter = Next2(sg) - 0.5f;
@@ -298,12 +329,12 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     float2 inOut = clip(float3(0), float3(voxelCount), from, to);
     if (inOut.x < 0)
     {
-        psOut.color = float4(1, 0, 1, 1);
+        psOut.color = clearColor;
         return psOut;
     }
-    float3 v = to - from;
-    float3 direction = normalize(v); // 网格/世界空间下的方向相同
-    from = from + inOut.x * v;
+    float3 delta = to - from;
+    float3 direction = normalize(delta); // 网格/世界空间下的方向相同
+    from = from + inOut.x * delta;
     HitResult hit = rayMarching(from, direction, -1, true);
 
     float transmittance = 1;
@@ -314,47 +345,17 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         float3 color = 0;
         float coverage = 1;
         uint offset = vBuffer[hit.cellInt];
+        uint bounce = maxBounce;
         switch (drawMode)
         {
+        case ABSDFDrawMode::Flat:
+        case ABSDFDrawMode::Normal:
+            bounce = 0;
         case ABSDFDrawMode::Default:
         case ABSDFDrawMode::Diffuse:
         case ABSDFDrawMode::Specular:
-        case ABSDFDrawMode::Flat:
-        case ABSDFDrawMode::Normal:
-            coverage = calcCoverage(hit, offset, direction);    //采样线命中图元的条件下，命中整体的概率
-            for (uint i = 0; i < scene.lightCount; i++)
-            {
-                color += shadingDirect(hit, offset, -direction, scene.lights[i]);
-            }
-            float3 indirectColor = 0;
-            float pdf = 1;
-            float3 sampleDirection = sample_cosine_hemisphere_concentric(Next2(sg), pdf);
-            float3 normal = gBuffer[offset].ABSDF.NDF.getAverageNormal(-direction);
-            float3x3 rotate = rotateMatrix(float3(0, 0, 1), normal);
-            sampleDirection = mul(rotate, sampleDirection);
-            HitResult subHit = rayMarching(hit.cell, sampleDirection, -1, true);
-            if (subHit.hit)
-            {
-                int subOffset = vBuffer[subHit.cellInt];
-                float3 subLightColor = 0;
-                
-                for (uint i = 0; i < scene.lightCount; i++)
-                {
-                    subLightColor += shadingDirect(subHit, subOffset, -sampleDirection, scene.lights[i]);
-                }
-                subLightColor *= calcCoverage(subHit, subOffset, -sampleDirection); // 采样线命中图元的条件下，命中整体的概率
-                float pdf = 0.25 / PI;
-                indirectColor = shading(offset, -direction, sampleDirection, subLightColor) / pdf;
-            }
-            switch(illuminateMode)
-            {
-            case IlluminateMode::Global:
-                color += indirectColor;
-                break;
-            case IlluminateMode::Indirect:
-                color = indirectColor;
-                break;
-            }
+            coverage = gBuffer[offset].calcCoverage(direction); // 采样线命中图元的条件下，命中整体的概率
+            color = shadingGlobal(hit, -direction, maxBounce, sg);
             break;
         default:
             color = debugShading(hit, offset, -direction);
@@ -365,18 +366,14 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         transmittance -= k;
 
         if (transmittance > transmittanceThreshould)
-        {
             hit = rayMarching(hit.cell, direction, -1, true);
-        }
         else
-        {
             break;
-        }
     }
 
     if (psOut.color.w > 0)
         psOut.color /= psOut.color.w;
     else
-        psOut.color = float4(1, 0, 1, 1);
+        psOut.color = clearColor;
     return psOut;
 }

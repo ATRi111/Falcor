@@ -30,4 +30,32 @@ inline int3 IndexToCell(int index, uint3 size)
     return int3(x, y, z);
 }
 
+#if !defined(HOST_CODE)
+//DDA
+inline void leave(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
+{
+    float3 border = cellInt + (directions + 1) / 2;
+    float3 t = (border - cell) * reciprocal_direction;
+    float tMin = 2.0f;
+    int3 selectedDirection = 0;
+    if (direction.x != 0 && t.x < tMin)
+    {
+        tMin = t.x;
+        selectedDirection = int3(directions.x, 0, 0);
+    }
+    if (direction.y != 0 && t.y < tMin)
+    {
+        tMin = t.y;
+        selectedDirection = int3(0, directions.y, 0);
+    }
+    if (direction.z != 0 && t.z < tMin)
+    {
+        tMin = t.z;
+        selectedDirection = int3(0, 0, directions.z);
+    }
+    cell += tMin * direction;
+    cellInt += selectedDirection;
+}
+#endif
+
 END_NAMESPACE_FALCOR
