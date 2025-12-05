@@ -144,7 +144,7 @@ struct PolygonInVoxel
         float weight = 4.f * PI / times / 2;
         for (uint i = 0; i < times; i++)
         {
-            float3 direction = sample_sphere(Next2(sg));
+            float3 direction = sampleSphere(Next2(sg));
             Basis2 basis = orthonormal_basis(direction);
             SamplingRay ray = rayToVoxel(Next2(sg), direction, basis, cellCenter);
             bool hit = false;

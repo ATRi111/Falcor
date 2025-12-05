@@ -59,6 +59,11 @@ struct AABBInt
             zMin + zLocal
         );
     }
+
+    int cellToIndex(int3 cell)
+    {
+        return (cell.z - zMin) * deltaXY + (cell.y - yMin) * deltaX + (cell.x - xMin);
+    }
 };
 
 inline float2 intersect(float p1, float p2, float p0, float q)

@@ -90,8 +90,8 @@ struct ABSDFInput
 
 struct ABSDF
 {
-    float3 diffuse;
-    float3 specular;
+    float3 diffuse;     //兰伯特反射率
+    float3 specular;    //光线入射和出射方向相同时的菲涅尔反射率
     NDF NDF;
     float roughness;
     float area;
