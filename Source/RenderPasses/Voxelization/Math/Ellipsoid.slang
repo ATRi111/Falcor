@@ -47,82 +47,70 @@ struct Ellipsoid
 #endif
     {
         float3 sum = float3(0);
-        int n = 0;
         float totalArea = 0.0f;
 
         center = piv.calcCentroid(totalArea);
+        if (totalArea <= 0.0f)
+        {
+            B = zeros();
+            center = float3(0);
+            return;
+        }
 
         float3x3 cov = zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
-         for (uint pi = 0; pi < piv.count; ++pi)
+
+        for (uint pi = 0; pi < piv.count; ++pi)
         {
-             Polygon poly = piv.polygons[pi];
-             for (uint i = 0; i < poly.count; ++i)
-             {
-                 float3 v = poly.vertices[i] - center;
-                 cov[0][0] += v.x * v.x;
-                 cov[0][1] += v.x * v.y;
-                 cov[0][2] += v.x * v.z;
-                 cov[1][0] += v.y * v.x;
-                 cov[1][1] += v.y * v.y;
-                 cov[1][2] += v.y * v.z;
-                 cov[2][0] += v.z * v.x;
-                 cov[2][1] += v.z * v.y;
-                 cov[2][2] += v.z * v.z;
-                 n++;
-             }
-         }
-         cov = cov * (1.f / n);
+            Polygon poly = piv.polygons[pi];
 
-        //float3x3 M2 = zeros();
-        //for (uint pi = 0; pi < piv.count; ++pi)
-        //{
-        //    Polygon poly = piv.polygons[pi];
-        //    float3 v0 = poly.vertices[0];
-        //    for (uint i = 1; i + 1 < poly.count; ++i)
-        //    {
-        //        float3 a = v0;
-        //        float3 b = poly.vertices[i];
-        //        float3 c = poly.vertices[i + 1];
+            float3 v0 = poly.vertices[0];
+            for (uint i = 1; i + 1 < poly.count; ++i)
+            {
+                float3 a = v0;
+                float3 b = poly.vertices[i];
+                float3 c = poly.vertices[i + 1];
 
-        //        float3 ab = b - a;
-        //        float3 ac = c - a;
-        //        float3 s = cross(ab, ac);
-        //        float area = sqrt(dot(s, s)) * 0.5f;
-        //        if (area <= 0.0f)
-        //            continue;
+                // 面积还是用原坐标算（平移不影响）
+                float3 ab = b - a;
+                float3 ac = c - a;
+                float3 s = cross(ab, ac);
+                float area = sqrt(dot(s, s)) * 0.5f;
+                if (area <= 0)
+                    continue;
 
-        //        // 对三角形 T(a,b,c) 有解析公式：
-        //        // ∫_T x x^T dA = area / 12 * ( (a+b+c)(a+b+c)^T + (aa^T + bb^T + cc^T) )
-        //        float3 S1 = a + b + c;
+                // 在局部坐标系下计算
+                float3 a0 = a - center;
+                float3 b0 = b - center;
+                float3 c0 = c - center;
 
-        //        float ax = a.x, ay = a.y, az = a.z;
-        //        float bx = b.x, by = b.y, bz = b.z;
-        //        float cx = c.x, cy = c.y, cz = c.z;
+                // 对三角形 T(a0,b0,c0) 有解析公式：
+                // ∫_T y y^T dA = area / 12 * ( (a0+b0+c0)(a0+b0+c0)^T + a0 a0^T + b0 b0^T + c0 c0^T )
+                float3 S1 = a0 + b0 + c0;
 
-        //        float sx = S1.x, sy = S1.y, sz = S1.z;
+                float ax = a0.x, ay = a0.y, az = a0.z;
+                float bx = b0.x, by = b0.y, bz = b0.z;
+                float cx = c0.x, cy = c0.y, cz = c0.z;
 
-        //        float w = area / 12.0f;
+                float sx = S1.x, sy = S1.y, sz = S1.z;
 
-        //        // M2 += w * (S1*S1^T + a*a^T + b*b^T + c*c^T)，逐元素写出来
-        //        M2[0][0] += w * (sx * sx + ax * ax + bx * bx + cx * cx);
-        //        M2[0][1] += w * (sx * sy + ax * ay + bx * by + cx * cy);
-        //        M2[0][2] += w * (sx * sz + ax * az + bx * bz + cx * cz);
+                float w = area / 12.0f;
 
-        //        M2[1][0] += w * (sy * sx + ay * ax + by * bx + cy * cx);
-        //        M2[1][1] += w * (sy * sy + ay * ay + by * by + cy * cy);
-        //        M2[1][2] += w * (sy * sz + ay * az + by * bz + cy * cz);
+                // cov += w * (S1*S1^T + a0*a0^T + b0*b0^T + c0*c0^T)
+                cov[0][0] += w * (sx * sx + ax * ax + bx * bx + cx * cx);
+                cov[0][1] += w * (sx * sy + ax * ay + bx * by + cx * cy);
+                cov[0][2] += w * (sx * sz + ax * az + bx * bz + cx * cz);
 
-        //        M2[2][0] += w * (sz * sx + az * ax + bz * bx + cz * cx);
-        //        M2[2][1] += w * (sz * sy + az * ay + bz * by + cz * cy);
-        //        M2[2][2] += w * (sz * sz + az * az + bz * bz + cz * cz);
-        //    }
-        //}
+                cov[1][0] += w * (sy * sx + ay * ax + by * bx + cy * cx);
+                cov[1][1] += w * (sy * sy + ay * ay + by * by + cy * cy);
+                cov[1][2] += w * (sy * sz + ay * az + by * bz + cy * cz);
 
+                cov[2][0] += w * (sz * sx + az * ax + bz * bx + cz * cx);
+                cov[2][1] += w * (sz * sy + az * ay + bz * by + cz * cy);
+                cov[2][2] += w * (sz * sz + az * az + bz * bz + cz * cz);
+            }
+        }
 
-        //// 3. 得到协方差：cov = E[x x^T] - μ μ^T
-        //float invArea = 1.0f / totalArea;
-        //float3x3 cov = M2 * invArea;
-        //cov = sub(cov, mulT(center, center));
+        cov = cov * (1.0f / totalArea);
 
         cov = (transpose(cov) + cov) * 0.5f;
         // 避免出现奇异矩阵
