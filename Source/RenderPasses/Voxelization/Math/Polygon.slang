@@ -57,6 +57,40 @@ struct Polygon
         }
         return sqrt(dot(s,s)) / 2;
     }
+#if defined(HOST_CODE)
+    float3 calcCentroid(float &totalArea) const
+#else
+    float3 calcCentroid(out float totalArea)
+#endif
+    {
+        // 用顶点0做三角扇分解
+        float3 v0 = vertices[0];
+        float3 sum = float3(0);
+        totalArea = 0;
+
+        for (uint i = 1; i + 1 < count; ++i)
+        {
+            float3 a = v0;
+            float3 b = vertices[i];
+            float3 c = vertices[i + 1];
+
+            float3 ab = b - a;
+            float3 ac = c - a;
+            float3 s = cross(ab, ac);
+            float area = sqrt(dot(s, s)) * 0.5f;
+            if (area <= 0.0f)
+                continue;
+
+            float3 triCenter = (a + b + c) / 3.0f;
+            sum += triCenter * area;
+            totalArea += area;
+        }
+
+        if (totalArea <= 0)
+            return v0;
+
+        return sum / totalArea;
+    }
 
     MUTATING
     void add(float3 point)
@@ -125,6 +159,29 @@ struct PolygonInVoxel
                 return true;
         }
         return false;
+    }
+
+#if defined(HOST_CODE)
+    float3 calcCentroid(float &totalArea) const
+#else
+    float3 calcCentroid(out float totalArea)
+#endif
+    {
+        float3 sum = float3(0);
+        totalArea = 0;
+
+        for (uint i = 0; i < count; ++i)
+        {
+            float area;
+            float3 c = polygons[i].calcCentroid(area);
+            sum += c * area;
+            totalArea += area;
+        }
+
+        if (totalArea <= 0)
+            return cellMin + float3(0.5f);
+
+        return sum / totalArea;
     }
 
 #if defined(HOST_CODE)

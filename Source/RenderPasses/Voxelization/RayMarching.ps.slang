@@ -147,6 +147,8 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
     case ABSDFDrawMode::TotalArea:
         result = ABSDF.area;
         break;
+    case ABSDFDrawMode::EllipsoidCenter:
+        return e.center;
     case ABSDFDrawMode::PolygonsProjArea:
         result = polygonsProjAreaFunc.calc(v);
         break;

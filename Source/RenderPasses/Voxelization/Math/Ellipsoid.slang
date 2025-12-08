@@ -40,37 +40,89 @@ struct Ellipsoid
     float3x3 B;    // x^T B x <=1
 
 #if defined(HOST_CODE)
-    void fit(std::vector<float3> &points, float3 cellMin)
+    void fit(const PolygonInVoxel& piv)
 #else
     [mutating]
-    void fit(float3[MAX_FIT_POINT_COUNT] points, uint n, float3 cellMin)
+    void fit(PolygonInVoxel piv)
 #endif
     {
         float3 sum = float3(0);
-#if defined(HOST_CODE)
-        uint n = points.size();
-#endif
-        for (uint i = 0; i < n; i++)
-        {
-            sum += points[i];
-        }
-        center = sum / (float)n;
-        // 二次方程
+        int n = 0;
+        float totalArea = 0.0f;
+
+        center = piv.calcCentroid(totalArea);
+
         float3x3 cov = zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
-        for (uint i = 0; i < n; i++)
+         for (uint pi = 0; pi < piv.count; ++pi)
         {
-            float3 v = points[i] - center;
-            cov[0][0] += v.x * v.x;
-            cov[0][1] += v.x * v.y;
-            cov[0][2] += v.x * v.z;
-            cov[1][0] += v.y * v.x;
-            cov[1][1] += v.y * v.y;
-            cov[1][2] += v.y * v.z;
-            cov[2][0] += v.z * v.x;
-            cov[2][1] += v.z * v.y;
-            cov[2][2] += v.z * v.z;
-        }
-        cov = cov * (1.f / n);
+             Polygon poly = piv.polygons[pi];
+             for (uint i = 0; i < poly.count; ++i)
+             {
+                 float3 v = poly.vertices[i] - center;
+                 cov[0][0] += v.x * v.x;
+                 cov[0][1] += v.x * v.y;
+                 cov[0][2] += v.x * v.z;
+                 cov[1][0] += v.y * v.x;
+                 cov[1][1] += v.y * v.y;
+                 cov[1][2] += v.y * v.z;
+                 cov[2][0] += v.z * v.x;
+                 cov[2][1] += v.z * v.y;
+                 cov[2][2] += v.z * v.z;
+                 n++;
+             }
+         }
+         cov = cov * (1.f / n);
+
+        //float3x3 M2 = zeros();
+        //for (uint pi = 0; pi < piv.count; ++pi)
+        //{
+        //    Polygon poly = piv.polygons[pi];
+        //    float3 v0 = poly.vertices[0];
+        //    for (uint i = 1; i + 1 < poly.count; ++i)
+        //    {
+        //        float3 a = v0;
+        //        float3 b = poly.vertices[i];
+        //        float3 c = poly.vertices[i + 1];
+
+        //        float3 ab = b - a;
+        //        float3 ac = c - a;
+        //        float3 s = cross(ab, ac);
+        //        float area = sqrt(dot(s, s)) * 0.5f;
+        //        if (area <= 0.0f)
+        //            continue;
+
+        //        // 对三角形 T(a,b,c) 有解析公式：
+        //        // ∫_T x x^T dA = area / 12 * ( (a+b+c)(a+b+c)^T + (aa^T + bb^T + cc^T) )
+        //        float3 S1 = a + b + c;
+
+        //        float ax = a.x, ay = a.y, az = a.z;
+        //        float bx = b.x, by = b.y, bz = b.z;
+        //        float cx = c.x, cy = c.y, cz = c.z;
+
+        //        float sx = S1.x, sy = S1.y, sz = S1.z;
+
+        //        float w = area / 12.0f;
+
+        //        // M2 += w * (S1*S1^T + a*a^T + b*b^T + c*c^T)，逐元素写出来
+        //        M2[0][0] += w * (sx * sx + ax * ax + bx * bx + cx * cx);
+        //        M2[0][1] += w * (sx * sy + ax * ay + bx * by + cx * cy);
+        //        M2[0][2] += w * (sx * sz + ax * az + bx * bz + cx * cz);
+
+        //        M2[1][0] += w * (sy * sx + ay * ax + by * bx + cy * cx);
+        //        M2[1][1] += w * (sy * sy + ay * ay + by * by + cy * cy);
+        //        M2[1][2] += w * (sy * sz + ay * az + by * bz + cy * cz);
+
+        //        M2[2][0] += w * (sz * sx + az * ax + bz * bx + cz * cx);
+        //        M2[2][1] += w * (sz * sy + az * ay + bz * by + cz * cy);
+        //        M2[2][2] += w * (sz * sz + az * az + bz * bz + cz * cz);
+        //    }
+        //}
+
+
+        //// 3. 得到协方差：cov = E[x x^T] - μ μ^T
+        //float invArea = 1.0f / totalArea;
+        //float3x3 cov = M2 * invArea;
+        //cov = sub(cov, mulT(center, center));
 
         cov = (transpose(cov) + cov) * 0.5f;
         // 避免出现奇异矩阵
@@ -82,14 +134,18 @@ struct Ellipsoid
 
         float3x3 inv = inverse(cov);
         float maxDot = 1e-12f;
-        for (uint i = 0; i < n; i++)
+        for (uint pi = 0; pi < piv.count; ++pi)
         {
-            float3 v = points[i] - center;
-            float temp = dot(v, mul(inv, v));
-            maxDot = max(maxDot, temp);
+            Polygon poly = piv.polygons[pi];
+            for (uint i = 0; i < poly.count; ++i)
+            {
+                float3 v = poly.vertices[i] - center;
+                float temp = dot(v, mul(inv, v));
+                maxDot = max(maxDot, temp);
+            }
         }
         B = inv * (1.0f / maxDot);
-        center -= cellMin;
+        center -= piv.cellMin;
     }
 
     float2 clip(float3 from, float3 to)

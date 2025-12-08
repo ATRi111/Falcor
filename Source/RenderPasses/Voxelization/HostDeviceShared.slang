@@ -75,6 +75,13 @@ inline float3x3 add(float3x3 a, float3x3 b)
 #endif
 }
 
+inline float3x3 sub(float3x3 a, float3x3 b)
+{
+    return make3x3(a[0][0] - b[0][0], a[0][1] - b[0][1], a[0][2] - b[0][2],
+                    a[1][0] - b[1][0], a[1][1] - b[1][1], a[1][2] - b[1][2],
+                    a[2][0] - b[2][0], a[2][1] - b[2][1], a[2][2] - b[2][2]);
+}
+
 inline float3x3 mul(float k, float3x3 a)
 {
     return make3x3(k * a[0][0], k * a[0][1], k * a[0][2],

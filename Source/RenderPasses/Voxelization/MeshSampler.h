@@ -68,9 +68,6 @@ public:
 
     void sampleArea(Triangle& tri, Polygon& polygon, int3 cellInt)
     {
-        if (polygon.count < 3)
-            return;
-
         Tools::Profiler::BeginSample("Sample Texture");
         int offset = tryGetOffset(cellInt);
 
@@ -153,19 +150,19 @@ public:
         for (uint i = 0; i < gBuffer.size(); i++)
         {
             Tools::Profiler::BeginSample("Fit Ellipsoid");
-            points.clear();
-            polygonBuffer[i].addTo(points);
-            QuickHull<float> qh;
-            ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-6f);
-            VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
-            points.clear();
-            for (uint j = 0; j < vertexBuffer.size(); j++)
-            {
-                Vector3<float> p = vertexBuffer[j];
-                points.emplace_back(p.x, p.y, p.z);
-            };
-            VoxelizationUtility::RemoveRepeatPoints(points);
-            gBuffer[i].ellipsoid.fit(points, polygonBuffer[i].cellMin);
+            //points.clear();
+            //polygonBuffer[i].addTo(points);
+            //QuickHull<float> qh;
+            //ConvexHull<float> hull = qh.getConvexHull(reinterpret_cast<float*>(points.data()), points.size(), true, false, 1e-6f);
+            //VertexDataSource<float> vertexBuffer = hull.getVertexBuffer();
+            //points.clear();
+            //for (uint j = 0; j < vertexBuffer.size(); j++)
+            //{
+            //    Vector3<float> p = vertexBuffer[j];
+            //    points.emplace_back(p.x, p.y, p.z);
+            //};
+            //VoxelizationUtility::RemoveRepeatPoints(points);
+            gBuffer[i].ellipsoid.fit(polygonBuffer[i]);
             Tools::Profiler::EndSample("Fit Ellipsoid");
 
             gBuffer[i].ABSDF.normalizeSelf();
