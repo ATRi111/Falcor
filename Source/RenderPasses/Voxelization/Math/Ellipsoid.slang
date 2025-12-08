@@ -1,6 +1,7 @@
 #pragma once
 #include "../HostDeviceShared.slang"
 #include "Projection.slang"
+#include "Polygon.slang"
 #if !defined(HOST_CODE)
 import Utils.Math.MathHelpers;
 #endif

@@ -141,6 +141,9 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
     case ABSDFDrawMode::EllipsoidProjArea:
         result = e.projectArea(v) / PI * 2;
         break;
+    case ABSDFDrawMode::Roughness:
+        result = ABSDF.roughness;
+        break;
     case ABSDFDrawMode::TotalArea:
         result = ABSDF.area;
         break;
