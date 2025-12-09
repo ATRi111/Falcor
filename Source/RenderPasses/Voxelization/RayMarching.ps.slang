@@ -169,8 +169,8 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
     float area = ABSDF.area;
-    float3 specular = ABSDF.specular;   //(半程向量和法线重合时的)菲涅尔反射率
-    float3 diffuse = ABSDF.diffuse;     //兰伯特反射率
+    float3 specular = ABSDF.specular;
+    float3 diffuse = ABSDF.diffuse;
     float roughness = ABSDF.roughness;
     NDF NDF = ABSDF.NDF;
 
@@ -352,7 +352,9 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         case ABSDFDrawMode::Default:
         case ABSDFDrawMode::Diffuse:
         case ABSDFDrawMode::Specular:
+#if CHECK_COVERAGE
             coverage = gBuffer[offset].calcCoverage(direction); // 采样线命中图元的条件下，命中整体的概率
+#endif
             color = shadingGlobal(hit, -direction, maxBounce, sg);
             break;
         default:

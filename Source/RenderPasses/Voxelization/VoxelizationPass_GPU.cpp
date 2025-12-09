@@ -119,7 +119,7 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     }
     mpDevice->wait();
 
-    ref<Buffer> cpuSolidVoxelCount = mpDevice->createBuffer(2 * sizeof(uint), ResourceBindFlags::None, MemoryType::ReadBack);
+    ref<Buffer> cpuSolidVoxelCount = mpDevice->createStructuredBuffer(sizeof(uint), 2, ResourceBindFlags::None, MemoryType::ReadBack);
     cpuVBuffer = mpDevice->createBuffer(gridData.totalVoxelCount() * sizeof(int), ResourceBindFlags::None, MemoryType::ReadBack);
     pRenderContext->copyResource(cpuSolidVoxelCount.get(), solidVoxelCount.get());
     pRenderContext->copyResource(cpuVBuffer.get(), vBuffer.get());
@@ -127,7 +127,6 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     uint* p = reinterpret_cast<uint*>(cpuSolidVoxelCount->map());
     pVBuffer_CPU = cpuVBuffer->map();
     gridData.solidVoxelCount = p[0];
-    cpuSolidVoxelCount->unmap();
 
     var = mAnalyzePass->getRootVar();
     var[kGBuffer] = gBuffer;
@@ -137,6 +136,7 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     mAnalyzePass->execute(pRenderContext, uint3(p[0], 1, 1));
 
     mpDevice->wait();
+    cpuSolidVoxelCount->unmap();
 }
 
 void VoxelizationPass_GPU::sample(RenderContext* pRenderContext, const RenderData& renderData)

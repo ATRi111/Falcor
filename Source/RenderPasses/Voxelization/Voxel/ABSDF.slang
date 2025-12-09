@@ -39,7 +39,8 @@ struct NDF
     {
         for (uint i = 0; i < LOBE_COUNT; i++)
         {
-            weightedNormals[i] = float4(normalize(weightedNormals[i].xyz), weightedNormals[i].w);
+            if (weightedNormals[i].w > 0)
+                weightedNormals[i] = float4(normalize(weightedNormals[i].xyz), weightedNormals[i].w);
         }
     }
 

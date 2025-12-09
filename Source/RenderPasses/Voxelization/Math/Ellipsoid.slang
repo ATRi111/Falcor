@@ -70,7 +70,6 @@ struct Ellipsoid
                 float3 b = poly.vertices[i];
                 float3 c = poly.vertices[i + 1];
 
-                // 面积还是用原坐标算（平移不影响）
                 float3 ab = b - a;
                 float3 ac = c - a;
                 float3 s = cross(ab, ac);
