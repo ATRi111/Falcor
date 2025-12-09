@@ -48,6 +48,25 @@ inline float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec, flo
     }
     return sum; // 未归一化，已经带有余弦项
 }
+//可视化法线分布时，要渲染的点在球面上的方向充当h即可
+inline float weightedGGX(NDF NDF, float3 h, float rough)
+{
+    float sum = 0;
+    for (int i = 0; i < LOBE_COUNT; i++)
+    {
+        float w = NDF.weightedNormals[i].w;
+        if (w > 0)
+        {
+            float3 n = NDF.weightedNormals[i].xyz;
+
+            float cosTerm = dot(n, h);
+            if (cosTerm < 0)
+                n = -n;
+            sum += ggx(n, h, rough) * w;
+        }
+    }
+    return sum; // 未归一化
+}
 
 inline float3 lambertian(NDF NDF, float3 l, float3 v, float3 diffuse, float3 spec, float rough)
 {

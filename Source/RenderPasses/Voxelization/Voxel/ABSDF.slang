@@ -25,25 +25,25 @@ struct NDF
         }
     }
 
+    MUTATING
+    void normalizeSelf()
+    {
+        for (uint i = 0; i < LOBE_COUNT; i++)
+        {
 #if defined(HOST_CODE)
-    void normalizeSelf()
-    {
-        for (uint i = 0; i < LOBE_COUNT; i++)
-        {
-            weightedNormals[i] = float4(normalize(weightedNormals[i].xyz()), weightedNormals[i].w);
-        }
-    }
+            float3 n = weightedNormals[i].xyz();
 #else
-    [mutating]
-    void normalizeSelf()
-    {
-        for (uint i = 0; i < LOBE_COUNT; i++)
-        {
-            if (weightedNormals[i].w > 0)
-                weightedNormals[i] = float4(normalize(weightedNormals[i].xyz), weightedNormals[i].w);
+            float3 n = weightedNormals[i].xyz;
+#endif
+            float l = length(n);
+            if (l > 0)
+                weightedNormals[i] = float4(n / l, weightedNormals[i].w);
+            else
+                weightedNormals[i] = float4(0);
         }
     }
 
+#if !defined(HOST_CODE)
     float3 getAverageNormal(float3 direction)
     {
         float3 sum = 0;
@@ -54,10 +54,29 @@ struct NDF
             {
                 float3 n = weightedNormals[i].xyz;
                 float cosTerm = dot(n, direction);
-                sum += sign(cosTerm) * n * w;   //夹角大于90°的法线，系数小于0，负负得正
+                sum += sign(cosTerm) * n * w; // 夹角大于90°的法线，系数小于0，负负得正
             }
         }
         return normalize(sum);
+    }
+
+    //返回与所给方向夹角不超过90°且权重最大的法线
+    float3 getMainNormal(float3 direction)
+    {
+        float3 n = 0;
+        float maxWeight = 0;
+        for (int i = 0; i < LOBE_COUNT; i++)
+        {
+            float w = weightedNormals[i].w;
+            if (w > maxWeight)
+            {
+                n = weightedNormals[i].xyz;
+                float cosTerm = dot(n, direction);
+                if (cosTerm < 0)
+                    n = -n;
+            }
+        }
+        return n;
     }
 
     float weightedDot(float3 l, float3 v)   //v不影响漫反射强度,但影响受光面的判断

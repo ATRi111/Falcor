@@ -57,12 +57,12 @@ private:
     uint mMaxBounce;
     float mVisibilityBias;
     float mTransmittanceThreshould;
-    bool mUpdateScene;
     bool mCheckEllipsoid;
     bool mCheckVisibility;
     bool mCheckCoverage;
     bool mDebug;
 
+    bool mDisplayNDF;
     float2 mSelectedUV;
     uint2 mSelectedPixel;
 

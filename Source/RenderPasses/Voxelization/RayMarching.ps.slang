@@ -185,7 +185,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
         result = diffuseColor + specularColor;
         break;
     case ABSDFDrawMode::Normal:
-        return NDF.getAverageNormal(l + v) * 0.5 + 0.5;
+        return NDF.getMainNormal(v) * 0.5 + 0.5;
     case ABSDFDrawMode::Diffuse:
         result = diffuseColor;
         break;
@@ -344,7 +344,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         if(hit.hit)
         {
             int offset = vBuffer[hit.cellInt];
-            selectedVoxel[0] = float4(direction, offset);
+            selectedVoxel[0] = float4(-direction, (float)offset);
         }
         else
         {
