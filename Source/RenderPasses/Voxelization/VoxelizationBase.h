@@ -24,7 +24,13 @@ inline std::string ToString(float3 v)
     oss << "(" << v.x << ", " << v.y << ", " << v.z << ")";
     return oss.str();
 }
-inline std::string ToString(uint3 v)
+inline std::string ToString(int2 v)
+{
+    std::ostringstream oss;
+    oss << "(" << v.x << ", " << v.y << ")";
+    return oss.str();
+}
+inline std::string ToString(int3 v)
 {
     std::ostringstream oss;
     oss << "(" << v.x << ", " << v.y << ", " << v.z << ")";

@@ -44,11 +44,13 @@ public:
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
-
+    virtual bool onMouseEvent(const MouseEvent& mouseEvent) override;
 private:
     ref<Scene> mpScene;
     ref<FullScreenPass> mpFullScreenPass;
+    ref<FullScreenPass> mpDisplayNDFPass;
     ref<Sampler> mpPointSampler;
+    ref<Buffer> mSelectedVoxel;
 
     GridData& gridData;
     uint mDrawMode;
@@ -60,6 +62,9 @@ private:
     bool mCheckVisibility;
     bool mCheckCoverage;
     bool mDebug;
+
+    float2 mSelectedUV;
+    uint2 mSelectedPixel;
 
     bool mOptionsChanged;
     uint mFrameIndex;

@@ -14,6 +14,7 @@ import Utils.Sampling.UniformSampleGenerator;
 ParameterBlock<Scene> scene;
 Texture3D<int> vBuffer;
 StructuredBuffer<VoxelData> gBuffer;
+RWStructuredBuffer<float4> selectedVoxel;
 
 cbuffer GridData
 {
@@ -33,6 +34,7 @@ cbuffer CB
     uint frameIndex;
     float transmittanceThreshould;
     float4 clearColor;
+    uint2 selectedPixel;
 }
 
 struct HitResult
@@ -337,6 +339,18 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     float3 direction = normalize(delta); // 网格/世界空间下的方向相同
     from = from + inOut.x * delta;
     HitResult hit = rayMarching(from, direction, -1, true);
+    if (all(pixel == selectedPixel))
+    {
+        if(hit.hit)
+        {
+            int offset = vBuffer[hit.cellInt];
+            selectedVoxel[0] = float4(direction, offset);
+        }
+        else
+        {
+            selectedVoxel[0] = float4(-1);
+        }
+    }
 
     float transmittance = 1;
     float times = 10;

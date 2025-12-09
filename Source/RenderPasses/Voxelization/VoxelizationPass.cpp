@@ -200,7 +200,7 @@ std::string VoxelizationPass::getFileName()
     std::ostringstream oss;
     oss << mSceneName;
     oss << "_";
-    oss << ToString(gridData.voxelCount);
+    oss << ToString((int3)gridData.voxelCount);
     oss << "_";
     oss << std::to_string(mSampleFrequency);
     oss << "_";
