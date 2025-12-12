@@ -27,34 +27,6 @@ inline float3x3 rotateMatrix(float cosAngle, float3 axis)
     return rotate;
 }
 
-inline float3x3 rotateMatrix(float3 from, float3 to)
-{
-    float3 f = normalize(from);
-    float3 t = normalize(to);
-
-    float cosAngle = dot(f, t);
-    float3 axis = cross(f, t);
-    float s = length(axis);
-
-    if (s < 1e-6f)  //几乎共线
-    {
-        if (cosAngle > 0.0f)
-        {
-            return float3x3(1.0f, 0, 0, 0, 1.0f, 0, 0, 0, 1.0f);
-        }
-        else
-        {
-            float3 ortho = (abs(f.x) < 0.9f) ? float3(1, 0, 0) : float3(0, 1, 0);
-            float3 axis180 = normalize(cross(f, ortho));
-            return rotateMatrix(-1.0f, axis180);
-        }
-    }
-
-    axis /= s;
-    return rotateMatrix(cosAngle, axis);
-}
-
-
 inline float3 intersectAxisPlane(float3 S, float3 E, int axis, float bound)
 {
     float s = S[axis];

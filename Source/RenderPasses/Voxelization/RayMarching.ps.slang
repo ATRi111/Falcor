@@ -285,14 +285,16 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     {
         uint offset = vBuffer[hits[i].cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
-        float coverage = gBuffer[offset].calcCoverage(currentV); // 采样线命中图元的条件下，命中整体的概率
-        if (coverage >= 1 - minTransmitionPdf)  //避免出现极小的pdf
+        float coverage = gBuffer[offset].calcCoverage(currentV);
+        if (coverage >= 1 - minTransmitionPdf)
+            coverage = 1;
+        ABSDF ABSDF = gBuffer[offset].ABSDF;
+        NDF NDF = ABSDF.NDF;
+        if (coverage == 1 || Next(sg) <= (double)coverage)
         {
-            sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
-        }
-        else if (Next(sg) <= (double)coverage)
-        {
-            sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
+            float randomArea = (float)Next(sg) * ABSDF.area;
+            uint lobeIndex = NDF.getRandomLobe(randomArea);
+            sampleDirections[i] = importanceSampling(NDF.weightedNormals[lobeIndex].xyz, currentV, ABSDF.specular, NDF.roughness[lobeIndex], Next2(sg), (float)Next(sg), pdfs[i]); // 反射
             pdfs[i] *= coverage;
         }
         else
@@ -300,11 +302,29 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
             sampleDirections[i] = currentV; // 透射
             pdfs[i] = 1 - coverage;
         }
+        // uint offset = vBuffer[hits[i].cellInt];
+        //float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
+        //float coverage = gBuffer[offset].calcCoverage(currentV); // 采样线命中图元的条件下，命中整体的概率
+        //if (coverage >= 1 - minTransmitionPdf)  //避免出现极小的pdf
+        //{
+        //    sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
+        //}
+        //else if (Next(sg) <= (double)coverage)
+        //{
+        //    sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
+        //    pdfs[i] *= coverage;
+        //}
+        //else
+        //{
+        //    sampleDirections[i] = currentV; // 透射
+        //    pdfs[i] = 1 - coverage;
+        //}
         
 
         float3 normal = gBuffer[offset].ABSDF.NDF.getAverageNormal(currentV);
         float3x3 rotate = rotateMatrix(float3(0, 0, 1), normal);
         sampleDirections[i] = mul(rotate, sampleDirections[i]);
+        
         hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
         if (!hits[i + 1].hit)
         {

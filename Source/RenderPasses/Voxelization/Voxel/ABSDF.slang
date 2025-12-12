@@ -123,6 +123,19 @@ struct NDF
         }
         return sum; // 未归一化
     }
+
+    uint getRandomLobe(float randomArea)
+    {
+        for (uint i = 0; i < LOBE_COUNT; i++)
+        {
+            if (weightedNormals[i].w <= 0)
+                continue;
+            randomArea -= weightedNormals[i].w;
+            if (randomArea <= 0)
+                return i;
+        }
+        return LOBE_COUNT - 1;
+    }
 #endif
 };
 

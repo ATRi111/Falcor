@@ -1,5 +1,6 @@
 #pragma once
 #include "ABSDF.slang"
+import Utils.Math.MathHelpers;
 
 const static float Pi = 3.14159265359;
 
@@ -72,4 +73,56 @@ inline float3 lambertian(NDF NDF, float3 l, float3 v, float3 diffuse, float3 spe
 {
     float cosTerm = NDF.weightedDot(l, v);
     return diffuse / Pi * (1 - fresnel(v, normalize(v + l), spec)) * cosTerm;
+}
+
+inline float3x3 rotateMatrix(float3 from, float3 to)
+{
+    float3 f = normalize(from);
+    float3 t = normalize(to);
+
+    float cosAngle = dot(f, t);
+    float3 axis = cross(f, t);
+    float s = length(axis);
+
+    if (s < 1e-6f) // 几乎共线
+    {
+        if (cosAngle > 0.0f)
+        {
+            return float3x3(1.0f, 0, 0, 0, 1.0f, 0, 0, 0, 1.0f);
+        }
+        else
+        {
+            float3 ortho = (abs(f.x) < 0.9f) ? float3(1, 0, 0) : float3(0, 1, 0);
+            float3 axis180 = normalize(cross(f, ortho));
+            return rotateMatrix(-1.0f, axis180);
+        }
+    }
+
+    axis /= s;
+    return rotateMatrix(cosAngle, axis);
+}
+inline float3 importanceSampling(float3 n, float3 v, float3 spec, float roughness, float2 uDir, float uEnergy, out float pdf)
+{
+    float averageFresnel = (20.0f * (spec.x + spec.y + spec.z) / 3.0f + 1.0f) / 21.0f;
+    float3x3 rot = rotateMatrix(float3(0, 0, 1), n);
+    float3 l;
+    if (uEnergy <= averageFresnel)
+    {
+        //根据镜面反射选择采样方向
+        float r2 = roughness * roughness;
+        float phi = 2.0 * Pi * uDir.x;
+        float cosTheta = sqrt((1.0 - uDir.y) / (1.0 + (r2 - 1.0) * uDir.y));
+        float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+        float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+        h = mul(rot, h);
+        l = reflect(-v, h);
+        pdf = ggx(n, h, roughness) * dot(n, h) / (4.0 * max(1e-6, dot(l, h)));
+    }
+    else
+    {
+        //根据漫反射选择采样方向
+        l = sample_cosine_hemisphere_concentric(uDir, pdf);
+        l = mul(rot, l);
+    }
+    return l;
 }
