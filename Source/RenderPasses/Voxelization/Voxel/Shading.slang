@@ -28,7 +28,7 @@ float3 cookTorrence(float3 l, float3 v, float3 h, float3 n, float3 spec, float r
     return specColor;
 }
 
-inline float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec, float rough)
+inline float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec)
 {
     float3 sum = 0;
     float3 h = normalize(l + v);
@@ -43,13 +43,13 @@ inline float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec, flo
                 n = -n;
             if (dot(n, v) <= 0)
                 continue;
-            sum += cookTorrence(l, v, h, n, spec, rough) * w;
+            sum += cookTorrence(l, v, h, n, spec, NDF.roughness[i]) * w;
         }
     }
     return sum; // 未归一化，已经带有余弦项
 }
 //可视化法线分布时，要渲染的点在球面上的方向充当h即可
-inline float weightedGGX(NDF NDF, float3 h, float rough)
+inline float weightedGGX(NDF NDF, float3 h)
 {
     float sum = 0;
     for (int i = 0; i < LOBE_COUNT; i++)
@@ -62,13 +62,13 @@ inline float weightedGGX(NDF NDF, float3 h, float rough)
             float cosTerm = dot(n, h);
             if (cosTerm < 0)
                 n = -n;
-            sum += ggx(n, h, rough) * w;
+            sum += ggx(n, h, NDF.roughness[i]) * w;
         }
     }
     return sum; // 未归一化
 }
 
-inline float3 lambertian(NDF NDF, float3 l, float3 v, float3 diffuse, float3 spec, float rough)
+inline float3 lambertian(NDF NDF, float3 l, float3 v, float3 diffuse, float3 spec)
 {
     float cosTerm = NDF.weightedDot(l, v);
     return diffuse / Pi * (1 - fresnel(v, normalize(v + l), spec)) * cosTerm;

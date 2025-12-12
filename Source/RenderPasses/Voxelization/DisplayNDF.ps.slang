@@ -30,7 +30,6 @@ float3 pdfToColor(float pdf, float maxPdf)
 float3 calcColor(float2 localCoord, int offset, float3 v)
 {
     NDF NDF = gBuffer[offset].ABSDF.NDF;
-    float rough = gBuffer[offset].ABSDF.roughness;
     float area = gBuffer[offset].ABSDF.area;
     // float3 n = NDF.getMainNormal(v);
     float3x3 rotMatrix = rotateMatrix(v, float3(0, 0, 1));
@@ -39,8 +38,8 @@ float3 calcColor(float2 localCoord, int offset, float3 v)
     //中心对称，显示背面没有意义
     float3 direction = float3(localCoord.x, localCoord.y, z);
     direction = mul(rotMatrix, direction);
-    float pdf = weightedGGX(NDF, direction, rough) / area;
-    rough = 0.5f;
+    float pdf = weightedGGX(NDF, direction) / area;
+    float rough = 0.5f; //参考值
     float maxPdf = 1.0 / (Pi * rough * rough);
     return pdfToColor(pdf, maxPdf);
 }

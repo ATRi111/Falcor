@@ -15,6 +15,7 @@ inline uint NormalIndex(float3 n)
 struct NDF
 {
     float4 weightedNormals[LOBE_COUNT];
+    float roughness[LOBE_COUNT];
 
     MUTATING
     void init()
@@ -22,6 +23,7 @@ struct NDF
         for (int i = 0; i < LOBE_COUNT; i++)
         {
             weightedNormals[i] = float4(0);
+            roughness[i] = 0;
         }
     }
 
@@ -40,6 +42,11 @@ struct NDF
                 weightedNormals[i] = float4(n / l, weightedNormals[i].w);
             else
                 weightedNormals[i] = float4(0);
+
+            if (weightedNormals[i].w > 0)
+                roughness[i] /= weightedNormals[i].w;
+            else
+                roughness[i] = 0;
         }
     }
 
@@ -60,7 +67,7 @@ struct NDF
         return normalize(sum);
     }
 
-    //返回与所给方向夹角不超过90°且权重最大的法线
+    // 返回与所给方向夹角不超过90°且权重最大的法线
     float3 getMainNormal(float3 direction)
     {
         float3 n = 0;
@@ -78,6 +85,24 @@ struct NDF
             }
         }
         return n;
+    }
+
+    float getAverageRoughness()
+    {
+        float sumRoughness = 0;
+        float sumWeight = 0;
+        for (int i = 0; i < LOBE_COUNT; i++)
+        {
+            float w = weightedNormals[i].w;
+            if (w > 0)
+            {
+                sumRoughness += roughness[i] * w;
+                sumWeight += w;
+            }
+        }
+        if (sumWeight > 0)
+            return sumRoughness / sumWeight;
+        return 0;
     }
 
     float weightedDot(float3 l, float3 v)   //v不影响漫反射强度,但影响受光面的判断
@@ -114,7 +139,6 @@ struct ABSDF
     float3 diffuse;     //兰伯特反射率
     float3 specular;    //光线入射和出射方向相同时的菲涅尔反射率
     NDF NDF;
-    float roughness;
     float area;
 
     MUTATING
@@ -123,7 +147,6 @@ struct ABSDF
         diffuse = float3(0);
         specular = float3(0);
         NDF.init();
-        roughness = 0;
         area = 0;
     }
 
@@ -137,10 +160,10 @@ struct ABSDF
 
         diffuse += input.area * lerp(input.baseColor, float3(0), input.specular.b);
         specular += input.area * lerp(float3(F0), input.baseColor, input.specular.b);
-        roughness += input.area * input.specular.g;
 
         uint index = NormalIndex(input.normal);
         NDF.weightedNormals[index] += input.area * float4(input.normal, 1);
+        NDF.roughness[index] += input.area * input.specular.g;
 
         area += input.area;
     }
@@ -152,7 +175,6 @@ struct ABSDF
             return;
         diffuse /= area;
         specular /= area;
-        roughness /= area;
         NDF.normalizeSelf();
     }
 };

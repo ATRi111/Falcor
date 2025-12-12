@@ -149,7 +149,7 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
         result = e.projectArea(v) / PI * 2;
         break;
     case ABSDFDrawMode::Roughness:
-        result = ABSDF.roughness;
+        result = ABSDF.NDF.getAverageRoughness();
         break;
     case ABSDFDrawMode::TotalArea:
         result = ABSDF.area;
@@ -181,11 +181,10 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     float area = ABSDF.area;
     float3 specular = ABSDF.specular;
     float3 diffuse = ABSDF.diffuse;
-    float roughness = ABSDF.roughness;
     NDF NDF = ABSDF.NDF;
 
-    float3 diffuseColor = lightColor * lambertian(NDF, l, v, diffuse, specular, roughness);
-    float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular, roughness);
+    float3 diffuseColor = lightColor * lambertian(NDF, l, v, diffuse, specular);
+    float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular);
     float3 result = 0;
     switch (drawMode)
     {
