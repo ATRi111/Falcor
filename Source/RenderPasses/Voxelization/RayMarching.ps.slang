@@ -32,7 +32,7 @@ cbuffer CB
     uint drawMode;
     uint maxBounce;
     uint frameIndex;
-    float transmittanceThreshould;
+    float minTransmitionPdf;
     float4 clearColor;
     uint2 selectedPixel;
 }
@@ -53,6 +53,11 @@ bool isSolidVoxel(int3 cellInt, out int offset)
 {
     offset = vBuffer[cellInt];
     return offset >= 0 && gBuffer[offset].ABSDF.area > 0;
+}
+
+bool isTransmition(float3 l, float3 v)
+{
+    return abs(dot(l, v) + 1) < 1e-6f;
 }
 
 //先后用体素和椭球裁剪线段
@@ -168,6 +173,9 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
 
 float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
 {
+    if (isTransmition(l, v))
+        return lightColor;
+
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
     float area = ABSDF.area;
@@ -268,7 +276,6 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v)
 
 float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGenerator sg)
 {
-    // 当前图元的命中率由外部计算；作为间接光源的图元的命中率由此函数计算
     // 非递归版本，先计算所有命中点，再倒回来统计
     HitResult[MAX_BOUNCE + 1] hits;
     float3[MAX_BOUNCE + 1] sampleDirections; // 第i个采样方向即第i个体素指向第i+1个体素的方向
@@ -277,9 +284,25 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     hits[0] = hit;
     for (int i = 0; i < bounce; i++)
     {
-        sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]);
         uint offset = vBuffer[hits[i].cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
+        float coverage = gBuffer[offset].calcCoverage(currentV); // 采样线命中图元的条件下，命中整体的概率
+        if (coverage >= 1 - minTransmitionPdf)  //避免出现极小的pdf
+        {
+            sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
+        }
+        else if (Next(sg) <= (double)coverage)
+        {
+            sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
+            pdfs[i] *= coverage;
+        }
+        else
+        {
+            sampleDirections[i] = currentV; // 透射
+            pdfs[i] = 1 - coverage;
+        }
+        
+
         float3 normal = gBuffer[offset].ABSDF.NDF.getAverageNormal(currentV);
         float3x3 rotate = rotateMatrix(float3(0, 0, 1), normal);
         sampleDirections[i] = mul(rotate, sampleDirections[i]);
@@ -321,7 +344,7 @@ float2 randomJitter(inout UniformSampleGenerator sg)
 
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
-    PsOut psOut = { float4(0) };
+    PsOut psOut = { clearColor };
     uint2 pixel = uint2(texCoord * pixelCount);
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
     float2 jitter = randomJitter(sg);
@@ -331,10 +354,8 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 
     float2 inOut = clip(float3(0), float3(voxelCount), from, to);
     if (inOut.x < 0)
-    {
-        psOut.color = clearColor;
         return psOut;
-    }
+
     float3 delta = to - from;
     float3 direction = normalize(delta); // 网格/世界空间下的方向相同
     from = from + inOut.x * delta;
@@ -352,13 +373,9 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         }
     }
 
-    float transmittance = 1;
-    float times = 10;
-    while (hit.hit && times > 0)
+    if (hit.hit)
     {
-        times--;
         float3 color = 0;
-        float coverage = 1;
         uint offset = vBuffer[hit.cellInt];
         switch (drawMode)
         {
@@ -366,28 +383,14 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         case ABSDFDrawMode::Default:
         case ABSDFDrawMode::Diffuse:
         case ABSDFDrawMode::Specular:
-#if CHECK_COVERAGE
-            coverage = gBuffer[offset].calcCoverage(direction); // 采样线命中图元的条件下，命中整体的概率
-#endif
             color = shadingGlobal(hit, -direction, maxBounce, sg);
             break;
         default:
             color = debugShading(hit, offset, -direction);
             break;
         }
-        float k = transmittance * coverage;
-        psOut.color += float4(color * k, k);
-        transmittance -= k;
-
-        if (transmittance > transmittanceThreshould)
-            hit = rayMarching(hit.cell, direction, -1, true);
-        else
-            break;
+        psOut.color = float4(color, 1);
     }
 
-    if (psOut.color.w > 0)
-        psOut.color /= psOut.color.w;
-    else
-        psOut.color = clearColor;
     return psOut;
 }

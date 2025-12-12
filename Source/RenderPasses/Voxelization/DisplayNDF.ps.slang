@@ -19,9 +19,9 @@ struct PsOut
 float3 pdfToColor(float pdf, float maxPdf)
 {
     float k = pdf / maxPdf;
-    // 蓝->青->绿->黄->红渐变
+    // 蓝->青->绿->黄->红->黑渐变
     float3 c;
-    c.r = smoothstep(0.4, 1.0, k);
+    c.r = smoothstep(0.4, 1.0, k) - smoothstep(1.0, 5.0, k);
     c.g = smoothstep(0.0, 0.4, k) - smoothstep(0.6, 1.0, k);
     c.b = smoothstep(0.4, 0.0, k);
     return c;
@@ -40,7 +40,7 @@ float3 calcColor(float2 localCoord, int offset, float3 v)
     float3 direction = float3(localCoord.x, localCoord.y, z);
     direction = mul(rotMatrix, direction);
     float pdf = weightedGGX(NDF, direction, rough) / area;
-    rough = max(rough, 0.01);
+    rough = 0.5f;
     float maxPdf = 1.0 / (Pi * rough * rough);
     return pdfToColor(pdf, maxPdf);
 }

@@ -40,11 +40,10 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) :
 {
     mpDevice = pDevice;
     mVisibilityBias = 1.f;
-    mTransmittanceThreshould = 0.01f;
+    mMinTransmitionPdf = 0.01f;
     mDebug = false;
     mCheckEllipsoid = true;
     mCheckVisibility = true;
-    mCheckCoverage = true;
     mDrawMode = 0;
     mMaxBounce = 1;
 
@@ -94,6 +93,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mOptionsChanged = false;
     }
 
+    FALCOR_PROFILE(pRenderContext, "RayMarching");
     ref<Camera> pCamera = mpScene->getCamera();
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
     if (!mSelectedVoxel)
@@ -119,7 +119,6 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
         mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
         mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
-        mpFullScreenPass->addDefine("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
         mpFullScreenPass->addDefine("DEBUG", mDebug ? "1" : "0");
 
         auto var = mpFullScreenPass->getRootVar();
@@ -142,7 +141,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["drawMode"] = mDrawMode;
         cb["maxBounce"] = mMaxBounce;
         cb["frameIndex"] = mFrameIndex;
-        cb["transmittanceThreshould"] = mTransmittanceThreshould;
+        cb["minTransmitionPdf"] = mMinTransmitionPdf;
         cb["selectedPixel"] = mSelectedPixel;
         mFrameIndex++;
 
@@ -177,11 +176,9 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.checkbox("Check Visibility", mCheckVisibility))
         mOptionsChanged = true;
-    if (widget.checkbox("Check Coverage", mCheckCoverage))
-        mOptionsChanged = true;
     if (mCheckVisibility && widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f))
         mOptionsChanged = true;
-    if (widget.slider("Transmittance Threshould", mTransmittanceThreshould, 0.0f, 1.0f))
+    if (widget.slider("Min Transmition Pdf", mMinTransmitionPdf, 0.0f, 1.0f))
         mOptionsChanged = true;
     if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
         mOptionsChanged = true;

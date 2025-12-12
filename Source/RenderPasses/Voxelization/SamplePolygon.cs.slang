@@ -13,7 +13,7 @@ cbuffer CB
     uint repeatTimes;
 }
 
-void SampleCoverage(Ellipsoid e, PolygonInVoxel p, uint times, inout UniformSampleGenerator sg, inout SphericalHarmonics polygonSH, inout SphericalHarmonics primitiveSH)
+void EstimateCoverage(Ellipsoid e, PolygonInVoxel p, uint times, inout UniformSampleGenerator sg, inout SphericalHarmonics polygonSH, inout SphericalHarmonics primitiveSH)
 {
     float3 cellCenter = p.cellMin + 0.5f;
     for (uint i = 0; i < times; i++)
@@ -39,7 +39,7 @@ void SampleCoverage(Ellipsoid e, PolygonInVoxel p, uint times, inout UniformSamp
         }
 
         // 简单地认为图元总是包裹所有多边形
-        bool hit = p.intersectRay(ray.origin, ray.direction);
+        bool hit = p.rayHit(ray.origin, ray.direction);
         if (hit)
         {
             polygonSH.accumulate(direction);
@@ -60,7 +60,7 @@ void calc(uint offset)
     if (offset >= solidVoxelCount)
         return;
 
-    SampleCoverage(gBuffer[offset].ellipsoid, polygonBuffer[offset], sampleFrequency * sampleFrequency, sg, gBuffer[offset].polygonsProjAreaFunc, gBuffer[offset].primitiveProjAreaFunc);
+    EstimateCoverage(gBuffer[offset].ellipsoid, polygonBuffer[offset], sampleFrequency * sampleFrequency, sg, gBuffer[offset].polygonsProjAreaFunc, gBuffer[offset].primitiveProjAreaFunc);
 }
 
 [numthreads(256, 1, 1)]

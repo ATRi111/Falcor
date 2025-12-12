@@ -74,6 +74,7 @@ struct NDF
                 float cosTerm = dot(n, direction);
                 if (cosTerm < 0)
                     n = -n;
+                maxWeight = w;
             }
         }
         return n;

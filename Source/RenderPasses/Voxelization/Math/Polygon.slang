@@ -13,6 +13,12 @@ BEGIN_NAMESPACE_FALCOR
 #define MAX_VERTEX_COUNT 6
 #define MAX_POLYGON_COUNT 16
 
+struct HitPolygon
+{
+    float t;
+    uint index;
+};
+
 struct Polygon
 {
     float3 vertices[MAX_VERTEX_COUNT];
@@ -110,21 +116,21 @@ struct Polygon
         return s >= 1e-6f;      //如果改成0，会有大量的点投影面积偏大
     }
 
-    bool intersectRay(float3 rayOrigin, float3 rayDir)
+    float intersectRay(float3 rayOrigin, float3 rayDir)
     {
         float denom = dot(rayDir, normal);
-        //if (abs(denom) < epsilon)
-        //    return false;
+        // if (abs(denom) < epsilon)
+        //     return false;
         float t = dot(vertices[0] - rayOrigin, normal) / denom;
-        if(t < 0)
-            return false;
+        if (t < 0)
+            return -1;
         float3 p = rayOrigin + t * rayDir;
         for (uint i = 0; i < count; ++i)
         {
-             if (!inside(p, i))
-                 return false;
+            if (!inside(p, i))
+                return -1;
         }
-        return true;
+        return t;
     }
 };
 
@@ -151,11 +157,11 @@ struct PolygonInVoxel
         }
     }
 
-    bool intersectRay(float3 rayOrigin, float3 rayDir)
+    bool rayHit(float3 rayOrigin, float3 rayDir)
     {
         for (uint i = 0; i < count; i++)
         {
-            if (polygons[i].intersectRay(rayOrigin, rayDir))
+            if (polygons[i].intersectRay(rayOrigin, rayDir) >= 0)
                 return true;
         }
         return false;
@@ -193,7 +199,7 @@ struct PolygonInVoxel
         }
     }
 #else
-    SphericalHarmonics SampleProjectArea(uint times, inout UniformSampleGenerator sg)
+    SphericalHarmonics EstimateProjectArea(uint times, inout UniformSampleGenerator sg)
     {
         SphericalHarmonics SH = {};
         SH.init();
@@ -207,7 +213,7 @@ struct PolygonInVoxel
             bool hit = false;
             for (uint j = 0; j < count; j++)
             {
-                if (polygons[j].intersectRay(ray.origin, ray.direction))
+                if (polygons[j].intersectRay(ray.origin, ray.direction) >= 0)
                 {
                     hit = true;
                     break;
@@ -221,6 +227,65 @@ struct PolygonInVoxel
         }
         SH.mul(2.35619449f * weight);   // 一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
         return SH;
+    }
+
+    uint intersectRaySorted(float3 rayOrigin, float3 rayDir, out HitPolygon hits[MAX_POLYGON_COUNT])
+    {
+        uint hitCount = 0;
+
+        for (uint i = 0; i < count; ++i)
+        {
+            float t = polygons[i].intersectRay(rayOrigin, rayDir);
+            if (t >= 0)
+            {
+                hits[hitCount].t = t;
+                hits[hitCount].index = i;
+                ++hitCount;
+            }
+        }
+
+        // 按t升序排列
+        for (int i = 1; i < hitCount; ++i)
+        {
+            HitPolygon key = hits[i];
+            int j = i - 1;
+            while (j >= 0 && hits[j].t > key.t)
+            {
+                hits[j + 1] = hits[j];
+                --j;
+            }
+            hits[j + 1] = key;
+        }
+        return hitCount;
+    }
+
+    float calcPdf(float3 direction, float3 normal)
+    {
+        float pdf = abs(dot(direction, normal));
+        return max(pdf, 1e-4f);
+    }
+    //发射射线采样体素内可见度
+    float sampleInternalVisibility(float3 rayOrigin, float3 rayDir, out float weight)
+    {
+        HitPolygon hits[MAX_POLYGON_COUNT];
+        uint hitCount = intersectRaySorted(rayOrigin, rayDir, hits);
+        weight = 0;
+        float visibility = 0;
+        // 认为所有多边形是双面的;在给定的采样方向上，只有最前和最后的表面的各一面可见
+        if (hitCount > 0)
+        {
+            int index = hits[0].index;
+            visibility += 0.5f / calcPdf(rayDir, polygons[index].normal);
+            index = hits[hitCount - 1].index;
+            visibility += 0.5f / calcPdf(rayDir, polygons[index].normal);
+        }
+
+        for (uint i = 0; i < hitCount; i++)
+        {
+            uint index = hits[i].index;
+            weight += 1.f / calcPdf(rayDir, polygons[index].normal);
+        }
+        return visibility;
     }
 #endif
 };

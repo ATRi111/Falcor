@@ -56,10 +56,9 @@ private:
     uint mDrawMode;
     uint mMaxBounce;
     float mVisibilityBias;
-    float mTransmittanceThreshould;
+    float mMinTransmitionPdf;
     bool mCheckEllipsoid;
     bool mCheckVisibility;
-    bool mCheckCoverage;
     bool mDebug;
 
     bool mDisplayNDF;
