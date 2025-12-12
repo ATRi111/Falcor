@@ -294,7 +294,10 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         {
             float randomArea = (float)Next(sg) * ABSDF.area;
             uint lobeIndex = NDF.getRandomLobe(randomArea);
-            sampleDirections[i] = importanceSampling(NDF.weightedNormals[lobeIndex].xyz, currentV, ABSDF.specular, NDF.roughness[lobeIndex], Next2(sg), (float)Next(sg), pdfs[i]); // 反射
+            float3 n = NDF.weightedNormals[lobeIndex].xyz;
+            if (dot(n, currentV) < 0)
+                n = -n;
+            sampleDirections[i] = importanceSampling(n, currentV, ABSDF.specular, NDF.roughness[lobeIndex], Next2(sg), (float)Next(sg), pdfs[i]); // 反射
             pdfs[i] *= coverage;
         }
         else
