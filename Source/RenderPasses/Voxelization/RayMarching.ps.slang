@@ -322,21 +322,6 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
             pdfs[i] = 1 - coverage;
         }
 
-        // if (coverage == 1 || Next(sg) <= (double)coverage) // 避免出现极小的pdf
-        //{
-        //     sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
-        //     pdfs[i] *= coverage;
-        // }
-        // else
-        //{
-        //     sampleDirections[i] = -currentV; // 透射
-        //     pdfs[i] = 1 - coverage;
-        // }
-
-        float3 normal = gBuffer[offset].ABSDF.NDF.getAverageNormal(currentV);
-        float3x3 rotate = rotateMatrix(float3(0, 0, 1), normal);
-        sampleDirections[i] = mul(rotate, sampleDirections[i]);
-
         hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
         if (!hits[i + 1].hit)
         {
