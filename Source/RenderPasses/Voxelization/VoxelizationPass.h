@@ -45,8 +45,9 @@ public:
 
     virtual void voxelize(RenderContext* pRenderContext, const RenderData& renderData);
     virtual void sample(RenderContext* pRenderContext, const RenderData& renderData);
+
 protected:
-    std::string getFileName();
+    std::string getFileName() const;
     void write(std::string fileName, void* gBuffer, void* vBuffer);
     ref<ComputePass> mSamplePolygonPass;
 

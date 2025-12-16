@@ -51,12 +51,12 @@ struct SphericalHarmonics
 
     MUTATING
     // 所有采样方向的权重总和应当为4PI
-    void accumulate(float value, float3 direction, float weight)
+    void accumulate(float valueByWeight, float3 direction)
     {
         // 默认direction已经归一化
         for (int i = 0; i < SH_COUNT; i++)
         {
-            coefficients[i] += weight * value * calcSH(i, direction);
+            coefficients[i] += valueByWeight * calcSH(i, direction);
         }
     }
 

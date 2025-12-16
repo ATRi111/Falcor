@@ -60,7 +60,7 @@ bool isTransmition(float3 l, float3 v)
     return abs(dot(l, v) + 1) < 1e-6f;
 }
 
-//先后用体素和椭球裁剪线段
+// 先后用体素和椭球裁剪线段
 HitResult checkPrimitive(Ellipsoid ellipsoid, float3 cell, float3 direction, int3 cellInt)
 {
     float3 from = cell - cellInt;
@@ -81,7 +81,7 @@ HitResult checkPrimitive(Ellipsoid ellipsoid, float3 cell, float3 direction, int
 }
 
 // 统一用网格坐标表示
-HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ignoreFirst )
+HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
 {
     float3 cell = from;
     int3 cellInt = int3(floor(from));
@@ -97,7 +97,7 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
     {
         if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
             break;
-        if (maxDistance > 0 && length(cell - from) > maxDistance)   //负数表示不限制距离
+        if (maxDistance > 0 && length(cell - from) > maxDistance) // 负数表示不限制距离
             break;
         int offset;
         if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
@@ -140,11 +140,13 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
     ABSDF ABSDF = voxelData.ABSDF;
     NDF NDF = ABSDF.NDF;
     Ellipsoid e = voxelData.ellipsoid;
-    SphericalHarmonics polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
-    SphericalHarmonics primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
+    SphericalFunc polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
+    SphericalFunc primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
     float result = 0;
     switch (drawMode)
     {
+    case ABSDFDrawMode::Normal:
+        return NDF.getMainNormal(v) * 0.5 + 0.5;
     case ABSDFDrawMode::EllipsoidProjArea:
         result = e.projectArea(v) / PI * 2;
         break;
@@ -159,12 +161,17 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
     case ABSDFDrawMode::PolygonsProjArea:
         result = polygonsProjAreaFunc.calc(v);
         break;
+    case ABSDFDrawMode::TotalProjArea:
+        result = voxelData.totalProjAreaFunc.calc(v);
+        break;
     case ABSDFDrawMode::PrimitiveProjArea:
         result = primitiveProjAreaFunc.calc(v);
         break;
     case ABSDFDrawMode::Coverage:
         result = polygonsProjAreaFunc.calc(v) / primitiveProjAreaFunc.calc(v);
         break;
+    case ABSDFDrawMode::InternalVisibility:
+        return voxelData.calcVisibility(v);
     default:
         break;
     }
@@ -183,16 +190,23 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     float3 diffuse = ABSDF.diffuse;
     NDF NDF = ABSDF.NDF;
 
-    float3 diffuseColor = lightColor * lambertian(NDF, l, v, diffuse, specular);
-    float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular);
+#if CHECK_VISIBILITY
+    float visibility = voxelData.calcVisibility(l);
+#else
+    float visibility = 1.f;
+#endif
+
+    if (visibility == 0)
+        return 0;
+
+    float3 diffuseColor = lightColor * lambertian(NDF, l, v, diffuse, specular) / area;
+    float3 specularColor = lightColor * weightedCookTorrence(NDF, l, v, specular) / area;
     float3 result = 0;
     switch (drawMode)
     {
     case ABSDFDrawMode::Default:
         result = diffuseColor + specularColor;
         break;
-    case ABSDFDrawMode::Normal:
-        return NDF.getMainNormal(v) * 0.5 + 0.5;
     case ABSDFDrawMode::Diffuse:
         result = diffuseColor;
         break;
@@ -200,9 +214,9 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
         result = specularColor;
         break;
     default:
-        break; 
+        break;
     }
-    return result / area;
+    return result;
 }
 
 float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
@@ -279,7 +293,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     HitResult[MAX_BOUNCE + 1] hits;
     float3[MAX_BOUNCE + 1] sampleDirections; // 第i个采样方向即第i个体素指向第i+1个体素的方向
     float[MAX_BOUNCE + 1] pdfs;              // 第i个pdf即第i+1个体素对第i个体素的贡献权重
-    uint hitCount = 1;
+    uint hitCount = MAX_BOUNCE + 1;
     hits[0] = hit;
     for (int i = 0; i < bounce; i++)
     {
@@ -290,6 +304,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
             coverage = 1;
         ABSDF ABSDF = gBuffer[offset].ABSDF;
         NDF NDF = ABSDF.NDF;
+
         if (coverage == 1 || Next(sg) <= (double)coverage)
         {
             float randomArea = (float)Next(sg) * ABSDF.area;
@@ -297,45 +312,37 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
             float3 n = NDF.weightedNormals[lobeIndex].xyz;
             if (dot(n, currentV) < 0)
                 n = -n;
-            sampleDirections[i] = importanceSampling(n, currentV, ABSDF.specular, NDF.roughness[lobeIndex], Next2(sg), (float)Next(sg), pdfs[i]); // 反射
+            sampleDirections[i] =
+                importanceSampling(n, currentV, ABSDF.specular, NDF.roughness[lobeIndex], Next2(sg), (float)Next(sg), pdfs[i]); // 反射
             pdfs[i] *= coverage;
         }
         else
         {
-            sampleDirections[i] = currentV; // 透射
+            sampleDirections[i] = -currentV; // 透射
             pdfs[i] = 1 - coverage;
         }
-        // uint offset = vBuffer[hits[i].cellInt];
-        //float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
-        //float coverage = gBuffer[offset].calcCoverage(currentV); // 采样线命中图元的条件下，命中整体的概率
-        //if (coverage >= 1 - minTransmitionPdf)  //避免出现极小的pdf
+
+        // if (coverage == 1 || Next(sg) <= (double)coverage) // 避免出现极小的pdf
         //{
-        //    sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
-        //}
-        //else if (Next(sg) <= (double)coverage)
+        //     sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
+        //     pdfs[i] *= coverage;
+        // }
+        // else
         //{
-        //    sampleDirections[i] = sample_cosine_hemisphere_concentric(Next2(sg), pdfs[i]); // 反射
-        //    pdfs[i] *= coverage;
-        //}
-        //else
-        //{
-        //    sampleDirections[i] = currentV; // 透射
-        //    pdfs[i] = 1 - coverage;
-        //}
-        
+        //     sampleDirections[i] = -currentV; // 透射
+        //     pdfs[i] = 1 - coverage;
+        // }
 
         float3 normal = gBuffer[offset].ABSDF.NDF.getAverageNormal(currentV);
         float3x3 rotate = rotateMatrix(float3(0, 0, 1), normal);
         sampleDirections[i] = mul(rotate, sampleDirections[i]);
-        
+
         hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
         if (!hits[i + 1].hit)
         {
             hitCount = i + 1;
             break;
         }
-        else
-            hitCount = i + 2;
     }
 
     float3 reflectLights[MAX_BOUNCE + 1];
@@ -384,7 +391,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     HitResult hit = rayMarching(from, direction, -1, true);
     if (all(pixel == selectedPixel))
     {
-        if(hit.hit)
+        if (hit.hit)
         {
             int offset = vBuffer[hit.cellInt];
             selectedVoxel[0] = float4(-direction, (float)offset);
@@ -401,7 +408,6 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         uint offset = vBuffer[hit.cellInt];
         switch (drawMode)
         {
-        case ABSDFDrawMode::Normal:
         case ABSDFDrawMode::Default:
         case ABSDFDrawMode::Diffuse:
         case ABSDFDrawMode::Specular:

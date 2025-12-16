@@ -34,7 +34,8 @@ namespace
 const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/SamplePolygon.cs.slang";
 }; // namespace
 
-VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
+VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
+    : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mSceneNameIndex = 0;
     mSceneName = "Arcade";
@@ -98,7 +99,7 @@ void VoxelizationPass::compile(RenderContext* pRenderContext, const CompileData&
 
 void VoxelizationPass::renderUI(Gui::Widgets& widget)
 {
-    static const uint resolutions[] = {16,32,64,128,256,512,1024};
+    static const uint resolutions[] = {16, 32, 64, 128, 256, 512, 1024};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
@@ -112,12 +113,12 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         }
     }
 
-    static const std::string sceneNames[] = { "Arcade", "Tree" , "BoxBunny", "Box"};
+    static const std::string sceneNames[] = {"Arcade", "Tree", "BoxBunny", "Box"};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)
         {
-            list.push_back({ i, sceneNames[i] });
+            list.push_back({i, sceneNames[i]});
         }
         if (widget.dropdown("Scene Name", list, mSceneNameIndex))
         {
@@ -133,14 +134,13 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
             list.push_back({sampleFrequencies[i], std::to_string(sampleFrequencies[i])});
         }
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
-            
     }
-    static const uint repeatTimes[] = { 1, 4, 16, 64, 256, 1024 };
+    static const uint repeatTimes[] = {1, 4, 16, 64, 256, 1024};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(repeatTimes) / sizeof(uint); i++)
         {
-            list.push_back({ repeatTimes[i], std::to_string(repeatTimes[i]) });
+            list.push_back({repeatTimes[i], std::to_string(repeatTimes[i])});
         }
         widget.dropdown("Repeat times", list, mRepeatTimes);
     }
@@ -161,10 +161,7 @@ void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>&
     VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
 }
 
-void VoxelizationPass::voxelize(RenderContext* pRenderContext, const RenderData& renderData)
-{
-
-}
+void VoxelizationPass::voxelize(RenderContext* pRenderContext, const RenderData& renderData) {}
 
 void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& renderData)
 {
@@ -195,7 +192,7 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     Tools::Profiler::EndSample("Sample Polygons");
 }
 
-std::string VoxelizationPass::getFileName()
+std::string VoxelizationPass::getFileName() const
 {
     std::ostringstream oss;
     oss << mSceneName;

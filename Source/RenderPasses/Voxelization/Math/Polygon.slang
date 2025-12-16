@@ -9,7 +9,7 @@
 
 BEGIN_NAMESPACE_FALCOR
 
-//忽略罕见的7/8/9边形情况
+// 忽略罕见的7/8/9边形情况
 #define MAX_VERTEX_COUNT 6
 #define MAX_POLYGON_COUNT 16
 
@@ -27,13 +27,10 @@ struct Polygon
     float roughness;
 
     MUTATING
-    void init()
-    {
-        count = 0;
-    }
+    void init() { count = 0; }
 
 #if defined(HOST_CODE)
-    //顶点必须有序,必须至少包含三个点,必须是凸多边形，不能有重合的点
+    // 顶点必须有序,必须至少包含三个点,必须是凸多边形，不能有重合的点
     void init(std::vector<float3>& points)
     {
         uint n = math::min(MAX_VERTEX_COUNT, (int)points.size());
@@ -62,10 +59,10 @@ struct Polygon
             float3 b = vertices[(i + 1) % count];
             s += cross(a, b);
         }
-        return sqrt(dot(s,s)) / 2;
+        return sqrt(dot(s, s)) / 2;
     }
 #if defined(HOST_CODE)
-    float3 calcCentroid(float &totalArea) const
+    float3 calcCentroid(float& totalArea) const
 #else
     float3 calcCentroid(out float totalArea)
 #endif
@@ -113,8 +110,8 @@ struct Polygon
     {
         float3 v1 = vertices[(i + 1) % count] - vertices[i];
         float3 v2 = p - vertices[i];
-        float s = dot(normalize(cross(v1, v2)), normal);    //如果删掉normalize，会有一定量的点投影面积偏小
-        return s >= 1e-6f;      //如果改成0，会有大量的点投影面积偏大
+        float s = dot(normalize(cross(v1, v2)), normal); // 如果删掉normalize，会有一定量的点投影面积偏小
+        return s >= 1e-6f;                               // 如果改成0，会有大量的点投影面积偏大
     }
 
     float intersectRay(float3 rayOrigin, float3 rayDir)
@@ -169,7 +166,7 @@ struct PolygonInVoxel
     }
 
 #if defined(HOST_CODE)
-    float3 calcCentroid(float &totalArea) const
+    float3 calcCentroid(float& totalArea) const
 #else
     float3 calcCentroid(out float totalArea)
 #endif
@@ -192,7 +189,7 @@ struct PolygonInVoxel
     }
 
 #if defined(HOST_CODE)
-    void addTo(std::vector<float3> &points)
+    void addTo(std::vector<float3>& points)
     {
         for (uint i = 0; i < count; i++)
         {
@@ -222,40 +219,22 @@ struct PolygonInVoxel
             }
             if (hit)
             {
-                SH.accumulate(direction); 
+                SH.accumulate(direction);
                 SH.accumulate(-direction); // 正反方向的采样结果总是相同
             }
         }
-        SH.mul(2.35619449f * weight);   // 一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
+        SH.mul(2.35619449f * weight); // 一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
         return SH;
     }
 
-    uint intersectRaySorted(float3 rayOrigin, float3 rayDir, out HitPolygon hits[MAX_POLYGON_COUNT])
+    uint intersectRay(float3 rayOrigin, float3 rayDir)
     {
         uint hitCount = 0;
-
         for (uint i = 0; i < count; ++i)
         {
             float t = polygons[i].intersectRay(rayOrigin, rayDir);
             if (t >= 0)
-            {
-                hits[hitCount].t = t;
-                hits[hitCount].index = i;
-                ++hitCount;
-            }
-        }
-
-        // 按t升序排列
-        for (int i = 1; i < hitCount; ++i)
-        {
-            HitPolygon key = hits[i];
-            int j = i - 1;
-            while (j >= 0 && hits[j].t > key.t)
-            {
-                hits[j + 1] = hits[j];
-                --j;
-            }
-            hits[j + 1] = key;
+                hitCount++;
         }
         return hitCount;
     }
@@ -264,29 +243,6 @@ struct PolygonInVoxel
     {
         float pdf = abs(dot(direction, normal));
         return max(pdf, 1e-4f);
-    }
-    //发射射线采样体素内可见度
-    float sampleInternalVisibility(float3 rayOrigin, float3 rayDir, out float weight)
-    {
-        HitPolygon hits[MAX_POLYGON_COUNT];
-        uint hitCount = intersectRaySorted(rayOrigin, rayDir, hits);
-        weight = 0;
-        float visibility = 0;
-        // 认为所有多边形是双面的;在给定的采样方向上，只有最前和最后的表面的各一面可见
-        if (hitCount > 0)
-        {
-            int index = hits[0].index;
-            visibility += 0.5f / calcPdf(rayDir, polygons[index].normal);
-            index = hits[hitCount - 1].index;
-            visibility += 0.5f / calcPdf(rayDir, polygons[index].normal);
-        }
-
-        for (uint i = 0; i < hitCount; i++)
-        {
-            uint index = hits[i].index;
-            weight += 1.f / calcPdf(rayDir, polygons[index].normal);
-        }
-        return visibility;
     }
 #endif
 };

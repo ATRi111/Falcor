@@ -105,7 +105,7 @@ struct NDF
         return 0;
     }
 
-    float weightedDot(float3 l, float3 v)   //v不影响漫反射强度,但影响受光面的判断
+    float weightedDot(float3 l, float3 v) // v不影响漫反射强度,但影响受光面的判断
     {
         float sum = 0;
         for (int i = 0; i < LOBE_COUNT; i++)
@@ -149,8 +149,8 @@ struct ABSDFInput
 
 struct ABSDF
 {
-    float3 diffuse;     //兰伯特反射率
-    float3 specular;    //光线入射和出射方向相同时的菲涅尔反射率
+    float3 diffuse;  // 兰伯特反射率
+    float3 specular; // 光线入射和出射方向相同时的菲涅尔反射率
     NDF NDF;
     float area;
 
@@ -203,23 +203,27 @@ enum class ABSDFDrawMode : uint32_t
     EllipsoidProjArea,
     PrimitiveProjArea,
     PolygonsProjArea,
+    TotalProjArea,
     TotalArea,
     Coverage,
+    InternalVisibility,
 };
 FALCOR_ENUM_INFO(
     ABSDFDrawMode,
     {
-    { ABSDFDrawMode::Default, "Default" },
-    { ABSDFDrawMode::Diffuse, "Diffuse" },
-    { ABSDFDrawMode::Specular, "Specular" },
-    { ABSDFDrawMode::Roughness, "Roughness" },
-    { ABSDFDrawMode::Normal, "Normal" },
-    { ABSDFDrawMode::EllipsoidCenter, "EllipsoidCenter" },
-    { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
-    { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
-    { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
-    { ABSDFDrawMode::TotalArea, "TotalArea" },
-    { ABSDFDrawMode::Coverage, "Coverage" },
+        { ABSDFDrawMode::Default, "Default" },
+        { ABSDFDrawMode::Diffuse, "Diffuse" },
+        { ABSDFDrawMode::Specular, "Specular" },
+        { ABSDFDrawMode::Roughness, "Roughness" },
+        { ABSDFDrawMode::Normal, "Normal" },
+        { ABSDFDrawMode::EllipsoidCenter, "EllipsoidCenter" },
+        { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
+        { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
+        { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
+        { ABSDFDrawMode::TotalProjArea, "TotalProjArea" },
+        { ABSDFDrawMode::TotalArea, "TotalArea" },
+        { ABSDFDrawMode::Coverage, "Coverage" },
+        { ABSDFDrawMode::InternalVisibility, "InternalVisibility" },
     }
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);

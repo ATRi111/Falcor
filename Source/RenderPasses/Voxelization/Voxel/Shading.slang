@@ -13,7 +13,7 @@ inline float ggx(float3 n, float3 h, float rough)
 }
 inline float3 fresnel(float3 v, float3 h, float3 spec)
 {
-    return spec + (1 - spec) * pow(1 - saturate(dot(v, h)), 5); //不能出现负底数
+    return spec + (1 - spec) * pow(1 - saturate(dot(v, h)), 5); // 不能出现负底数
 }
 
 float g(float3 n, float3 x, float rough)
@@ -49,7 +49,7 @@ inline float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec)
     }
     return sum; // 未归一化，已经带有余弦项
 }
-//可视化法线分布时，要渲染的点在球面上的方向充当h即可
+// 可视化法线分布时，要渲染的点在球面上的方向充当h即可
 inline float weightedGGX(NDF NDF, float3 h)
 {
     float sum = 0;
@@ -106,9 +106,10 @@ inline float3 importanceSampling(float3 n, float3 v, float3 spec, float roughnes
     float averageFresnel = (20.0f * (spec.x + spec.y + spec.z) / 3.0f + 1.0f) / 21.0f;
     float3x3 rot = rotateMatrix(float3(0, 0, 1), n);
     float3 l;
+    float pdf_diffuse, pdf_specular;
     if (uEnergy <= averageFresnel)
     {
-        //根据镜面反射选择采样方向
+        // 根据镜面反射选择采样方向
         float r2 = roughness * roughness;
         float phi = 2.0 * Pi * uDir.x;
         float cosTheta = sqrt((1.0 - uDir.y) / (1.0 + (r2 - 1.0) * uDir.y));
@@ -116,13 +117,17 @@ inline float3 importanceSampling(float3 n, float3 v, float3 spec, float roughnes
         float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
         h = mul(rot, h);
         l = reflect(-v, h);
-        pdf = ggx(n, h, roughness) * dot(n, h) / (4.0 * max(1e-6, dot(l, h)));
+        pdf_specular = ggx(n, h, roughness) * dot(n, h) / (4.0 * max(1e-6, dot(l, h)));
+        pdf_diffuse = dot(n, l) / Pi;
     }
     else
     {
-        //根据漫反射选择采样方向
-        l = sample_cosine_hemisphere_concentric(uDir, pdf);
+        // 根据漫反射选择采样方向
+        l = sample_cosine_hemisphere_concentric(uDir, pdf_diffuse);
         l = mul(rot, l);
+        float3 h = normalize(l + v);
+        pdf_specular = ggx(n, h, roughness) * dot(n, h) / (4.0 * max(1e-6, dot(l, h)));
     }
+    pdf = averageFresnel * pdf_specular + (1.0 - averageFresnel) * pdf_diffuse;
     return l;
 }

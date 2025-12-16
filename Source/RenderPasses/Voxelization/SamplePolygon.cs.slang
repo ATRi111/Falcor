@@ -13,7 +13,15 @@ cbuffer CB
     uint repeatTimes;
 }
 
-void EstimateCoverage(Ellipsoid e, PolygonInVoxel p, uint times, inout UniformSampleGenerator sg, inout SphericalHarmonics polygonSH, inout SphericalHarmonics primitiveSH)
+void Estimate(
+    Ellipsoid e,
+    PolygonInVoxel p,
+    uint times,
+    inout UniformSampleGenerator sg,
+    inout SphericalFunc polygonFunc,
+    inout SphericalFunc primitiveFunc,
+    inout SphericalFunc totalFunc
+)
 {
     float3 cellCenter = p.cellMin + 0.5f;
     for (uint i = 0; i < times; i++)
@@ -25,32 +33,36 @@ void EstimateCoverage(Ellipsoid e, PolygonInVoxel p, uint times, inout UniformSa
         float3 from = ray.origin;
         float3 to = from + 2 * ray.direction;
         float2 inOut = clip(p.cellMin, p.cellMin + 1.f, from, to);
-        if(inOut.x >= 0)    //命中体素
+        if (inOut.x >= 0) // 命中体素
         {
             float3 v = to - from;
             to = from + inOut.y * v - p.cellMin;
             from = from + inOut.x * v - p.cellMin;
             inOut = e.clip(from, to);
-            if(inOut.x >= 0)    //命中图元
+            if (inOut.x >= 0) // 命中图元
             {
-                primitiveSH.accumulate(direction);
-                primitiveSH.accumulate(-direction);// 正反方向的采样结果总是相同
+                primitiveFunc.accumulate(direction);
+                primitiveFunc.accumulate(-direction); // 正反方向的采样结果总是相同
             }
         }
 
         // 简单地认为图元总是包裹所有多边形
-        bool hit = p.rayHit(ray.origin, ray.direction);
-        if (hit)
+        uint hitCount = p.intersectRay(ray.origin, ray.direction);
+        if (hitCount >= 1)
         {
-            polygonSH.accumulate(direction);
-            polygonSH.accumulate(-direction);
+            polygonFunc.accumulate(direction);
+            polygonFunc.accumulate(-direction);
+            totalFunc.accumulate(hitCount, direction);
+            totalFunc.accumulate(hitCount, direction);
         }
     }
     if (completeTimes == repeatTimes - 1)
     {
         uint totalTimes = times * 2 * repeatTimes;
-        polygonSH.mul(2.35619449f * 4.f * PI / totalTimes);
-        primitiveSH.mul(2.35619449f * 4.f * PI / totalTimes);
+        float weight = 2.35619449f * 4.f * PI / totalTimes;
+        polygonFunc.mul(weight);
+        primitiveFunc.mul(weight);
+        totalFunc.mul(weight);
     }
 }
 
@@ -60,7 +72,15 @@ void calc(uint offset)
     if (offset >= solidVoxelCount)
         return;
 
-    EstimateCoverage(gBuffer[offset].ellipsoid, polygonBuffer[offset], sampleFrequency * sampleFrequency, sg, gBuffer[offset].polygonsProjAreaFunc, gBuffer[offset].primitiveProjAreaFunc);
+    Estimate(
+        gBuffer[offset].ellipsoid,
+        polygonBuffer[offset],
+        sampleFrequency * sampleFrequency,
+        sg,
+        gBuffer[offset].polygonsProjAreaFunc,
+        gBuffer[offset].primitiveProjAreaFunc,
+        gBuffer[offset].totalProjAreaFunc,
+    );
 }
 
 [numthreads(256, 1, 1)]
