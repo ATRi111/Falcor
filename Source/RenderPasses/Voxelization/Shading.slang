@@ -1,5 +1,6 @@
 #pragma once
-#include "ABSDF.slang"
+#include "VoxelizationShared.slang"
+#include "Math/Random.slang"
 import Utils.Math.MathHelpers;
 
 const static float Pi = 3.14159265359;
@@ -208,4 +209,23 @@ inline float3 sampleSurface(NDF NDF, float3 v, float specularWeight, float2 uDir
     if (dot(n, v) < 0)
         n = -n;
     return sampleLobe(n, v, roughness, specularWeight, uDir, uEnergy);
+}
+
+inline float3 samplePrimitive(VoxelData data, float3 v, inout UniformSampleGenerator sg, out float pdf)
+{
+    float coverage = data.calcCoverage(v);
+    if (coverage == 1 || (float)Next(sg) <= coverage) // 反射
+    {
+        uint lobeIndex;
+        ABSDF ABSDF = data.ABSDF;
+        NDF NDF = ABSDF.NDF;
+        float randomArea = (float)Next(sg) * ABSDF.area;
+        float specularWeight = calcSpecularWeight(ABSDF.specular);
+        float3 l = sampleSurface(NDF, v, specularWeight, Next2(sg), (float)Next(sg), randomArea, lobeIndex);
+        pdf = coverage * calcSurfacePdf(NDF, lobeIndex, l, v, specularWeight);
+        return l;
+    }
+    // 透射
+    pdf = 1 - coverage;
+    return -v;
 }

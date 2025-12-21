@@ -2,7 +2,6 @@
 #include "VoxelizationBase.h"
 #include "Image/ImageLoader.h"
 #include "Profiler.h"
-#include "QuickHull/QuickHull.hpp"
 #include "Math/Polygon.slang"
 #include "Math/Triangle.slang"
 #include "Math/SphericalHarmonics.slang"
@@ -18,13 +17,13 @@ private:
     Image* currentBaseColor;
     Image* currentSpecular;
     Image* currentNormal;
+
 public:
     std::vector<VoxelData> gBuffer;
     std::vector<int> vBuffer;
     std::vector<PolygonInVoxel> polygonBuffer;
 
-    MeshSampler()
-        : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance())
+    MeshSampler() : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance())
     {
         currentBaseColor = nullptr;
         currentNormal = nullptr;
@@ -100,9 +99,9 @@ public:
             Tools::Profiler::BeginSample("Clip");
             int3 cellInt = aabb.indexToCell(i);
             float3 minPoint = float3(cellInt);
-            Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri);  //多边形与三角形顶点顺序一致
+            Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri); // 多边形与三角形顶点顺序一致
             Tools::Profiler::EndSample("Clip");
-            polygon.normal = tri.TBN.getCol(2);  //几何法线
+            polygon.normal = tri.TBN.getCol(2); // 几何法线
             if (polygon.count >= 3)
                 sampleArea(tri, polygon, cellInt);
         }

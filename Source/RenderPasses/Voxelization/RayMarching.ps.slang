@@ -1,9 +1,7 @@
 #include "Voxel/VoxelGrid.slang"
-#include "Voxel/Shading.slang"
-#include "VoxelizationShared.slang"
-#include "Math/Sampling.slang"
-#include "Math/Random.slang"
 #include "Math/VoxelizationUtility.slang"
+#include "Shading.slang"
+#include "VoxelizationShared.slang"
 import Scene.SceneTypes;
 import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
@@ -295,26 +293,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     {
         uint offset = vBuffer[hits[i].cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
-        float coverage = gBuffer[offset].calcCoverage(currentV);
-        ABSDF ABSDF = gBuffer[offset].ABSDF;
-        NDF NDF = ABSDF.NDF;
-
-        if (coverage == 1 || Next(sg) <= (double)coverage)
-        {
-            float randomArea = (float)Next(sg) * ABSDF.area;
-            float specularWeight = calcSpecularWeight(ABSDF.specular);
-            uint lobeIndex;
-            float3 l = sampleDirections[i] =
-                sampleSurface(NDF, currentV, specularWeight, Next2(sg), (float)Next(sg), randomArea, lobeIndex);
-            // pdfs[i] = calcSurfacePdf(NDF, l, v, specularWeight);
-            pdfs[i] = calcSurfacePdf(NDF, lobeIndex, l, v, specularWeight);
-            pdfs[i] *= coverage;
-        }
-        else
-        {
-            sampleDirections[i] = -currentV; // 透射
-            pdfs[i] = 1 - coverage;
-        }
+        sampleDirections[i] = samplePrimitive(gBuffer[offset], currentV, sg, pdfs[i]);
 
         hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
         if (!hits[i + 1].hit || pdfs[i] < minPdf)
