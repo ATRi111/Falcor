@@ -45,6 +45,7 @@ public:
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override;
+
 private:
     ref<Scene> mpScene;
     ref<FullScreenPass> mpFullScreenPass;
@@ -56,7 +57,7 @@ private:
     uint mDrawMode;
     uint mMaxBounce;
     float mVisibilityBias;
-    float mMinTransmitionPdf;
+    float mMinPdf;
     bool mCheckEllipsoid;
     bool mCheckVisibility;
     bool mDebug;

@@ -36,11 +36,12 @@ const std::string kDisplayShaderFile = "E:/Project/Falcor/Source/RenderPasses/Vo
 const std::string kOutputColor = "color";
 } // namespace
 
-RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
+RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
+    : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mpDevice = pDevice;
     mVisibilityBias = 1.f;
-    mMinTransmitionPdf = 0.01f;
+    mMinPdf = 0.001f;
     mDebug = false;
     mCheckEllipsoid = true;
     mCheckVisibility = true;
@@ -98,7 +99,8 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
     if (!mSelectedVoxel)
     {
-        mSelectedVoxel = mpDevice->createStructuredBuffer(sizeof(float4), 1, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+        mSelectedVoxel =
+            mpDevice->createStructuredBuffer(sizeof(float4), 1, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
     }
 
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
@@ -141,7 +143,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["drawMode"] = mDrawMode;
         cb["maxBounce"] = mMaxBounce;
         cb["frameIndex"] = mFrameIndex;
-        cb["minTransmitionPdf"] = mMinTransmitionPdf;
+        cb["minPdf"] = mMinPdf;
         cb["selectedPixel"] = mSelectedPixel;
         mFrameIndex++;
 
@@ -178,7 +180,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (mCheckVisibility && widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f))
         mOptionsChanged = true;
-    if (widget.slider("Min Transmition Pdf", mMinTransmitionPdf, 0.0f, 1.0f))
+    if (widget.slider("Min Pdf", mMinPdf, 0.0f, 0.1f))
         mOptionsChanged = true;
     if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
         mOptionsChanged = true;
@@ -199,8 +201,7 @@ void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& 
 
 bool RayMarchingPass::onMouseEvent(const MouseEvent& mouseEvent)
 {
-    if (mouseEvent.type == MouseEvent::Type::ButtonDown &&
-        mouseEvent.button == Input::MouseButton::Left)
+    if (mouseEvent.type == MouseEvent::Type::ButtonDown && mouseEvent.button == Input::MouseButton::Left)
     {
         mSelectedUV = mouseEvent.pos;
 

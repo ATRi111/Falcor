@@ -4,29 +4,6 @@
 
 #define MAX_VERTEX_COUNT_PROCESSING 12
 
-inline float3x3 rotateMatrix(float cosAngle, float3 axis)
-{
-    float c = cosAngle;
-    float s = sqrt(1 - cosAngle * cosAngle);    //默认角度小于180°
-
-    float3 temp = (1 - c) * axis;
-
-    float3x3 rotate;
-    rotate[0][0] = c + temp[0] * axis[0];
-    rotate[0][1] = temp[1] * axis[0] - s * axis[2];
-    rotate[0][2] = temp[2] * axis[0] + s * axis[1];
-
-    rotate[1][0] = temp[0] * axis[1] + s * axis[2];
-    rotate[1][1] = c + temp[1] * axis[1];
-    rotate[1][2] = temp[2] * axis[1] - s * axis[0];
-
-    rotate[2][0] = temp[0] * axis[2] - s * axis[1];
-    rotate[2][1] = temp[1] * axis[2] + s * axis[0];
-    rotate[2][2] = c + temp[2] * axis[2];
-
-    return rotate;
-}
-
 inline float3 intersectAxisPlane(float3 S, float3 E, int axis, float bound)
 {
     float s = S[axis];
@@ -53,7 +30,14 @@ inline uint removeAdjacentRepeatPoints(inout float3 v[MAX_VERTEX_COUNT_PROCESSIN
     return writeIndex;
 }
 
-inline uint planeClip(float3 inPoly[MAX_VERTEX_COUNT_PROCESSING], uint inCount, out float3 outPoly[MAX_VERTEX_COUNT_PROCESSING], int axis, float bound, bool greater)
+inline uint planeClip(
+    float3 inPoly[MAX_VERTEX_COUNT_PROCESSING],
+    uint inCount,
+    out float3 outPoly[MAX_VERTEX_COUNT_PROCESSING],
+    int axis,
+    float bound,
+    bool greater
+)
 {
     uint outCount = 0;
 
@@ -109,12 +93,7 @@ inline Polygon boxClipTriangle(float3 minPoint, float3 maxPoint, Triangle tri)
     vertices[2] = tri.vertices[2];
 
     // 六个平面
-    float bounds[6] =
-    {
-        minPoint.x, maxPoint.x,
-        minPoint.y, maxPoint.y,
-        minPoint.z, maxPoint.z
-    };
+    float bounds[6] = { minPoint.x, maxPoint.x, minPoint.y, maxPoint.y, minPoint.z, maxPoint.z };
 
     bool greater = true;
 

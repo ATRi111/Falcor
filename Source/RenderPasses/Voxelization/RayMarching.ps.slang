@@ -32,7 +32,7 @@ cbuffer CB
     uint drawMode;
     uint maxBounce;
     uint frameIndex;
-    float minTransmitionPdf;
+    float minPdf;
     float4 clearColor;
     uint2 selectedPixel;
 }
@@ -190,11 +190,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     float3 diffuse = ABSDF.diffuse;
     NDF NDF = ABSDF.NDF;
 
-#if CHECK_VISIBILITY
     float visibility = voxelData.calcVisibility(l);
-#else
-    float visibility = 1.f;
-#endif
 
     if (visibility == 0)
         return 0;
@@ -300,20 +296,18 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         uint offset = vBuffer[hits[i].cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
         float coverage = gBuffer[offset].calcCoverage(currentV);
-        if (coverage >= 1 - minTransmitionPdf)
-            coverage = 1;
         ABSDF ABSDF = gBuffer[offset].ABSDF;
         NDF NDF = ABSDF.NDF;
 
         if (coverage == 1 || Next(sg) <= (double)coverage)
         {
             float randomArea = (float)Next(sg) * ABSDF.area;
-            uint lobeIndex = NDF.getRandomLobe(randomArea);
-            float3 n = NDF.weightedNormals[lobeIndex].xyz;
-            if (dot(n, currentV) < 0)
-                n = -n;
-            sampleDirections[i] =
-                importanceSampling(n, currentV, ABSDF.specular, NDF.roughness[lobeIndex], Next2(sg), (float)Next(sg), pdfs[i]); // 反射
+            float specularWeight = calcSpecularWeight(ABSDF.specular);
+            uint lobeIndex;
+            float3 l = sampleDirections[i] =
+                sampleSurface(NDF, currentV, specularWeight, Next2(sg), (float)Next(sg), randomArea, lobeIndex);
+            // pdfs[i] = calcSurfacePdf(NDF, l, v, specularWeight);
+            pdfs[i] = calcSurfacePdf(NDF, lobeIndex, l, v, specularWeight);
             pdfs[i] *= coverage;
         }
         else
@@ -323,11 +317,12 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         }
 
         hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
-        if (!hits[i + 1].hit)
+        if (!hits[i + 1].hit || pdfs[i] < minPdf)
         {
             hitCount = i + 1;
             break;
         }
+        pdfs[i] = max(pdfs[i], 1e-6);
     }
 
     float3 reflectLights[MAX_BOUNCE + 1];

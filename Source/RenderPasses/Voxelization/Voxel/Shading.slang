@@ -4,12 +4,24 @@ import Utils.Math.MathHelpers;
 
 const static float Pi = 3.14159265359;
 
-inline float ggx(float3 n, float3 h, float rough)
+enum class SampleTarget : uint32_t
+{
+    Reflection,
+    Transmission,
+    LightSource
+};
+
+inline float ggx(float NdotH, float rough)
 {
     float rough2 = rough * rough;
-    float temp = dot(n, h) * dot(n, h) * (rough2 - 1) + 1;
+    float temp = NdotH * NdotH * (rough2 - 1) + 1;
     temp = max(1e-6, temp);
     return rough2 / Pi / temp / temp;
+}
+inline float ggx(float3 n, float3 h, float rough)
+{
+    float NdotH = dot(n, h);
+    return ggx(NdotH, rough);
 }
 inline float3 fresnel(float3 v, float3 h, float3 spec)
 {
@@ -47,7 +59,7 @@ inline float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec)
             sum += cookTorrence(l, v, h, n, spec, NDF.roughness[i]) * w;
         }
     }
-    return sum; // 未归一化，已经带有余弦项
+    return sum; // 未归一化，已经带有余弦项(与分母中的余弦项约分掉)
 }
 // 可视化法线分布时，要渲染的点在球面上的方向充当h即可
 inline float weightedGGX(NDF NDF, float3 h)
@@ -75,6 +87,28 @@ inline float3 lambertian(NDF NDF, float3 l, float3 v, float3 diffuse, float3 spe
     return diffuse / Pi * (1 - fresnel(v, normalize(v + l), spec)) * cosTerm;
 }
 
+inline float3x3 rotateMatrix(float cosAngle, float3 axis)
+{
+    float c = cosAngle;
+    float s = sqrt(1 - cosAngle * cosAngle); // 默认角度小于180°
+
+    float3 temp = (1 - c) * axis;
+
+    float3x3 rotate;
+    rotate[0][0] = c + temp[0] * axis[0];
+    rotate[0][1] = temp[1] * axis[0] - s * axis[2];
+    rotate[0][2] = temp[2] * axis[0] + s * axis[1];
+
+    rotate[1][0] = temp[0] * axis[1] + s * axis[2];
+    rotate[1][1] = c + temp[1] * axis[1];
+    rotate[1][2] = temp[2] * axis[1] - s * axis[0];
+
+    rotate[2][0] = temp[0] * axis[2] - s * axis[1];
+    rotate[2][1] = temp[1] * axis[2] + s * axis[0];
+    rotate[2][2] = c + temp[2] * axis[2];
+
+    return rotate;
+}
 inline float3x3 rotateMatrix(float3 from, float3 to)
 {
     float3 f = normalize(from);
@@ -101,33 +135,77 @@ inline float3x3 rotateMatrix(float3 from, float3 to)
     axis /= s;
     return rotateMatrix(cosAngle, axis);
 }
-inline float3 importanceSampling(float3 n, float3 v, float3 spec, float roughness, float2 uDir, float uEnergy, out float pdf)
+
+inline float calcDiffusePdf(float NdotL)
 {
-    float averageFresnel = (20.0f * (spec.x + spec.y + spec.z) / 3.0f + 1.0f) / 21.0f;
+    return NdotL / Pi;
+}
+inline float3 sampleDiffuse(float3 n, float2 uDir)
+{
+    float2 d = sample_disk_concentric(uDir);
+    float z = sqrt(max(0.f, 1.f - dot(d, d)));
+    float3 l = float3(d, z);
     float3x3 rot = rotateMatrix(float3(0, 0, 1), n);
-    float3 l;
-    float pdf_diffuse, pdf_specular;
-    if (uEnergy <= averageFresnel)
-    {
-        // 根据镜面反射选择采样方向
-        float r2 = roughness * roughness;
-        float phi = 2.0 * Pi * uDir.x;
-        float cosTheta = sqrt((1.0 - uDir.y) / (1.0 + (r2 - 1.0) * uDir.y));
-        float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-        float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
-        h = mul(rot, h);
-        l = reflect(-v, h);
-        pdf_specular = ggx(n, h, roughness) * dot(n, h) / (4.0 * max(1e-6, dot(l, h)));
-        pdf_diffuse = dot(n, l) / Pi;
-    }
-    else
-    {
-        // 根据漫反射选择采样方向
-        l = sample_cosine_hemisphere_concentric(uDir, pdf_diffuse);
-        l = mul(rot, l);
-        float3 h = normalize(l + v);
-        pdf_specular = ggx(n, h, roughness) * dot(n, h) / (4.0 * max(1e-6, dot(l, h)));
-    }
-    pdf = averageFresnel * pdf_specular + (1.0 - averageFresnel) * pdf_diffuse;
+    l = mul(rot, l);
     return l;
+}
+
+inline float calcSpecularPdf(float NdotL, float NdotH, float roughness)
+{
+    // return ggx(n, h, roughness) * dot(n, h) / (4.0 * max(1e-6, dot(l, h)));
+    return ggx(NdotH, roughness) * NdotH / (4.0 * max(1e-6, NdotL));
+}
+inline float3 sampleSpecular(float3 n, float3 v, float roughness, float2 uDir)
+{
+    float r2 = roughness * roughness;
+    float phi = 2.0 * Pi * uDir.x;
+    float cosTheta = sqrt((1.0 - uDir.y) / (1.0 + (r2 - 1.0) * uDir.y));
+    float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+    float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+    float3x3 rot = rotateMatrix(float3(0, 0, 1), n);
+    h = mul(rot, h);
+    float3 l = reflect(-v, h);
+    return l;
+}
+
+inline float calcSpecularWeight(float3 spec)
+{
+    float specularWeight = (20.0f * (spec.x + spec.y + spec.z) / 3.0f + 1.0f) / 21.0f;
+    return saturate(specularWeight);
+}
+inline float calcLobePdf(float NdotL, float NdotV, float NdotH, float roughness, float specularWeight)
+{
+    return (1 - specularWeight) * calcDiffusePdf(NdotL) + specularWeight * calcSpecularPdf(NdotL, NdotH, roughness);
+}
+inline float3 sampleLobe(float3 n, float3 v, float roughness, float specularWeight, float2 uDir, float uEnergy)
+{
+    float3 l;
+    if (uEnergy <= specularWeight)
+        l = sampleSpecular(n, v, roughness, uDir);
+    else
+        l = sampleDiffuse(n, uDir);
+    return l;
+}
+
+inline float calcSurfacePdf(NDF NDF, uint lobeIndex, float3 l, float3 v, float specularWeight)
+{
+    float3 h = normalize(l + v);
+    float3 n = NDF.weightedNormals[lobeIndex].xyz;
+    if (dot(n, v) < 0)
+        n = -n;
+    float roughness = NDF.roughness[lobeIndex];
+    float NdotL = dot(n, l);
+    float NdotV = dot(n, v);
+    float NdotH = dot(n, h);
+    float pdf = calcLobePdf(NdotL, NdotV, NdotH, roughness, specularWeight);
+    return pdf;
+}
+inline float3 sampleSurface(NDF NDF, float3 v, float specularWeight, float2 uDir, float uEnergy, float randomArea, out uint lobeIndex)
+{
+    lobeIndex = NDF.getRandomLobe(randomArea); // 根据权重随机选择一个Lobe
+    float roughness = NDF.roughness[lobeIndex];
+    float3 n = NDF.weightedNormals[lobeIndex].xyz;
+    if (dot(n, v) < 0)
+        n = -n;
+    return sampleLobe(n, v, roughness, specularWeight, uDir, uEnergy);
 }
