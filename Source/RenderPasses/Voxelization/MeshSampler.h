@@ -17,6 +17,7 @@ private:
     Image* currentBaseColor;
     Image* currentSpecular;
     Image* currentNormal;
+    bool lerpNormal;
 
 public:
     std::vector<VoxelData> gBuffer;
@@ -28,6 +29,7 @@ public:
         currentBaseColor = nullptr;
         currentNormal = nullptr;
         currentSpecular = nullptr;
+        lerpNormal = false;
     }
 
     void reset()
