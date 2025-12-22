@@ -12,37 +12,39 @@ enum class SampleTarget : uint32_t
     LightSource
 };
 
-inline float ggx(float NdotH, float rough)
+inline float ggx(float NdotH, float alpha)
 {
-    float rough2 = rough * rough;
-    float temp = NdotH * NdotH * (rough2 - 1) + 1;
+    float alpha2 = alpha * alpha;
+    float temp = NdotH * NdotH * (alpha2 - 1) + 1;
     temp = max(1e-6, temp);
-    return rough2 / Pi / temp / temp;
+    return alpha2 / Pi / temp / temp;
 }
-inline float ggx(float3 n, float3 h, float rough)
+inline float ggx(float3 n, float3 h, float alpha)
 {
     float NdotH = dot(n, h);
-    return ggx(NdotH, rough);
+    return ggx(NdotH, alpha);
 }
 inline float3 fresnel(float3 v, float3 h, float3 spec)
 {
     return spec + (1 - spec) * pow(1 - saturate(dot(v, h)), 5); // 不能出现负底数
 }
 
-float g(float3 n, float3 x, float rough)
+float Lambda(float3 n, float3 x, float alpha)
 {
-    float dotNx = dot(n, x);
-    float temp = rough * rough + (1 - rough * rough) * dotNx * dotNx;
-    temp = sqrt(temp) / max(1e-6, dotNx) - 1;
+    float NdotX = dot(n, x);
+    float temp = alpha * alpha + (1 - alpha * alpha) * NdotX * NdotX;
+    temp = sqrt(temp) / max(1e-6, NdotX) - 1;
     return temp / 2;
 }
-float3 cookTorrence(float3 l, float3 v, float3 h, float3 n, float3 spec, float rough)
+//带有余弦项，已经与分母中的余弦项约分掉
+float3 cookTorrenceCos(float3 l, float3 v, float3 h, float3 n, float3 spec, float rough)
 {
-    float3 specColor = ggx(n, h, rough) * fresnel(v, h, spec) / (1 + g(n, l, rough) + g(n, v, rough)) / 4 / max(1e-6, dot(n, v));
+    float alpha = rough * rough;
+    float3 specColor = ggx(n, h, alpha) * fresnel(v, h, spec) / (1 + Lambda(n, l, alpha) + Lambda(n, v, alpha)) / 4 / max(1e-6, dot(n, v));
     return specColor;
 }
 
-inline float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec)
+inline float3 weightedCookTorrenceCos(NDF NDF, float3 l, float3 v, float3 spec)
 {
     float3 sum = 0;
     float3 h = normalize(l + v);
@@ -52,15 +54,14 @@ inline float3 weightedCookTorrence(NDF NDF, float3 l, float3 v, float3 spec)
         if (w > 0)
         {
             float3 n = NDF.weightedNormals[i].xyz;
-            float cosTerm = dot(n, l);
-            if (cosTerm < 0)
+            if (dot(n, l) < 0)
                 n = -n;
             if (dot(n, v) <= 0)
                 continue;
-            sum += cookTorrence(l, v, h, n, spec, NDF.roughness[i]) * w;
+            sum += cookTorrenceCos(l, v, h, n, spec, NDF.roughness[i]) * w;
         }
     }
-    return sum; // 未归一化，已经带有余弦项(与分母中的余弦项约分掉)
+    return sum; // 未归一化
 }
 // 可视化法线分布时，要渲染的点在球面上的方向充当h即可
 inline float weightedGGX(NDF NDF, float3 h)
@@ -82,7 +83,7 @@ inline float weightedGGX(NDF NDF, float3 h)
     return sum; // 未归一化
 }
 
-inline float3 lambertian(NDF NDF, float3 l, float3 v, float3 diffuse, float3 spec)
+inline float3 lambertianCos(NDF NDF, float3 l, float3 v, float3 diffuse, float3 spec)
 {
     float cosTerm = NDF.weightedDot(l, v);
     return diffuse / Pi * (1 - fresnel(v, normalize(v + l), spec)) * cosTerm;
@@ -151,16 +152,15 @@ inline float3 sampleDiffuse(float3 n, float2 uDir)
     return l;
 }
 
-inline float calcSpecularPdf(float NdotL, float NdotH, float roughness)
+inline float calcSpecularPdf(float VdotH, float NdotH, float alpha)
 {
-    // return ggx(n, h, roughness) * dot(n, h) / (4.0 * max(1e-6, dot(l, h)));
-    return ggx(NdotH, roughness) * NdotH / (4.0 * max(1e-6, NdotL));
+    return ggx(NdotH, alpha) * NdotH / (4.0 * max(1e-6, VdotH));
 }
-inline float3 sampleSpecular(float3 n, float3 v, float roughness, float2 uDir)
+inline float3 sampleSpecular(float3 n, float3 v, float alpha, float2 uDir)
 {
-    float r2 = roughness * roughness;
+    float alpha2 = alpha * alpha;
     float phi = 2.0 * Pi * uDir.x;
-    float cosTheta = sqrt((1.0 - uDir.y) / (1.0 + (r2 - 1.0) * uDir.y));
+    float cosTheta = sqrt((1.0 - uDir.y) / (1.0 + (alpha2 - 1.0) * uDir.y));
     float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
     float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
     float3x3 rot = rotateMatrix(float3(0, 0, 1), n);
@@ -174,36 +174,48 @@ inline float calcSpecularWeight(float3 spec)
     float specularWeight = (20.0f * (spec.x + spec.y + spec.z) / 3.0f + 1.0f) / 21.0f;
     return saturate(specularWeight);
 }
-inline float calcLobePdf(float NdotL, float NdotV, float NdotH, float roughness, float specularWeight)
+inline float calcLobePdf(float NdotL, float NdotH, float VdotH, float alpha, float specularWeight)
 {
-    return (1 - specularWeight) * calcDiffusePdf(NdotL) + specularWeight * calcSpecularPdf(NdotL, NdotH, roughness);
+    return (1 - specularWeight) * calcDiffusePdf(NdotL) + specularWeight * calcSpecularPdf(VdotH, NdotH, alpha);
 }
-inline float3 sampleLobe(float3 n, float3 v, float roughness, float specularWeight, float2 uDir, float uEnergy)
+inline float3 sampleLobe(float3 n, float3 v, float alpha, float specularWeight, float2 uDir, float uEnergy)
 {
     float3 l;
     if (uEnergy <= specularWeight)
-        l = sampleSpecular(n, v, roughness, uDir);
+        l = sampleSpecular(n, v, alpha, uDir);
     else
         l = sampleDiffuse(n, uDir);
     return l;
 }
 
-inline float calcSurfacePdf(NDF NDF, uint lobeIndex, float3 l, float3 v, float specularWeight)
+inline float calcSurfacePdf(NDF NDF, float3 l, float3 v, float specularWeight)
 {
     float3 h = normalize(l + v);
-    float3 n = NDF.weightedNormals[lobeIndex].xyz;
-    if (dot(n, v) < 0)
-        n = -n;
-    float roughness = NDF.roughness[lobeIndex];
-    float NdotL = dot(n, l);
-    float NdotV = dot(n, v);
-    float NdotH = dot(n, h);
-    float pdf = calcLobePdf(NdotL, NdotV, NdotH, roughness, specularWeight);
-    return pdf;
+    float totalWeight = 0;
+    float pdf = 0;
+    for(uint i = 0; i < LOBE_COUNT; i++)
+    {
+        float w = NDF.weightedNormals[i].w;
+        if (w > 0)
+        {
+            totalWeight += w;
+            float3 n = NDF.weightedNormals[i].xyz;
+            if (dot(n, v) < 0)
+                n = -n;
+            float NdotL = dot(n, l);
+            if (NdotL <= 0)
+                continue;
+            float NdotH = dot(n, h);
+            float VdotH = dot(v, h);
+            float rough = NDF.roughness[i];
+            pdf += w * calcLobePdf(NdotL, NdotH, VdotH, rough * rough, specularWeight); //混合重要性采样
+        }
+    }
+    return pdf / totalWeight;
 }
-inline float3 sampleSurface(NDF NDF, float3 v, float specularWeight, float2 uDir, float uEnergy, float randomArea, out uint lobeIndex)
+inline float3 sampleSurface(NDF NDF, float3 v, float specularWeight, float2 uDir, float uEnergy, float randomArea)
 {
-    lobeIndex = NDF.getRandomLobe(randomArea); // 根据权重随机选择一个Lobe
+    uint lobeIndex = NDF.getRandomLobe(randomArea); // 根据权重随机选择一个Lobe
     float roughness = NDF.roughness[lobeIndex];
     float3 n = NDF.weightedNormals[lobeIndex].xyz;
     if (dot(n, v) < 0)
@@ -221,8 +233,8 @@ inline float3 samplePrimitive(VoxelData data, float3 v, inout UniformSampleGener
         NDF NDF = ABSDF.NDF;
         float randomArea = (float)Next(sg) * ABSDF.area;
         float specularWeight = calcSpecularWeight(ABSDF.specular);
-        float3 l = sampleSurface(NDF, v, specularWeight, Next2(sg), (float)Next(sg), randomArea, lobeIndex);
-        pdf = coverage * calcSurfacePdf(NDF, lobeIndex, l, v, specularWeight);
+        float3 l = sampleSurface(NDF, v, specularWeight, Next2(sg), (float)Next(sg), randomArea);
+        pdf = coverage * calcSurfacePdf(NDF, l, v, specularWeight);
         return l;
     }
     // 透射

@@ -30,13 +30,9 @@
 sceneBuilder.importScene('Arcade.fbx')
 
 # # Adjust emissive screen
-m = sceneBuilder.getMaterial('Cabinet')
-m.emissiveFactor = 150.0
+# m = sceneBuilder.getMaterial('Cabinet')
+# m.emissiveFactor = 150.0
 
-# Add environment map
-envMap = EnvMap('20050806-03_hd.hdr')
-envMap.intensity = 1.0
-# sceneBuilder.envMap = envMap
 
 # Add camera
 camera = Camera()

@@ -1,6 +1,6 @@
-#include "Voxel/VoxelGrid.slang"
-#include "Voxel/Shading.slang"
 #include "Math/VoxelizationUtility.slang"
+#include "Shading.slang"
+#include "Voxel/VoxelGrid.slang"
 #include "VoxelizationShared.slang"
 
 StructuredBuffer<VoxelData> gBuffer;
@@ -16,9 +16,9 @@ struct PsOut
     float4 color : SV_Target0;
 };
 
-float3 pdfToColor(float pdf, float maxPdf)
+float3 pdfToColor(float pdf, float refPdf)
 {
-    float k = pdf / maxPdf;
+    float k = pdf / refPdf;
     // 蓝->青->绿->黄->红->黑渐变
     float3 c;
     c.r = smoothstep(0.4, 1.0, k) - smoothstep(1.0, 5.0, k);
@@ -40,8 +40,8 @@ float3 calcColor(float2 localCoord, int offset, float3 v)
     direction = mul(rotMatrix, direction);
     float pdf = weightedGGX(NDF, direction) / area;
     float rough = 0.5f; //参考值
-    float maxPdf = 1.0 / (Pi * rough * rough);
-    return pdfToColor(pdf, maxPdf);
+    float refPdf = 1.0 / (Pi * rough * rough);
+    return pdfToColor(pdf, refPdf);
 }
 
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
