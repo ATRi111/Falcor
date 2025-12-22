@@ -13,12 +13,6 @@ BEGIN_NAMESPACE_FALCOR
 #define MAX_VERTEX_COUNT 6
 #define MAX_POLYGON_COUNT 16
 
-struct HitPolygon
-{
-    float t;
-    uint index;
-};
-
 struct Polygon
 {
     float3 vertices[MAX_VERTEX_COUNT];

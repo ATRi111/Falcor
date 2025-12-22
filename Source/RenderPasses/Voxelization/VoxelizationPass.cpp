@@ -46,7 +46,7 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
 
     mRepeatTimes = 256;
     mSampleFrequency = 16;
-    mVoxelResolution = 256;
+    mVoxelResolution = 512;
 
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
 

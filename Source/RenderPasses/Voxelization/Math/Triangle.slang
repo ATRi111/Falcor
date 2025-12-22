@@ -14,6 +14,7 @@ inline float3 calcShadingNormal(float3x3 TBN, float3 normalMapColor)
 struct Triangle
 {
     float3 vertices[3];
+    float3 normals[3];
     float2 uvs[3];
     float3x3 TBN;
 
@@ -24,6 +25,7 @@ struct Triangle
         {
             vertices[i] = float3(0);
             uvs[i] = float2(0);
+            normals[i] = float3(0);
         }
     }
 
@@ -75,6 +77,12 @@ struct Triangle
     {
         float3 coord = barycentricCoordinates(p);
         return uvs[0] * coord.x + uvs[1] * coord.y + uvs[2] * coord.z;
+    }
+
+    float3 lerpNormal(float3 p)
+    {
+        float3 coord = barycentricCoordinates(p);
+        return normalize(normals[0] * coord.x + normals[1] * coord.y + normals[2] * coord.z);
     }
 
     AABBInt calcAABBInt()

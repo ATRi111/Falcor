@@ -17,12 +17,12 @@ private:
     Image* currentBaseColor;
     Image* currentSpecular;
     Image* currentNormal;
-    bool lerpNormal;
 
 public:
     std::vector<VoxelData> gBuffer;
     std::vector<int> vBuffer;
     std::vector<PolygonInVoxel> polygonBuffer;
+    bool lerpNormal;
 
     MeshSampler() : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance())
     {
@@ -80,11 +80,21 @@ public:
             float2 uv = tri.lerpUV(polygon.vertices[i]);
             uvs.push_back(uv);
         }
-
         float3 baseColor = currentBaseColor ? currentBaseColor->SampleArea(uvs).xyz() : float3(0.5f);
         float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0.5f, 0, 0);
-        float3 normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
-        normal = calcShadingNormal(tri.TBN, normal);
+
+        float3 normal;
+        if(lerpNormal)
+        {
+            float dummy;
+            float3 centroid = polygon.calcCentroid(dummy);
+            normal = tri.lerpNormal(centroid);
+        }
+        else
+        {
+            normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
+            normal = calcShadingNormal(tri.TBN, normal);
+        }
         if (normal.y < 0)
             normal = -normal;
         ABSDFInput input = {baseColor, spec, normal, polygon.calcArea()};
@@ -109,7 +119,7 @@ public:
         }
     }
 
-    void sampleMesh(MeshHeader mesh, float3* pPos, float2* pUV, uint3* pIndex)
+    void sampleMesh(MeshHeader mesh, float3* pPos, float3* pNormal, float2* pUV, uint3* pIndex)
     {
         currentBaseColor = loader.loadImage(mesh.materialID, BaseColor);
         currentSpecular = loader.loadImage(mesh.materialID, Specular);
@@ -124,6 +134,9 @@ public:
             tri.uvs[0] = pUV[indices.x];
             tri.uvs[1] = pUV[indices.y];
             tri.uvs[2] = pUV[indices.z];
+            tri.normals[0] = pNormal[indices.x];
+            tri.normals[1] = pNormal[indices.y];
+            tri.normals[2] = pNormal[indices.z];
 
             // 世界坐标处理成网格坐标
             for (int i = 0; i < 3; i++)
@@ -135,11 +148,11 @@ public:
         }
     }
 
-    void sampleAll(SceneHeader scene, std::vector<MeshHeader> meshList, float3* pPos, float2* pUV, uint3* pTri)
+    void sampleAll(SceneHeader scene, std::vector<MeshHeader> meshList, float3* pPos, float3* pNormal, float2* pUV, uint3* pTri)
     {
         for (size_t i = 0; i < meshList.size(); i++)
         {
-            sampleMesh(meshList[i], pPos, pUV, pTri);
+            sampleMesh(meshList[i], pPos, pNormal, pUV, pTri);
         }
         gridData.solidVoxelCount = gBuffer.size();
     }

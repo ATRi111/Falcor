@@ -41,6 +41,9 @@ ImageLoader::ImageLoader()
         idToPath_Chandelier[0] = folder + "Candle";
         idToPath_Chandelier[1] = folder + "Body";
         idToPath_Chandelier[2] = folder + "Pillar";
+        idToPath_Chandelier[3] = folder + "Floor";
+        idToPath_Chandelier[4] = folder + "LeftWall";
+        idToPath_Chandelier[5] = folder + "RightWall";
     }
 }
 

@@ -8,6 +8,7 @@ import Utils.Math.MathHelpers;
 
 ParameterBlock<Scene> scene;
 RWStructuredBuffer<float3> positions;
+RWStructuredBuffer<float3> normals;
 RWStructuredBuffer<float2> texCoords;
 RWStructuredBuffer<uint3> triangles;
 
@@ -35,6 +36,7 @@ void loadTriangle(uint triangleId)
         StaticVertexData vertex = scene.getVertex(index);
         positions[index] = vertex.position;
         texCoords[index] = vertex.texCrd;
+        normals[index] = vertex.normal;
     }
 }
 

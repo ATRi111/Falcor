@@ -42,9 +42,9 @@ public:
     VoxelizationPass_CPU(ref<Device> pDevice, const Properties& props);
 
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
-
     virtual void voxelize(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void sample(RenderContext* pRenderContext, const RenderData& renderData) override;
+    virtual void renderUI(Gui::Widgets& widget) override;
 private:
     ref<ComputePass> mLoadMeshPass;
     MeshSampler meshSampler;

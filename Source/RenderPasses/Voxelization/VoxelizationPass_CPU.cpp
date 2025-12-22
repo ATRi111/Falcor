@@ -67,22 +67,22 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
         triangleCount += meshDesc.getTriangleCount();
     }
 
-    uint positionBytes = sizeof(float3) * vertexCount;
-    uint texCoordBytes = sizeof(float2) * vertexCount;
-    uint triangleBytes = sizeof(uint3) * triangleCount;
     ref<Buffer> positions = mpDevice->createStructuredBuffer(sizeof(float3), vertexCount, ResourceBindFlags::UnorderedAccess);
+    ref<Buffer> normals = mpDevice->createStructuredBuffer(sizeof(float3), vertexCount, ResourceBindFlags::UnorderedAccess);
     ref<Buffer> texCoords = mpDevice->createStructuredBuffer(sizeof(float2), vertexCount, ResourceBindFlags::UnorderedAccess);
     ref<Buffer> triangles = mpDevice->createStructuredBuffer(sizeof(uint3), triangleCount, ResourceBindFlags::UnorderedAccess);
 
-    ref<Buffer> cpuPositions = mpDevice->createBuffer(positionBytes, ResourceBindFlags::None, MemoryType::ReadBack);
-    ref<Buffer> cpuTexCoords = mpDevice->createBuffer(texCoordBytes, ResourceBindFlags::None, MemoryType::ReadBack);
-    ref<Buffer> cpuTriangles = mpDevice->createBuffer(triangleBytes, ResourceBindFlags::None, MemoryType::ReadBack);
+    ref<Buffer> cpuPositions = mpDevice->createBuffer(sizeof(float3) * vertexCount, ResourceBindFlags::None, MemoryType::ReadBack);
+    ref<Buffer> cpuNormals = mpDevice->createBuffer(sizeof(float3) * vertexCount, ResourceBindFlags::None, MemoryType::ReadBack);
+    ref<Buffer> cpuTexCoords = mpDevice->createBuffer(sizeof(float2) * vertexCount, ResourceBindFlags::None, MemoryType::ReadBack);
+    ref<Buffer> cpuTriangles = mpDevice->createBuffer(sizeof(uint3) * triangleCount, ResourceBindFlags::None, MemoryType::ReadBack);
 
     std::vector<MeshHeader> meshList;
 
     ShaderVar var = mLoadMeshPass->getRootVar();
     mpScene->bindShaderData(var["scene"]);
     var["positions"] = positions;
+    var["normals"] = normals;
     var["texCoords"] = texCoords;
     var["triangles"] = triangles;
     uint triangleOffset = 0;
@@ -101,6 +101,7 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
         meshData["use16BitIndices"] = meshDesc.use16BitIndices();
         mLoadMeshPass->execute(pRenderContext, uint3(meshDesc.getTriangleCount(), 1, 1));
         pRenderContext->uavBarrier(positions.get());
+        pRenderContext->uavBarrier(normals.get());
         pRenderContext->uavBarrier(texCoords.get());
         pRenderContext->uavBarrier(triangles.get());
 
@@ -108,20 +109,23 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
     }
 
     pRenderContext->copyResource(cpuPositions.get(), positions.get());
+    pRenderContext->copyResource(cpuNormals.get(), normals.get());
     pRenderContext->copyResource(cpuTexCoords.get(), texCoords.get());
     pRenderContext->copyResource(cpuTriangles.get(), triangles.get());
     mpDevice->wait();
 
     float3* pPos = reinterpret_cast<float3*>(cpuPositions->map());
+    float3* pNormal = reinterpret_cast<float3*>(cpuNormals->map());
     float2* pUV = reinterpret_cast<float2*>(cpuTexCoords->map());
     uint3* pTri = reinterpret_cast<uint3*>(cpuTriangles->map());
     SceneHeader header = { meshCount, vertexCount, triangleCount };
 
     meshSampler.reset();
-    meshSampler.sampleAll(header, meshList, pPos, pUV, pTri);
+    meshSampler.sampleAll(header, meshList, pPos, pNormal, pUV, pTri);
     gridData.solidVoxelCount = meshSampler.gBuffer.size();
     meshSampler.analyzeAll();
     cpuPositions->unmap();
+    cpuNormals->unmap();
     cpuTexCoords->unmap();
     cpuTriangles->unmap();
 
@@ -137,4 +141,10 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
 void VoxelizationPass_CPU::sample(RenderContext* pRenderContext, const RenderData& renderData)
 {
     VoxelizationPass::sample(pRenderContext, renderData);
+}
+
+void VoxelizationPass_CPU::renderUI(Gui::Widgets& widget)
+{
+    VoxelizationPass::renderUI(widget);
+    widget.checkbox("LerpNormal", meshSampler.lerpNormal);
 }
