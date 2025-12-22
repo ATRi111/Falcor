@@ -113,7 +113,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         }
     }
 
-    static const std::string sceneNames[] = {"Arcade", "Tree", "BoxBunny", "Box"};
+    static const std::string sceneNames[] = { "Arcade", "Tree", "BoxBunny", "Box","Chandelier" };
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)

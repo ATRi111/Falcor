@@ -35,6 +35,13 @@ ImageLoader::ImageLoader()
         idToPath_BoxBunny[2] = folder + "RightWall";
         idToPath_BoxBunny[3] = folder + "Bunny";
     }
+
+    {
+        std::string folder = "E:/Project/Falcor/Scene/Chandelier/Textures/";
+        idToPath_Chandelier[0] = folder + "Candle";
+        idToPath_Chandelier[1] = folder + "Body";
+        idToPath_Chandelier[2] = folder + "Pillar";
+    }
 }
 
 ImageLoader& ImageLoader::Instance()
@@ -101,6 +108,8 @@ void ImageLoader::setSceneName(std::string sceneName)
         pIdToPath = &idToPath_Box;
     else if (sceneName == "BoxBunny")
         pIdToPath = &idToPath_BoxBunny;
+    else if (sceneName == "Chandelier")
+        pIdToPath = &idToPath_Chandelier;
     else
         pIdToPath = nullptr;
 }

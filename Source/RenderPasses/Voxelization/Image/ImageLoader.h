@@ -17,6 +17,7 @@ private:
     std::unordered_map<uint, std::string> idToPath_Arcade;
     std::unordered_map<uint, std::string> idToPath_Box;
     std::unordered_map<uint, std::string> idToPath_BoxBunny;
+    std::unordered_map<uint, std::string> idToPath_Chandelier;
     std::unordered_map<uint, std::string>* pIdToPath;
 
     std::unordered_map<std::string, Image*> imageCache;
