@@ -35,7 +35,7 @@ const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPa
 }; // namespace
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
-    : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
+    : RenderPass(pDevice) , polygonGroup(pDevice,sizeof(PolygonInVoxel), 32768 * sizeof(PolygonInVoxel)), gridData(VoxelizationBase::GlobalGridData)
 {
     mSceneNameIndex = 0;
     mSceneName = "Arcade";
@@ -44,8 +44,7 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     mCompleteTimes = 0;
     pVBuffer_CPU = nullptr;
 
-    mRepeatTimes = 256;
-    mSampleFrequency = 16;
+    mSampleFrequency = 256;
     mVoxelResolution = 512;
 
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
@@ -75,7 +74,7 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
     }
     else
     {
-        if (mCompleteTimes < mRepeatTimes)
+        if (mCompleteTimes < polygonGroup.size())
         {
             sample(pRenderContext, renderData);
             mCompleteTimes++;
@@ -99,7 +98,7 @@ void VoxelizationPass::compile(RenderContext* pRenderContext, const CompileData&
 
 void VoxelizationPass::renderUI(Gui::Widgets& widget)
 {
-    static const uint resolutions[] = {16, 32, 64, 128, 256, 512, 1024};
+    static const uint resolutions[] = { 16, 32, 64, 128, 256, 512,1000, 1024 };
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
@@ -135,15 +134,6 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         }
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
     }
-    static const uint repeatTimes[] = {1, 4, 16, 64, 256, 1024};
-    {
-        Gui::DropdownList list;
-        for (uint32_t i = 0; i < sizeof(repeatTimes) / sizeof(uint); i++)
-        {
-            list.push_back({repeatTimes[i], std::to_string(repeatTimes[i])});
-        }
-        widget.dropdown("Repeat times", list, mRepeatTimes);
-    }
 
     if (mpScene && mVoxelizationComplete && mSamplingComplete && widget.button("Generate"))
     {
@@ -178,16 +168,17 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     }
     ShaderVar var = mSamplePolygonPass->getRootVar();
     var[kGBuffer] = gBuffer;
-    var[kPolygonBuffer] = polygonBuffer;
+    var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
 
+    uint polygonOffset = mCompleteTimes * polygonGroup.maxElementCountPerBuffer();
+    uint elementCount = polygonGroup.getElementCountOfBuffer(mCompleteTimes);
     auto cb = var["CB"];
-    cb["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
+    cb["voxelCount"] = elementCount;
     cb["sampleFrequency"] = mSampleFrequency;
-    cb["completeTimes"] = mCompleteTimes;
-    cb["repeatTimes"] = mRepeatTimes;
+    cb["polygonOffset"] = polygonOffset;
 
     Tools::Profiler::BeginSample("Sample Polygons");
-    mSamplePolygonPass->execute(pRenderContext, uint3((uint)gridData.solidVoxelCount, 1, 1));
+    mSamplePolygonPass->execute(pRenderContext, uint3(elementCount, 1, 1));
     mpDevice->wait();
     Tools::Profiler::EndSample("Sample Polygons");
 }
@@ -200,8 +191,6 @@ std::string VoxelizationPass::getFileName() const
     oss << ToString((int3)gridData.voxelCount);
     oss << "_";
     oss << std::to_string(mSampleFrequency);
-    oss << "_";
-    oss << std::to_string(mRepeatTimes);
     oss << ".bin";
     return oss.str();
 }

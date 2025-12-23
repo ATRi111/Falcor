@@ -130,9 +130,8 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
     cpuTriangles->unmap();
 
     gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
-    polygonBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonInVoxel), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
+    polygonGroup.setBlob(meshSampler.polygonBuffer.data(), gridData.solidVoxelCount * sizeof(PolygonInVoxel));
     gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gridData.solidVoxelCount * sizeof(VoxelData));
-    polygonBuffer->setBlob(meshSampler.polygonBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonInVoxel));
     pVBuffer_CPU = meshSampler.vBuffer.data();
 
     mpDevice->wait();

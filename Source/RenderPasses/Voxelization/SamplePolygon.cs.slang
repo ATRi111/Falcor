@@ -7,10 +7,9 @@ StructuredBuffer<PolygonInVoxel> polygonBuffer;
 
 cbuffer CB
 {
-    uint solidVoxelCount;
+    uint voxelCount;
     uint sampleFrequency;
-    uint completeTimes;
-    uint repeatTimes;
+    uint polygonOffset;
 }
 
 void Estimate(
@@ -56,20 +55,18 @@ void Estimate(
             totalFunc.accumulate(hitCount, direction);
         }
     }
-    if (completeTimes == repeatTimes - 1)
-    {
-        uint totalTimes = times * 2 * repeatTimes;
-        float weight = 2.35619449f * 4.f * PI / totalTimes;
-        polygonFunc.mul(weight);
-        primitiveFunc.mul(weight);
-        totalFunc.mul(weight);
-    }
+
+    uint totalTimes = times * 2;
+    float weight = 2.35619449f * 4.f * PI / totalTimes;
+    polygonFunc.mul(weight);
+    primitiveFunc.mul(weight);
+    totalFunc.mul(weight);
 }
 
 void calc(uint offset)
 {
-    UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), completeTimes);
-    if (offset >= solidVoxelCount)
+    UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), 0);
+    if (offset >= voxelCount)
         return;
 
     Estimate(
@@ -86,5 +83,5 @@ void calc(uint offset)
 [numthreads(256, 1, 1)]
 void main(uint3 offset: SV_DispatchThreadID)
 {
-    calc(offset.x);
+    calc(offset.x + polygonOffset);
 }

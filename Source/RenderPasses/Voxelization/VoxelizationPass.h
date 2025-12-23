@@ -55,7 +55,7 @@ protected:
     ref<Scene> mpScene;
 
     ref<Buffer> gBuffer;
-    ref<Buffer> polygonBuffer;
+    StructuredBufferGroup polygonGroup;
     ref<Buffer> solidVoxelCount;
 
     void* pVBuffer_CPU;
@@ -63,7 +63,6 @@ protected:
     uint mSceneNameIndex;
     std::string mSceneName;
     uint mSampleFrequency;
-    uint mRepeatTimes;
     uint mVoxelResolution; // X,Y,Z三个方向中，最长的边被划分的体素数量
     GridData& gridData;
 

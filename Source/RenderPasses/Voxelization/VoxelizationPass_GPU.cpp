@@ -93,7 +93,8 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     mpScene->bindShaderData(var["scene"]);
     var[kGBuffer] = gBuffer;
     var[kVBuffer] = vBuffer;
-    var[kPolygonBuffer] = polygonBuffer;
+    //TODO
+    // var[kPolygonBuffer] = polygonGroup;
     var["solidVoxelCount"] = solidVoxelCount;
 
     auto cb_grid = var["GridData"];
@@ -130,7 +131,8 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
 
     var = mAnalyzePass->getRootVar();
     var[kGBuffer] = gBuffer;
-    var[kPolygonBuffer] = polygonBuffer;
+    //TODO
+    //var[kPolygonBuffer] = polygonGroup;
     auto cb = var["CB"];
     cb["solidVoxelCount"] = p[0];
     mAnalyzePass->execute(pRenderContext, uint3(p[0], 1, 1));

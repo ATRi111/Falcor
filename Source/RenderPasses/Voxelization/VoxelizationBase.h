@@ -109,3 +109,68 @@ struct MeshHeader
     uint triangleCount;
     uint triangleOffset;
 };
+
+class StructuredBufferGroup
+{
+private:
+    ref<Device> mpDevice;
+    std::vector<ref<Buffer>> mBuffers;
+    size_t sizePerElement;
+    size_t totalSize;
+    size_t maxSizePerBuffer;
+public:
+    StructuredBufferGroup(ref<Device> device, size_t sizePerElement, size_t maxSizePerBuffer)
+        : mpDevice(device), sizePerElement(sizePerElement), totalSize(0), maxSizePerBuffer(maxSizePerBuffer)
+    {
+        FALCOR_ASSERT(maxSizePerBuffer % sizePerElement == 0);
+    }
+
+    uint getSizeOfBuffer(uint index) const
+    {
+        FALCOR_ASSERT(index < mBuffers.size());
+        if (index < mBuffers.size() - 1)
+            return maxSizePerBuffer;
+        if (index == mBuffers.size() - 1)
+            return totalSize - maxSizePerBuffer * (mBuffers.size() - 1);
+        return 0;
+    }
+
+    uint getElementCountOfBuffer(uint index) const
+    {
+        return getSizeOfBuffer(index) / sizePerElement;
+    }
+
+    uint maxElementCountPerBuffer() const
+    {
+        return maxSizePerBuffer / sizePerElement;
+    }
+
+    uint size() const
+    {
+        return mBuffers.size();
+    }
+
+    ref<Buffer> get(uint index)
+    {
+        FALCOR_ASSERT(index < mBuffers.size());
+        return mBuffers[index];
+    }
+
+    void setBlob(const void* pData, size_t size)
+    {
+        FALCOR_ASSERT(size % sizePerElement == 0);
+        mBuffers.clear();
+        totalSize = size;
+        size_t offset = 0;
+        while(size > 0)
+        {
+            size_t copySize = std::min(size, maxSizePerBuffer);
+            size_t elementCount = copySize / sizePerElement;
+            ref<Buffer> buffer = mpDevice->createStructuredBuffer(sizePerElement, elementCount, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+            buffer->setBlob((const char*)pData + offset, 0, copySize);
+            mBuffers.push_back(buffer);
+            offset += copySize;
+            size -= copySize;
+        }
+    }
+};
