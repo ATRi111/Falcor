@@ -12,6 +12,16 @@ enum class SampleTarget : uint32_t
     LightSource
 };
 
+float3 calcSchlick(float3 f0,float3 f90, float cosTheta)
+{
+    return lerp(f0, f90, pow(1 - saturate(cosTheta), 5)); // 不能出现负底数
+}
+
+float calcSchlick(float f0, float f90, float cosTheta)
+{
+    return lerp(f0, f90, pow(1 - saturate(cosTheta), 5)); // 不能出现负底数
+}
+
 inline float ggx(float NdotH, float alpha)
 {
     float alpha2 = alpha * alpha;
@@ -26,7 +36,7 @@ inline float ggx(float3 n, float3 h, float alpha)
 }
 inline float3 fresnel(float3 v, float3 h, float3 spec)
 {
-    return spec + (1 - spec) * pow(1 - saturate(dot(v, h)), 5); // 不能出现负底数
+    return calcSchlick(spec, float3(1, 1, 1), dot(v, h));
 }
 
 float Lambda(float3 n, float3 x, float alpha)
@@ -44,7 +54,7 @@ float3 cookTorrenceCos(float3 l, float3 v, float3 h, float3 n, float3 spec, floa
     return specColor;
 }
 
-inline float3 weightedCookTorrenceCos(NDF NDF, float3 l, float3 v, float3 spec)
+inline float3 weightedCookTorrenceCos(NDF NDF, float3 l, float3 v, float3 h, float3 spec)
 {
     float3 sum = 0;
     float3 h = normalize(l + v);
@@ -83,10 +93,36 @@ inline float weightedGGX(NDF NDF, float3 h)
     return sum; // 未归一化
 }
 
-inline float3 lambertianCos(NDF NDF, float3 l, float3 v, float3 diffuse, float3 spec)
+inline float3 diffuseCos(float3 n, float3 l, float3 v, float3 h, float rough, float3 diffuse)
 {
-    float cosTerm = NDF.weightedDot(l, v);
-    return diffuse / Pi * (1 - fresnel(v, normalize(v + l), spec)) * cosTerm;
+    float cosTerm = dot(l, n);
+    float vDotH = dot(v, h);
+    float energyBias = lerp(0.f, 0.5f, rough);
+    float energyFactor = lerp(1.f, 1.f / 1.51f, rough);
+    float fd90 = energyBias + 2.f * vDotH * vDotH * rough;
+    float fd0 = 1.f;
+    float wiScatter = calcSchlick(fd0, fd90, dot(n, l));
+    float woScatter = calcSchlick(fd0, fd90, dot(n, v));
+    return wiScatter * woScatter * energyFactor * diffuse / Pi * cosTerm;
+}
+
+inline float3 weightedDiffuseCos(NDF NDF, float3 l, float3 v, float3 h, float3 diffuse)
+{
+    float3 sum = 0;
+    for (int i = 0; i < LOBE_COUNT; i++)
+    {
+        float w = NDF.weightedNormals[i].w;
+        if (w > 0)
+        {
+            float3 n = NDF.weightedNormals[i].xyz;
+            if (dot(n, l) < 0)
+                n = -n;
+            if (dot(n, v) <= 0)
+                continue;
+            sum += diffuseCos(n, l, v, h, NDF.roughness[i], diffuse) * w;
+        }
+    }
+    return sum; // 未归一化
 }
 
 inline float3x3 rotateMatrix(float cosAngle, float3 axis)
@@ -234,10 +270,10 @@ inline float3 samplePrimitive(VoxelData data, float3 v, inout UniformSampleGener
         float randomArea = (float)Next(sg) * ABSDF.area;
         float specularWeight = calcSpecularWeight(ABSDF.specular);
         float3 l = sampleSurface(NDF, v, specularWeight, Next2(sg), (float)Next(sg), randomArea);
-        pdf = coverage * calcSurfacePdf(NDF, l, v, specularWeight);
+        pdf = calcSurfacePdf(NDF, l, v, specularWeight); //依然无偏
         return l;
     }
     // 透射
-    pdf = 1 - coverage;
+    pdf = 1;    //依然无偏，且方差更小
     return -v;
 }

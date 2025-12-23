@@ -193,8 +193,9 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     if (visibility == 0)
         return 0;
 
-    float3 diffuseColor = lightColor * lambertianCos(NDF, l, v, diffuse, specular) / area;
-    float3 specularColor = lightColor * weightedCookTorrenceCos(NDF, l, v, specular) / area;
+    float3 h = normalize(l + v);
+    float3 diffuseColor = lightColor * weightedDiffuseCos(NDF, l, v, h, diffuse) / area;
+    float3 specularColor = lightColor * weightedCookTorrenceCos(NDF, l, v, h, specular) / area;
     float3 result = 0;
     switch (drawMode)
     {

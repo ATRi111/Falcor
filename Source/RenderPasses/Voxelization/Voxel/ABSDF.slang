@@ -136,6 +136,17 @@ struct NDF
         }
         return LOBE_COUNT - 1;
     }
+
+    uint getMainLobe()
+    {
+        uint maxIndex = 0;
+        for (uint i = 1; i < LOBE_COUNT; i++)
+        {
+            if (weightedNormals[i].w > weightedNormals[maxIndex].w)
+                maxIndex = i;
+        }
+        return maxIndex;
+    }
 #endif
 };
 
