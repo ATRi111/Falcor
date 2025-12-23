@@ -88,15 +88,15 @@ inline float weightedGGX(NDF NDF, float3 h)
 
 inline float3 diffuseCos(float3 n, float3 l, float3 v, float3 h, float rough, float3 diffuse)
 {
-    float cosTerm = dot(l, n);
-    float vDotH = dot(v, h);
+    float NdotL = dot(l, n);
+    float VdotH = dot(v, h);
     float energyBias = lerp(0.f, 0.5f, rough);
     float energyFactor = lerp(1.f, 1.f / 1.51f, rough);
-    float fd90 = energyBias + 2.f * vDotH * vDotH * rough;
+    float fd90 = energyBias + 2.f * VdotH * VdotH * rough;
     float fd0 = 1.f;
-    float wiScatter = calcSchlick(fd0, fd90, dot(n, l));
+    float wiScatter = calcSchlick(fd0, fd90, NdotL);
     float woScatter = calcSchlick(fd0, fd90, dot(n, v));
-    return wiScatter * woScatter * energyFactor * diffuse / Pi * cosTerm;
+    return wiScatter * woScatter * energyFactor * diffuse / Pi * NdotL;
 }
 
 inline float3 weightedDiffuseCos(NDF NDF, float3 l, float3 v, float3 h, float3 diffuse)
@@ -241,9 +241,9 @@ inline float calcSurfacePdf(NDF NDF, float3 l, float3 v, float specularWeight)
     }
     return pdf / totalWeight;
 }
-inline float3 sampleSurface(NDF NDF, float3 v, float specularWeight, float2 uDir, float uEnergy, float randomArea)
+inline float3 sampleSurface(NDF NDF, float3 v, float specularWeight, float2 uDir, float uEnergy, float uLobe)
 {
-    uint lobeIndex = NDF.getRandomLobe(randomArea); // 根据权重随机选择一个Lobe
+    uint lobeIndex = NDF.getRandomLobe(uLobe); // 根据权重随机选择一个Lobe
     float rough = NDF.roughness[lobeIndex];
     float3 n = NDF.weightedNormals[lobeIndex].xyz;
     if (dot(n, v) < 0)
@@ -254,14 +254,17 @@ inline float3 sampleSurface(NDF NDF, float3 v, float specularWeight, float2 uDir
 inline float3 samplePrimitive(VoxelData data, float3 v, inout UniformSampleGenerator sg, out float pdf)
 {
     float coverage = data.calcCoverage(v);
+#if !CHECK_COVERAGE
+    coverage = 1;
+#endif
     if (coverage == 1 || (float)Next(sg) <= coverage) // 反射
     {
         uint lobeIndex;
         ABSDF ABSDF = data.ABSDF;
         NDF NDF = ABSDF.NDF;
-        float randomArea = (float)Next(sg) * ABSDF.area;
+        float uLobe = (float)Next(sg);
         float specularWeight = calcSpecularWeight(ABSDF.specular);
-        float3 l = sampleSurface(NDF, v, specularWeight, Next2(sg), (float)Next(sg), randomArea);
+        float3 l = sampleSurface(NDF, v, specularWeight, Next2(sg), (float)Next(sg), uLobe);
         pdf = calcSurfacePdf(NDF, l, v, specularWeight); //依然无偏
         return l;
     }

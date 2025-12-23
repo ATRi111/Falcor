@@ -45,6 +45,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mDebug = false;
     mCheckEllipsoid = true;
     mCheckVisibility = true;
+    mCheckCoverage = true;
     mDrawMode = 0;
     mMaxBounce = 1;
 
@@ -121,6 +122,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
         mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
         mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
+        mpFullScreenPass->addDefine("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
         mpFullScreenPass->addDefine("DEBUG", mDebug ? "1" : "0");
 
         auto var = mpFullScreenPass->getRootVar();
@@ -178,7 +180,9 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.checkbox("Check Visibility", mCheckVisibility))
         mOptionsChanged = true;
-    if (mCheckVisibility && widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f))
+    if (widget.checkbox("Check Coverage", mCheckCoverage))
+        mOptionsChanged = true;
+    if (widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f))
         mOptionsChanged = true;
     if (widget.slider("Min Pdf", mMinPdf, 0.0f, 0.1f))
         mOptionsChanged = true;

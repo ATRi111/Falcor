@@ -18,7 +18,6 @@ struct Polygon
     float3 vertices[MAX_VERTEX_COUNT];
     uint count;
     float3 normal;
-    float roughness;
 
     MUTATING
     void init() { count = 0; }

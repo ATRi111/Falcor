@@ -187,7 +187,11 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     float3 diffuse = ABSDF.diffuse;
     NDF NDF = ABSDF.NDF;
 
+#if CHECK_VISIBILITY
     float visibility = voxelData.calcVisibility(l);
+#else
+    float visibility = 1.f;
+#endif
     if (visibility == 0)
         return 0;
 
@@ -230,11 +234,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
         break;
     }
 
-#if CHECK_VISIBILITY
     float visibility = calcVisibility(hit, l, maxDistance);
-#else
-    float visibility = 1.f;
-#endif
 
     if (visibility == 0)
         return 0;
