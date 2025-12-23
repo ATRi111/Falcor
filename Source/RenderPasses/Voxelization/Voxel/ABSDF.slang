@@ -28,25 +28,27 @@ struct NDF
     }
 
     MUTATING
-    void normalizeSelf()
+    void normalizeSelf(float area)
     {
         for (uint i = 0; i < LOBE_COUNT; i++)
         {
+            float w = weightedNormals[i].w;
+            if (w > 0)
+            {
 #if defined(HOST_CODE)
-            float3 n = weightedNormals[i].xyz();
+                float3 n = weightedNormals[i].xyz();
 #else
-            float3 n = weightedNormals[i].xyz;
+                float3 n = weightedNormals[i].xyz;
 #endif
-            float l = length(n);
-            if (l > 0)
-                weightedNormals[i] = float4(n / l, weightedNormals[i].w);
-            else
-                weightedNormals[i] = float4(0);
-
-            if (weightedNormals[i].w > 0)
+                n = normalize(n);
                 roughness[i] /= weightedNormals[i].w;
+                weightedNormals[i] = float4(n, w / area);
+            }
             else
+            {
                 roughness[i] = 0;
+                weightedNormals[i] = float4(0);
+            }
         }
     }
 
@@ -121,7 +123,7 @@ struct NDF
                 sum += max(cosTerm, 0) * w;
             }
         }
-        return sum; // 未归一化
+        return sum;
     }
 
     uint getRandomLobe(float randomArea)
@@ -199,7 +201,7 @@ struct ABSDF
             return;
         diffuse /= area;
         specular /= area;
-        NDF.normalizeSelf();
+        NDF.normalizeSelf(area);
     }
 };
 

@@ -5,13 +5,6 @@ import Utils.Math.MathHelpers;
 
 const static float Pi = 3.14159265359;
 
-enum class SampleTarget : uint32_t
-{
-    Reflection,
-    Transmission,
-    LightSource
-};
-
 float3 calcSchlick(float3 f0,float3 f90, float cosTheta)
 {
     return lerp(f0, f90, pow(1 - saturate(cosTheta), 5)); // 不能出现负底数
@@ -71,7 +64,7 @@ inline float3 weightedCookTorrenceCos(NDF NDF, float3 l, float3 v, float3 h, flo
             sum += cookTorrenceCos(l, v, h, n, spec, NDF.roughness[i]) * w;
         }
     }
-    return sum; // 未归一化
+    return sum;
 }
 // 可视化法线分布时，要渲染的点在球面上的方向充当h即可
 inline float weightedGGX(NDF NDF, float3 h)
@@ -90,7 +83,7 @@ inline float weightedGGX(NDF NDF, float3 h)
             sum += ggx(n, h, NDF.roughness[i]) * w;
         }
     }
-    return sum; // 未归一化
+    return sum;
 }
 
 inline float3 diffuseCos(float3 n, float3 l, float3 v, float3 h, float rough, float3 diffuse)
@@ -122,7 +115,7 @@ inline float3 weightedDiffuseCos(NDF NDF, float3 l, float3 v, float3 h, float3 d
             sum += diffuseCos(n, l, v, h, NDF.roughness[i], diffuse) * w;
         }
     }
-    return sum; // 未归一化
+    return sum;
 }
 
 inline float3x3 rotateMatrix(float cosAngle, float3 axis)
@@ -194,9 +187,8 @@ inline float calcSpecularPdf(float VdotH, float NdotH, float alpha)
 }
 inline float3 sampleSpecular(float3 n, float3 v, float alpha, float2 uDir)
 {
-    float alpha2 = alpha * alpha;
     float phi = 2.0 * Pi * uDir.x;
-    float cosTheta = sqrt((1.0 - uDir.y) / (1.0 + (alpha2 - 1.0) * uDir.y));
+    float cosTheta = sqrt((1.0 - uDir.y) / (1.0 + (alpha * alpha - 1.0) * uDir.y));
     float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
     float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
     float3x3 rot = rotateMatrix(float3(0, 0, 1), n);
@@ -252,11 +244,11 @@ inline float calcSurfacePdf(NDF NDF, float3 l, float3 v, float specularWeight)
 inline float3 sampleSurface(NDF NDF, float3 v, float specularWeight, float2 uDir, float uEnergy, float randomArea)
 {
     uint lobeIndex = NDF.getRandomLobe(randomArea); // 根据权重随机选择一个Lobe
-    float roughness = NDF.roughness[lobeIndex];
+    float rough = NDF.roughness[lobeIndex];
     float3 n = NDF.weightedNormals[lobeIndex].xyz;
     if (dot(n, v) < 0)
         n = -n;
-    return sampleLobe(n, v, roughness, specularWeight, uDir, uEnergy);
+    return sampleLobe(n, v, rough * rough, specularWeight, uDir, uEnergy);
 }
 
 inline float3 samplePrimitive(VoxelData data, float3 v, inout UniformSampleGenerator sg, out float pdf)

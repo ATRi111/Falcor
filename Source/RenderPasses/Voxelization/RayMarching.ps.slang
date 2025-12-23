@@ -183,19 +183,17 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
 
     VoxelData voxelData = gBuffer[offset];
     ABSDF ABSDF = voxelData.ABSDF;
-    float area = ABSDF.area;
     float3 specular = ABSDF.specular;
     float3 diffuse = ABSDF.diffuse;
     NDF NDF = ABSDF.NDF;
 
     float visibility = voxelData.calcVisibility(l);
-
     if (visibility == 0)
         return 0;
 
     float3 h = normalize(l + v);
-    float3 diffuseColor = lightColor * weightedDiffuseCos(NDF, l, v, h, diffuse) / area;
-    float3 specularColor = lightColor * weightedCookTorrenceCos(NDF, l, v, h, specular) / area;
+    float3 diffuseColor = lightColor * weightedDiffuseCos(NDF, l, v, h, diffuse);
+    float3 specularColor = lightColor * weightedCookTorrenceCos(NDF, l, v, h, specular);
     float3 result = 0;
     switch (drawMode)
     {
