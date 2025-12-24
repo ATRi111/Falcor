@@ -6,6 +6,8 @@ import Scene.SceneTypes;
 import Scene.Scene;
 import Rendering.Materials.StandardMaterial;
 import Utils.Sampling.UniformSampleGenerator;
+import Scene.Lights.EnvMap;
+import Rendering.Lights.EnvMapSampler;
 
 #define MAX_BOUNCE 10
 
@@ -31,6 +33,7 @@ cbuffer CB
     uint maxBounce;
     uint frameIndex;
     float minPdf;
+    bool renderBackGround;
     float4 clearColor;
     uint2 selectedPixel;
 }
@@ -95,7 +98,7 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
     {
         if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
             break;
-        if (maxDistance > 0 && length(cell - from) > maxDistance) // 负数表示不限制距离
+        if (maxDistance > 0 && length(cell - from) > maxDistance) // 非正数表示不限制距离
             break;
         int offset;
         if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
@@ -287,6 +290,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     float3[MAX_BOUNCE + 1] sampleDirections; // 第i个采样方向即第i个体素指向第i+1个体素的方向
     float[MAX_BOUNCE + 1] pdfs;              // 第i个pdf即第i+1个体素对第i个体素的贡献权重
     uint hitCount = bounce + 1;
+    bool sampleEnvMap = false;
     hits[0] = hit;
     for (int i = 0; i < bounce; i++)
     {
@@ -295,8 +299,14 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         sampleDirections[i] = samplePrimitive(gBuffer[offset], currentV, sg, pdfs[i]);
 
         hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
-        if (!hits[i + 1].hit || pdfs[i] < minPdf)
+        if (pdfs[i] < minPdf)
         {
+            hitCount = i + 1;
+            break;
+        }
+        if (!hits[i + 1].hit)
+        {
+            sampleEnvMap = true;
             hitCount = i + 1;
             break;
         }
@@ -311,6 +321,13 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         uint currentOffset = vBuffer[currentHit.cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
         reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV);
+#if !NO_ENV_MAP
+        if (sampleEnvMap && i == hitCount - 1 && pdfs[i] > 0)
+        {
+            float3 incidentLight = scene.envMap.eval(sampleDirections[i]);
+            reflectLights[i] += shading(currentOffset, currentV, sampleDirections[i], incidentLight) / pdfs[i];
+        }
+#endif
         if (i < hitCount - 1 && pdfs[i] > 0)
         {
             HitResult nextHit = hits[i + 1];
@@ -329,22 +346,35 @@ float2 randomJitter(inout UniformSampleGenerator sg)
     return jitter;
 }
 
+float4 renderBackground(float3 direction)
+{
+#if !NO_ENV_MAP
+    if (renderBackGround)
+    {
+        float3 color = scene.envMap.eval(direction);
+        return float4(color, 1);
+    }
+#endif
+    return clearColor;
+}
+
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
-    PsOut psOut = { clearColor };
+    PsOut psOut = { };
     uint2 pixel = uint2(texCoord * pixelCount);
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
     float2 jitter = randomJitter(sg);
     texCoord = saturate(texCoord + jitter);
     float3 from = screenCoordToCell(texCoord, 0);
     float3 to = screenCoordToCell(texCoord, 1);
+    float3 delta = to - from;
+    float3 direction = normalize(delta); // 网格/世界空间下的方向相同
+    psOut.color = renderBackground(direction);
 
     float2 inOut = clip(float3(0), float3(voxelCount), from, to);
     if (inOut.x < 0)
         return psOut;
 
-    float3 delta = to - from;
-    float3 direction = normalize(delta); // 网格/世界空间下的方向相同
     from = from + inOut.x * delta;
     HitResult hit = rayMarching(from, direction, -1, true);
     if (all(pixel == selectedPixel))

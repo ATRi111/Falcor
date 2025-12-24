@@ -48,9 +48,12 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mCheckCoverage = true;
     mDrawMode = 0;
     mMaxBounce = 1;
+    mRenderBackGround = true;
+    mClearColor = float3(0);
 
     mDisplayNDF = false;
     mSelectedUV = float2(0);
+    mSelectedPixel = uint2(0);
 
     mOptionsChanged = false;
     mFrameIndex = 0;
@@ -124,6 +127,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
         mpFullScreenPass->addDefine("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
         mpFullScreenPass->addDefine("DEBUG", mDebug ? "1" : "0");
+        mpFullScreenPass->addDefine("NO_ENV_MAP", mpScene->getEnvMap() ? "0" : "1");
 
         auto var = mpFullScreenPass->getRootVar();
         mpScene->bindShaderData(var["scene"]);
@@ -147,6 +151,8 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["frameIndex"] = mFrameIndex;
         cb["minPdf"] = mMinPdf;
         cb["selectedPixel"] = mSelectedPixel;
+        cb["renderBackGround"] = mRenderBackGround;
+        cb["clearColor"] = float4(mClearColor, 0);
         mFrameIndex++;
 
         ref<Fbo> fbo = Fbo::create(mpDevice);
@@ -191,6 +197,10 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
     if (widget.slider("Max Bounce", mMaxBounce, 0u, 10u))
         mOptionsChanged = true;
     if (widget.checkbox("Display NDF", mDisplayNDF))
+        mOptionsChanged = true;
+    if (widget.rgbColor("Clear Color", mClearColor))
+        mOptionsChanged = true;
+    if (widget.checkbox("Render Background", mRenderBackGround))
         mOptionsChanged = true;
 
     widget.text("Selected Pixel: " + ToString(mSelectedPixel));

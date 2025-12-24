@@ -27,6 +27,7 @@
  **************************************************************************/
 #pragma once
 #include "VoxelizationBase.h"
+#include <Rendering/Lights/EnvMapSampler.h>
 #include <Core/Pass/FullScreenPass.h>
 
 using namespace Falcor;
@@ -62,6 +63,8 @@ private:
     bool mCheckVisibility;
     bool mCheckCoverage;
     bool mDebug;
+    bool mRenderBackGround;
+    float3 mClearColor;
 
     bool mDisplayNDF;
     float2 mSelectedUV;
