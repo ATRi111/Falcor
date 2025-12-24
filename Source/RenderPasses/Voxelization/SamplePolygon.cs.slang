@@ -9,7 +9,7 @@ cbuffer CB
 {
     uint voxelCount;
     uint sampleFrequency;
-    uint polygonOffset;
+    uint gBufferOffset;
 }
 
 void Estimate(
@@ -52,7 +52,7 @@ void Estimate(
             polygonFunc.accumulate(direction);
             polygonFunc.accumulate(-direction);
             totalFunc.accumulate(hitCount, direction);
-            totalFunc.accumulate(hitCount, direction);
+            totalFunc.accumulate(hitCount, -direction);
         }
     }
 
@@ -65,23 +65,23 @@ void Estimate(
 
 void calc(uint offset)
 {
-    UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), 0);
     if (offset >= voxelCount)
         return;
 
+    UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), 0);
     Estimate(
-        gBuffer[offset].ellipsoid,
+        gBuffer[offset + gBufferOffset].ellipsoid,
         polygonBuffer[offset],
         sampleFrequency * sampleFrequency,
         sg,
-        gBuffer[offset].polygonsProjAreaFunc,
-        gBuffer[offset].primitiveProjAreaFunc,
-        gBuffer[offset].totalProjAreaFunc,
+        gBuffer[offset + gBufferOffset].polygonsProjAreaFunc,
+        gBuffer[offset + gBufferOffset].primitiveProjAreaFunc,
+        gBuffer[offset + gBufferOffset].totalProjAreaFunc,
     );
 }
 
 [numthreads(256, 1, 1)]
 void main(uint3 offset: SV_DispatchThreadID)
 {
-    calc(offset.x + polygonOffset);
+    calc(offset.x);
 }

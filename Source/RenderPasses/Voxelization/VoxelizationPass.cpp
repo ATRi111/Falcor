@@ -170,12 +170,12 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     var[kGBuffer] = gBuffer;
     var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
 
-    uint polygonOffset = mCompleteTimes * polygonGroup.maxElementCountPerBuffer();
+    uint gBufferOffset = mCompleteTimes * polygonGroup.maxElementCountPerBuffer();
     uint elementCount = polygonGroup.getElementCountOfBuffer(mCompleteTimes);
     auto cb = var["CB"];
     cb["voxelCount"] = elementCount;
     cb["sampleFrequency"] = mSampleFrequency;
-    cb["polygonOffset"] = polygonOffset;
+    cb["gBufferOffset"] = gBufferOffset;
 
     Tools::Profiler::BeginSample("Sample Polygons");
     mSamplePolygonPass->execute(pRenderContext, uint3(elementCount, 1, 1));
