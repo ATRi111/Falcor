@@ -11,7 +11,7 @@ import Rendering.Lights.EnvMapSampler;
 
 #define MAX_BOUNCE 10
 
-ParameterBlock<Scene> scene;
+ParameterBlock<EnvMapSampler> envMapSampler;
 Texture3D<int> vBuffer;
 StructuredBuffer<VoxelData> gBuffer;
 RWStructuredBuffer<float4> selectedVoxel;
@@ -30,6 +30,7 @@ cbuffer CB
     float4x4 invVP;
     float visibilityBias;
     uint drawMode;
+    uint sampleStretegy;
     uint maxBounce;
     uint frameIndex;
     float minPdf;
@@ -54,11 +55,6 @@ bool isSolidVoxel(int3 cellInt, out int offset)
 {
     offset = vBuffer[cellInt];
     return offset >= 0 && gBuffer[offset].ABSDF.area > 0;
-}
-
-bool isTransmition(float3 l, float3 v)
-{
-    return abs(dot(l, v) + 1) < 1e-6f;
 }
 
 // 先后用体素和椭球裁剪线段
@@ -216,7 +212,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     default:
         break;
     }
-    return result;
+    return  visibility * result;
 }
 
 float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
@@ -273,13 +269,55 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
     return visibility * color;
 }
 
-float3 shadingDirect(HitResult hit, uint offset, float3 v)
+float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGenerator sg)
 {
     float3 directColor = 0;
-    for (uint i = 0; i < scene.lightCount; i++)
+    for (uint i = 0; i < gScene.lightCount; i++)
     {
-        directColor += shadingDirect(hit, offset, v, scene.lights[i]);
+        directColor += shadingDirect(hit, offset, v, gScene.lights[i]);
     }
+#if !NO_ENV_MAP
+    float3 l;
+    float3 lightColor = 0;
+    float pdf = 0;
+    VoxelData data = gBuffer[offset];
+    switch (sampleStretegy)
+    {
+    case SampleStretegy::EnviromentMap:
+        EnvMapSample envSample;
+        envMapSampler.sample(Next2(sg), envSample);
+        l = envSample.dir;
+        pdf = envSample.pdf;
+        break;
+    case SampleStretegy::BSDF:
+        l = samplePrimitive(data, v, sg);
+        pdf = calcPrimitivePdf(data, v, l);
+        break;
+    case SampleStretegy::Mix:
+        float bsdfWeight = calcPrimitiveWeight(data);
+        if((float)Next(sg) <= bsdfWeight)
+        {
+            l = samplePrimitive(data, v, sg);
+        }
+        else
+        {
+            EnvMapSample envSample;
+            envMapSampler.sample(Next2(sg), envSample);
+            l = envSample.dir;
+        }
+        pdf = bsdfWeight * calcPrimitivePdf(data, v, l) + (1 - bsdfWeight) * envMapSampler.evalPdf(l);
+        break;
+    }
+
+    if (pdf < minPdf)
+        return 0;
+    float visibility = calcVisibility(hit, l, -1);
+    if(visibility > 0)
+    {
+        float3 lightColor = visibility * envMapSampler.eval(l);
+        directColor += shading(offset, v, l, lightColor) / pdf;
+    }
+#endif
     return directColor;
 }
 
@@ -290,27 +328,21 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     float3[MAX_BOUNCE + 1] sampleDirections; // 第i个采样方向即第i个体素指向第i+1个体素的方向
     float[MAX_BOUNCE + 1] pdfs;              // 第i个pdf即第i+1个体素对第i个体素的贡献权重
     uint hitCount = bounce + 1;
-    bool sampleEnvMap = false;
     hits[0] = hit;
     for (int i = 0; i < bounce; i++)
     {
         uint offset = vBuffer[hits[i].cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
-        sampleDirections[i] = samplePrimitive(gBuffer[offset], currentV, sg, pdfs[i]);
+        sampleDirections[i] = samplePrimitive(gBuffer[offset], currentV, sg);
 
         hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
-        if (pdfs[i] < minPdf)
+        pdfs[i] = calcPrimitivePdf(gBuffer[offset], currentV, sampleDirections[i]);
+        if (!hits[i + 1].hit || pdfs[i] < minPdf)
         {
             hitCount = i + 1;
             break;
         }
-        if (!hits[i + 1].hit)
-        {
-            sampleEnvMap = true;
-            hitCount = i + 1;
-            break;
-        }
-        pdfs[i] = max(pdfs[i], 1e-6);
+        pdfs[i] = max(pdfs[i], minPdf);
     }
 
     float3 reflectLights[MAX_BOUNCE + 1];
@@ -320,14 +352,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         HitResult currentHit = hits[i];
         uint currentOffset = vBuffer[currentHit.cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
-        reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV);
-#if !NO_ENV_MAP
-        if (sampleEnvMap && i == hitCount - 1 && pdfs[i] > 0)
-        {
-            float3 incidentLight = scene.envMap.eval(sampleDirections[i]);
-            reflectLights[i] += shading(currentOffset, currentV, sampleDirections[i], incidentLight) / pdfs[i];
-        }
-#endif
+        reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg);
         if (i < hitCount - 1 && pdfs[i] > 0)
         {
             HitResult nextHit = hits[i + 1];
@@ -351,7 +376,7 @@ float4 renderBackground(float3 direction)
 #if !NO_ENV_MAP
     if (renderBackGround)
     {
-        float3 color = scene.envMap.eval(direction);
+        float3 color = gScene.envMap.eval(direction);
         return float4(color, 1);
     }
 #endif

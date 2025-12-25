@@ -53,6 +53,7 @@ private:
     ref<FullScreenPass> mpDisplayNDFPass;
     ref<Sampler> mpPointSampler;
     ref<Buffer> mSelectedVoxel;
+    std::unique_ptr<EnvMapSampler> mpEnvMapSampler;
 
     GridData& gridData;
     uint mDrawMode;
@@ -65,6 +66,7 @@ private:
     bool mDebug;
     bool mRenderBackGround;
     float3 mClearColor;
+    uint mSampleStretegy;
 
     bool mDisplayNDF;
     float2 mSelectedUV;

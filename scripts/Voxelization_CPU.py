@@ -6,7 +6,7 @@ def render_graph_Pass():
     voxel_pass = createPass("VoxelizationPass_CPU")
     read_pass = createPass("ReadVoxelPass")
     marching_pass = createPass("RayMarchingPass")
-    accumulate_pass = createPass("AccumulatePass", {"enabled": True, "precisionMode": "Single"})
+    accumulate_pass = createPass("AccumulatePass", {"enabled": True, "precisionMode": "Single",'maxFrameCount': 1024})
     ToneMapper = createPass("ToneMapper", {'autoExposure': False, 'exposureCompensation': 0.0})
 
     g.addPass(voxel_pass,"VoxelizationPass")

@@ -44,4 +44,20 @@ struct VoxelData
     }
 };
 
+enum class SampleStretegy : uint32_t
+{
+    EnviromentMap,
+    BSDF,
+    Mix,
+};
+FALCOR_ENUM_INFO(
+    SampleStretegy,
+    {
+    { SampleStretegy::EnviromentMap, "EnviromentMap" },
+    { SampleStretegy::BSDF, "BSDF" },
+    { SampleStretegy::Mix, "Mix" }
+}
+);
+FALCOR_ENUM_REGISTER(SampleStretegy);
+
 END_NAMESPACE_FALCOR

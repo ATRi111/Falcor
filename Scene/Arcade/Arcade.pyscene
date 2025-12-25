@@ -29,9 +29,9 @@
 # Load FBX
 sceneBuilder.importScene('Arcade.fbx')
 
-# # Adjust emissive screen
-# m = sceneBuilder.getMaterial('Cabinet')
-# m.emissiveFactor = 150.0
+envMap = EnvMap('Turnberg Sky 6.exr')
+envMap.intensity = 1.0
+sceneBuilder.envMap = envMap
 
 
 # Add camera

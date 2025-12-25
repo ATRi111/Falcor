@@ -47,6 +47,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mCheckVisibility = true;
     mCheckCoverage = true;
     mDrawMode = 0;
+    mSampleStretegy = 0;
     mMaxBounce = 1;
     mRenderBackGround = true;
     mClearColor = float3(0);
@@ -127,10 +128,17 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
         mpFullScreenPass->addDefine("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
         mpFullScreenPass->addDefine("DEBUG", mDebug ? "1" : "0");
-        mpFullScreenPass->addDefine("NO_ENV_MAP", mpScene->getEnvMap() ? "0" : "1");
 
         auto var = mpFullScreenPass->getRootVar();
-        mpScene->bindShaderData(var["scene"]);
+        mpScene->bindShaderData(var["gScene"]);
+        ref<EnvMap> pEnvMap = mpScene->getEnvMap();
+        mpFullScreenPass->addDefine("NO_ENV_MAP", pEnvMap ? "0" : "1");
+        if (pEnvMap)
+        {
+            if (!mpEnvMapSampler || mpEnvMapSampler->getEnvMap() != pEnvMap)
+                mpEnvMapSampler = std::make_unique<EnvMapSampler>(mpDevice, pEnvMap);
+            mpEnvMapSampler->bindShaderData(var["envMapSampler"]);
+        }
 
         var[kVBuffer] = renderData.getTexture(kVBuffer);
         var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
@@ -147,6 +155,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
         cb["visibilityBias"] = mVisibilityBias;
         cb["drawMode"] = mDrawMode;
+        cb["sampleStretegy"] = mSampleStretegy;
         cb["maxBounce"] = mMaxBounce;
         cb["frameIndex"] = mFrameIndex;
         cb["minPdf"] = mMinPdf;
@@ -193,6 +202,8 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
     if (widget.slider("Min Pdf", mMinPdf, 0.0f, 0.1f))
         mOptionsChanged = true;
     if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
+        mOptionsChanged = true;
+    if (widget.dropdown("Sample Stretegy", reinterpret_cast<SampleStretegy&>(mSampleStretegy)))
         mOptionsChanged = true;
     if (widget.slider("Max Bounce", mMaxBounce, 0u, 10u))
         mOptionsChanged = true;

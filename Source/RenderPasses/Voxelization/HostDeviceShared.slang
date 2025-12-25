@@ -88,3 +88,15 @@ inline float3x3 mul(float k, float3x3 a)
                     k * a[1][0], k * a[1][1], k * a[1][2],
                     k * a[2][0], k * a[2][1], k * a[2][2]);
 }
+
+#if !defined(HOST_CODE)
+inline float safeSqrt(float v)
+{
+    return sqrt(max(0, v));
+}
+
+inline float safePow(float v, float power)
+{
+    return pow(max(0, v), power);
+}
+#endif
