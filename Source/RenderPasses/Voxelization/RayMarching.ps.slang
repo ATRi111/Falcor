@@ -357,7 +357,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         {
             HitResult nextHit = hits[i + 1];
             uint nextOffset = vBuffer[nextHit.cellInt];
-            float3 incidentLight = gBuffer[nextOffset].calcCoverage(sampleDirections[i]) * reflectLights[i + 1];
+            float3 incidentLight = reflectLights[i + 1];
             reflectLights[i] += shading(currentOffset, currentV, sampleDirections[i], incidentLight) / pdfs[i];
         }
     }
