@@ -31,7 +31,7 @@ private:
     GridData& gridData;
     uint mDrawMode;
     uint mMaxBounce;
-    float mVisibilityBias;
+    float mShadowBias;
     float mMinPdf100;
     bool mCheckEllipsoid;
     bool mCheckVisibility;
@@ -44,7 +44,9 @@ private:
     bool mDisplayNDF;
     float2 mSelectedUV;
     uint2 mSelectedPixel;
+    uint mSelectedResolution;
 
     bool mOptionsChanged;
     uint mFrameIndex;
+    uint2 mOutputResolution;
 };

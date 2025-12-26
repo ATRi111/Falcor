@@ -28,7 +28,7 @@ cbuffer CB
 {
     uint2 pixelCount;
     float4x4 invVP;
-    float visibilityBias;
+    float shadowBias;
     uint drawMode;
     uint sampleStretegy;
     uint maxBounce;
@@ -119,10 +119,16 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
     return hit;
 }
 
-float calcVisibility(HitResult hit, float3 direction, float maxDistance)
+float calcTrasmissionVisibility(HitResult hit, float3 direction)
 {
-    float3 from = hit.cell + visibilityBias * direction;
-    hit = rayMarching(from, direction, maxDistance, true);
+    hit = rayMarching(hit.cell, direction, -1, true);
+    return hit.hit ? 0.f : 1.f;
+}
+
+float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal , float maxDistance)
+{
+    float3 from = hit.cell + shadowBias * mainNormal;
+    hit = rayMarching(from, direction, maxDistance, false);
     return hit.hit ? 0.f : 1.f;
 }
 
@@ -163,7 +169,7 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
         result = polygonsProjAreaFunc.calc(v) / primitiveProjAreaFunc.calc(v);
         break;
     case ABSDFDrawMode::InternalVisibility:
-        return voxelData.calcVisibility(v);
+        return voxelData.calcInternalVisibility(v);
     default:
         break;
     }
@@ -182,7 +188,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     NDF NDF = ABSDF.NDF;
 
 #if CHECK_VISIBILITY
-    float visibility = voxelData.calcVisibility(l);
+    float visibility = voxelData.calcInternalVisibility(l);
 #else
     float visibility = 1.f;
 #endif
@@ -210,7 +216,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     return  visibility * result;
 }
 
-float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
+float3 shadingDirect(HitResult hit, uint offset, float3 v, float3 mainNormal, LightData light)
 {
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 l;
@@ -228,7 +234,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
         break;
     }
 
-    float visibility = calcVisibility(hit, l, maxDistance);
+    float visibility = calcLightVisibility(hit, l, mainNormal, maxDistance);
 
     if (visibility == 0)
         return 0;
@@ -266,17 +272,17 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, LightData light)
 
 float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGenerator sg)
 {
+    VoxelData data = gBuffer[offset];
+    float3 mainNormal = data.ABSDF.NDF.getMainNormal(v);
     float3 directColor = 0;
     for (uint i = 0; i < gScene.lightCount; i++)
     {
-        directColor += shadingDirect(hit, offset, v, gScene.lights[i]);
+        directColor += shadingDirect(hit, offset, v, mainNormal, gScene.lights[i]);
     }
 #if !NO_ENV_MAP
     float3 l;
     float3 lightColor = 0;
     float pdf = 0;
-    VoxelData data = gBuffer[offset];
-    float3 mainNormal = data.ABSDF.NDF.getMainNormal(v);
     switch (sampleStretegy)
     {
     case SampleStretegy::EnviromentMap:
@@ -310,7 +316,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
     }
 
     pdf = max(pdf, minPdf);
-    float visibility = calcVisibility(hit, l, -1);
+    float visibility = calcLightVisibility(hit, l, mainNormal, -1);
     if(visibility > 0)
     {
         float3 lightColor = visibility * envMapSampler.eval(l);
@@ -351,6 +357,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         HitResult currentHit = hits[i];
         uint currentOffset = vBuffer[currentHit.cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
+
         reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg);
         if (i < hitCount - 1 && pdfs[i] > 0)
         {

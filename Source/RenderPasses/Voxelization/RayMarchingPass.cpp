@@ -13,7 +13,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mpDevice = pDevice;
-    mVisibilityBias = 1.f;
+    mShadowBias = 0.1f;
     mMinPdf100 = 0.1f;
     mDebug = false;
     mCheckEllipsoid = true;
@@ -24,6 +24,8 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mMaxBounce = 3;
     mRenderBackGround = true;
     mClearColor = float3(0);
+    mSelectedResolution = 0;
+    mOutputResolution = uint2(1920, 1080);
 
     mDisplayNDF = false;
     mSelectedUV = float2(0);
@@ -55,7 +57,7 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
     reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
-        .texture2D(0, 0, 1, 1);
+        .texture2D(mOutputResolution.x, mOutputResolution.y, 1, 1);
     return reflector;
 }
 
@@ -124,9 +126,9 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb_GridData["solidVoxelCount"] = (uint)gridData.solidVoxelCount;
 
         auto cb = var["CB"];
-        cb["pixelCount"] = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
+        cb["pixelCount"] = mOutputResolution;
         cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
-        cb["visibilityBias"] = mVisibilityBias;
+        cb["shadowBias"] = mShadowBias;
         cb["drawMode"] = mDrawMode;
         cb["sampleStretegy"] = mSampleStretegy;
         cb["maxBounce"] = mMaxBounce;
@@ -170,7 +172,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.checkbox("Check Coverage", mCheckCoverage))
         mOptionsChanged = true;
-    if (widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f))
+    if (widget.slider("Shadow Bias", mShadowBias, 0.0f, 1.0f))
         mOptionsChanged = true;
     if (widget.slider("Min Pdf(x100)", mMinPdf100, 0.0f, 0.1f))
         mOptionsChanged = true;
@@ -186,6 +188,25 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.checkbox("Render Background", mRenderBackGround))
         mOptionsChanged = true;
+
+    static const uint resolutions[] = { 0, 32, 64, 128, 256, 512, 1024};
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
+        {
+            list.push_back({ resolutions[i], std::to_string(resolutions[i]) });
+        }
+        if (widget.dropdown("Output Resolution", list, mSelectedResolution))
+        {
+            if (mSelectedResolution == 0)
+                mOutputResolution = uint2(1920, 1080);
+            else
+                mOutputResolution = uint2(mSelectedResolution, mSelectedResolution);
+            ref<Camera> camera = mpScene->getCamera();
+            camera->setAspectRatio(mOutputResolution.x / (float)mOutputResolution.y);
+            requestRecompile();
+        }
+    }
 
     widget.text("Selected Pixel: " + ToString(mSelectedPixel));
 }

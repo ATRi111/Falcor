@@ -215,6 +215,8 @@ inline float3 sampleLobe(float3 n, float3 v, float alpha, float specularWeight, 
 inline float calcSurfacePdf(NDF NDF, float3 l, float3 v, float specularWeight)
 {
     float3 h = normalizeSafe(l + v);
+    if (length(h) == 0)
+        return 0;
     float pdf = 0;
     for(uint i = 0; i < LOBE_COUNT; i++)
     {

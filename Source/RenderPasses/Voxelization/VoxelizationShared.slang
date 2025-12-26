@@ -34,7 +34,7 @@ struct VoxelData
         return saturate(polygonsProjArea / primitiveProjArea);
     }
 
-    float calcVisibility(float3 direction) // 内部可见度
+    float calcInternalVisibility(float3 direction) // 内部可见度
     {
         float totalProjArea = totalProjAreaFunc.calc(direction);
         if (totalProjArea <= 0)
