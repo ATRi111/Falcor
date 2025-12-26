@@ -36,8 +36,8 @@ sceneBuilder.envMap = envMap
 # Create camera
 
 camera = Camera()
-camera.position = float3(0, 0.6, 0.5)
-camera.target = float3(0, 0, -0.3)
+camera.position = float3(0.19, 0.46, 0.28)
+camera.target = float3(-0.24, -0.19, -0.34)
 camera.up = float3(0, 1, 0)
 camera.focalLength = 35.0
 sceneBuilder.addCamera(camera)

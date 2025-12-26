@@ -119,15 +119,6 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
     return hit;
 }
 
-float3 screenCoordToCell(float2 screenCoord, float NDCDepth)
-{
-    float4 NDC = float4(2 * screenCoord.x - 1, 1 - 2 * screenCoord.y, NDCDepth, 1);
-    float4 temp = mul(invVP, NDC);
-    float4 posWorld = temp / temp.w;
-    float3 cell = (posWorld.xyz - gridMin) / voxelSize;
-    return cell;
-}
-
 float calcVisibility(HitResult hit, float3 direction, float maxDistance)
 {
     float3 from = hit.cell + visibilityBias * direction;
@@ -292,7 +283,9 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
         EnvMapSample envSample;
         envMapSampler.sample(Next2(sg), envSample);
         l = envSample.dir;
-        pdf = envSample.pdf;
+        if (dot(mainNormal, l) < 0)
+            l = -l;
+        pdf = envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l);
         break;
     case SampleStretegy::BSDF:
         l = samplePrimitive(data, v, sg);
@@ -312,7 +305,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             if (dot(mainNormal, l) < 0)
                 l = -l;
         }
-        pdf = bsdfWeight * calcPrimitivePdf(data, v, l) + (1 - bsdfWeight) * envMapSampler.evalPdf(l) * 2;
+        pdf = bsdfWeight * calcPrimitivePdf(data, v, l) + (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
         break;
     }
 
@@ -370,6 +363,14 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     return reflectLights[0];
 }
 
+float3 screenCoordToCell(float2 screenCoord, float NDCDepth)
+{
+    float4 NDC = float4(2 * screenCoord.x - 1, 1 - 2 * screenCoord.y, NDCDepth, 1);
+    float4 temp = mul(invVP, NDC);
+    float4 posWorld = temp / temp.w;
+    float3 cell = (posWorld.xyz - gridMin) / voxelSize;
+    return cell;
+}
 float2 randomJitter()
 {
     UniformSampleGenerator sg = UniformSampleGenerator(0, frameIndex);
@@ -377,7 +378,6 @@ float2 randomJitter()
     jitter /= pixelCount;
     return jitter;
 }
-
 float4 renderBackground(float3 direction)
 {
 #if !NO_ENV_MAP
