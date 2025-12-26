@@ -38,7 +38,6 @@ inline float calcSH(uint idx, float3 p)
 struct SphericalHarmonics
 {
     float coefficients[SH_COUNT];
-    //TODO:带权重,可流式统计的球谐
 
     MUTATING
     void init()

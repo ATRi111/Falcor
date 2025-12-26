@@ -106,7 +106,19 @@ struct Triangle
         float2 duv2 = uvs[2] - uvs[0];
 
         float D = duv1.x * duv2.y - duv1.y * duv2.x;
-        float3 N = normalize(cross(e1, e2));
+        float3 N = cross(e1, e2);
+        float len = length(N);
+        if (len == 0)
+        {
+            N = normals[0] + normals[1] + normals[2];
+            len = length(N);
+            if (len == 0)
+            {
+                N = float3(0, 0, 1);
+                len = 1;
+            }
+        }
+        N /= len;
         float3 T, B;
         if (abs(D) < 1e-8)
         {

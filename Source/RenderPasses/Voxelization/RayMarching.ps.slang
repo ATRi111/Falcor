@@ -51,10 +51,14 @@ struct PsOut
     float4 color : SV_Target0;
 };
 
-bool isSolidVoxel(int3 cellInt, out int offset)
+bool isSolidVoxel(int3 cellInt, float3 direction, out int offset)
 {
     offset = vBuffer[cellInt];
-    return offset >= 0 && gBuffer[offset].ABSDF.area > 0;
+    if (offset < 0)
+        return false;
+    if (gBuffer[offset].ABSDF.area <= 0)
+        return false;
+    return true;
 }
 
 // 先后用体素和椭球裁剪线段
@@ -97,7 +101,7 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
         if (maxDistance > 0 && length(cell - from) > maxDistance) // 非正数表示不限制距离
             break;
         int offset;
-        if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
+        if (isSolidVoxel(cellInt, direction, offset)) // 理论上不会出现面积为0的情况
         {
 #if !CHECK_ELLIPSOID
             HitResult hit = { true, cellInt, cellInt + 0.5f };
@@ -281,6 +285,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
     float3 lightColor = 0;
     float pdf = 0;
     VoxelData data = gBuffer[offset];
+    float3 mainNormal = data.ABSDF.NDF.getMainNormal(v);
     switch (sampleStretegy)
     {
     case SampleStretegy::EnviromentMap:
@@ -304,13 +309,14 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             EnvMapSample envSample;
             envMapSampler.sample(Next2(sg), envSample);
             l = envSample.dir;
+            if (dot(mainNormal, l) < 0)
+                l = -l;
         }
-        pdf = bsdfWeight * calcPrimitivePdf(data, v, l) + (1 - bsdfWeight) * envMapSampler.evalPdf(l);
+        pdf = bsdfWeight * calcPrimitivePdf(data, v, l) + (1 - bsdfWeight) * envMapSampler.evalPdf(l) * 2;
         break;
     }
 
-    if (pdf < minPdf)
-        return 0;
+    pdf = max(pdf, minPdf);
     float visibility = calcVisibility(hit, l, -1);
     if(visibility > 0)
     {
