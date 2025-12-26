@@ -41,14 +41,14 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
 {
     mpDevice = pDevice;
     mVisibilityBias = 1.f;
-    mMinPdf = 0.001f;
+    mMinPdf100 = 0.1f;
     mDebug = false;
     mCheckEllipsoid = true;
     mCheckVisibility = true;
     mCheckCoverage = true;
     mDrawMode = 0;
-    mSampleStretegy = 0;
-    mMaxBounce = 1;
+    mSampleStretegy = 2;
+    mMaxBounce = 3;
     mRenderBackGround = true;
     mClearColor = float3(0);
 
@@ -158,7 +158,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["sampleStretegy"] = mSampleStretegy;
         cb["maxBounce"] = mMaxBounce;
         cb["frameIndex"] = mFrameIndex;
-        cb["minPdf"] = mMinPdf;
+        cb["minPdf"] = mMinPdf100 / 100;
         cb["selectedPixel"] = mSelectedPixel;
         cb["renderBackGround"] = mRenderBackGround;
         cb["clearColor"] = float4(mClearColor, 0);
@@ -199,7 +199,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.slider("Visibility Bias", mVisibilityBias, 0.0f, 5.0f))
         mOptionsChanged = true;
-    if (widget.slider("Min Pdf", mMinPdf, 0.0f, 0.1f))
+    if (widget.slider("Min Pdf(x100)", mMinPdf100, 0.0f, 0.1f))
         mOptionsChanged = true;
     if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
         mOptionsChanged = true;

@@ -364,8 +364,9 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     return reflectLights[0];
 }
 
-float2 randomJitter(inout UniformSampleGenerator sg)
+float2 randomJitter()
 {
+    UniformSampleGenerator sg = UniformSampleGenerator(0, frameIndex);
     float2 jitter = Next2(sg) - 0.5f;
     jitter /= pixelCount;
     return jitter;
@@ -387,8 +388,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
     PsOut psOut = { };
     uint2 pixel = uint2(texCoord * pixelCount);
-    UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
-    float2 jitter = randomJitter(sg);
+    float2 jitter = randomJitter();
     texCoord = saturate(texCoord + jitter);
     float3 from = screenCoordToCell(texCoord, 0);
     float3 to = screenCoordToCell(texCoord, 1);
@@ -400,6 +400,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     if (inOut.x < 0)
         return psOut;
 
+    UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
     from = from + inOut.x * delta;
     HitResult hit = rayMarching(from, direction, -1, true);
     if (all(pixel == selectedPixel))

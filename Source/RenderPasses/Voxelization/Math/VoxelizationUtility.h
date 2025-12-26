@@ -62,17 +62,18 @@ private:
 
     static void planeClip(const std::vector<float3>& inPoly, std::vector<float3>& outPoly, int axis, float bound, bool greater)
     {
+        float epsilon = 0; //非0值反而导致更多体素多边形投影面积失真
         outPoly.clear();
         if (inPoly.empty())
             return;
 
         float3 S = inPoly.back();
-        bool Sin = greater ? S[axis] >= bound : S[axis] <= bound;
+        bool Sin = greater ? S[axis] >= bound - epsilon : S[axis] <= bound + epsilon;
 
         for (uint i = 0; i < inPoly.size(); ++i)
         {
             const float3 E = inPoly[i];
-            const bool Ein = greater ? E[axis] >= bound : E[axis] <= bound;
+            const bool Ein = greater ? E[axis] >= bound - epsilon : E[axis] <= bound + epsilon;
 
             if (Ein)
             {

@@ -72,7 +72,7 @@ public:
         Tools::Profiler::BeginSample("Sample Texture");
         int offset = tryGetOffset(cellInt);
 
-        polygonBuffer[offset].add(polygon);
+        bool added = polygonBuffer[offset].add(polygon);
 
         std::vector<float2> uvs;
         for (uint i = 0; i < polygon.count; i++)
@@ -97,7 +97,8 @@ public:
         }
         if (normal.y < 0)
             normal = -normal;
-        ABSDFInput input = {baseColor, spec, normal, polygon.calcArea()};
+        float area = added ? polygon.calcArea() : 0;
+        ABSDFInput input = {baseColor, spec, normal, area };
         gBuffer[offset].ABSDF.accumulate(input);
 
         Tools::Profiler::EndSample("Sample Texture");

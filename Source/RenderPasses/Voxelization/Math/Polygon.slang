@@ -54,6 +54,11 @@ struct Polygon
         }
         return sqrt(dot(s, s)) / 2;
     }
+
+    float calcProjArea(float3 direction)
+    {
+        return calcArea() * abs(dot(direction, normal));
+    }
 #if defined(HOST_CODE)
     float3 calcCentroid(float& totalArea) const
 #else
@@ -103,7 +108,7 @@ struct Polygon
     {
         float3 v1 = vertices[(i + 1) % count] - vertices[i];
         float3 v2 = p - vertices[i];
-        float s = dot(normalize(cross(v1, v2)), normal); // 如果删掉normalize，会有一定量的点投影面积偏小
+        float s = dot(normalize(cross(v1, v2)), normal); // 删掉normalize反而导致更多体素多边形投影面积失真
         return s >= 1e-6f;                               // 如果改成0，会有大量的点投影面积偏大
     }
 
@@ -139,23 +144,25 @@ struct PolygonInVoxel
     }
 
     MUTATING
-    void add(Polygon polygon)
+    bool add(Polygon polygon)
     {
         if (count < MAX_POLYGON_COUNT)
         {
             polygons[count] = polygon;
             count++;
-        }
-    }
-
-    bool rayHit(float3 rayOrigin, float3 rayDir)
-    {
-        for (uint i = 0; i < count; i++)
-        {
-            if (polygons[i].intersectRay(rayOrigin, rayDir) >= 0)
-                return true;
+            return true;
         }
         return false;
+    }
+
+    float calcTotalProjArea(float3 direction)
+    {
+        float sum = 0;
+        for (uint i = 0; i < count; ++i)
+        {
+            sum += polygons[i].calcProjArea(direction);
+        }
+        return sum;
     }
 
 #if defined(HOST_CODE)
@@ -188,54 +195,6 @@ struct PolygonInVoxel
         {
             polygons[i].addTo(points);
         }
-    }
-#else
-    SphericalHarmonics EstimateProjectArea(uint times, inout UniformSampleGenerator sg)
-    {
-        SphericalHarmonics SH = {};
-        SH.init();
-        float3 cellCenter = cellMin + 0.5f;
-        float weight = 4.f * PI / times / 2;
-        for (uint i = 0; i < times; i++)
-        {
-            float3 direction = sampleSphere(Next2(sg));
-            Basis2 basis = orthonormal_basis(direction);
-            SamplingRay ray = rayToVoxel(Next2(sg), direction, basis, cellCenter);
-            bool hit = false;
-            for (uint j = 0; j < count; j++)
-            {
-                if (polygons[j].intersectRay(ray.origin, ray.direction) >= 0)
-                {
-                    hit = true;
-                    break;
-                }
-            }
-            if (hit)
-            {
-                SH.accumulate(direction);
-                SH.accumulate(-direction); // 正反方向的采样结果总是相同
-            }
-        }
-        SH.mul(2.35619449f * weight); // 一条射线被遮挡，则在这次采样中认为该方向上的投影面积等于外接球的投影面积
-        return SH;
-    }
-
-    uint intersectRay(float3 rayOrigin, float3 rayDir)
-    {
-        uint hitCount = 0;
-        for (uint i = 0; i < count; ++i)
-        {
-            float t = polygons[i].intersectRay(rayOrigin, rayDir);
-            if (t >= 0)
-                hitCount++;
-        }
-        return hitCount;
-    }
-
-    float calcPdf(float3 direction, float3 normal)
-    {
-        float pdf = abs(dot(direction, normal));
-        return max(pdf, 1e-4f);
     }
 #endif
 };

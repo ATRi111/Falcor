@@ -45,21 +45,16 @@ void Estimate(
             }
         }
 
-        // 简单地认为图元总是包裹所有多边形
-        uint hitCount = p.intersectRay(ray.origin, ray.direction);
-        if (hitCount >= 1)
-        {
-            polygonFunc.accumulate(direction);
-            polygonFunc.accumulate(-direction);
-            totalFunc.accumulate(hitCount, direction);
-            totalFunc.accumulate(hitCount, -direction);
-        }
+        float totalProjArea = p.calcTotalProjArea(direction);
+        polygonFunc.accumulate(totalProjArea, direction);
+        polygonFunc.accumulate(totalProjArea, -direction);
+        totalFunc.accumulate(totalProjArea, direction);
+        totalFunc.accumulate(totalProjArea, -direction);
     }
 
-    uint totalTimes = times * 2;
-    float weight = 2.35619449f * 4.f * PI / totalTimes;
+    float weight = 4.f * PI / (times * 2);
+    primitiveFunc.mul(2.35619449f * weight);
     polygonFunc.mul(weight);
-    primitiveFunc.mul(weight);
     totalFunc.mul(weight);
 }
 

@@ -59,7 +59,7 @@ private:
     uint mDrawMode;
     uint mMaxBounce;
     float mVisibilityBias;
-    float mMinPdf;
+    float mMinPdf100;
     bool mCheckEllipsoid;
     bool mCheckVisibility;
     bool mCheckCoverage;
