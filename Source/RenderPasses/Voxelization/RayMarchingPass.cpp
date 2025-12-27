@@ -13,7 +13,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mpDevice = pDevice;
-    mShadowBias = 0.1f;
+    mShadowBias1000 = 0.1f;
     mMinPdf100 = 0.1f;
     mDebug = false;
     mCheckEllipsoid = true;
@@ -128,7 +128,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         auto cb = var["CB"];
         cb["pixelCount"] = mOutputResolution;
         cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
-        cb["shadowBias"] = mShadowBias;
+        cb["shadowBias"] = mShadowBias1000 / 1000 / gridData.voxelSize.x;
         cb["drawMode"] = mDrawMode;
         cb["sampleStretegy"] = mSampleStretegy;
         cb["maxBounce"] = mMaxBounce;
@@ -172,7 +172,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.checkbox("Check Coverage", mCheckCoverage))
         mOptionsChanged = true;
-    if (widget.slider("Shadow Bias", mShadowBias, 0.0f, 1.0f))
+    if (widget.slider("Shadow Bias(x1000)", mShadowBias1000, 0.0f, 1.0f))
         mOptionsChanged = true;
     if (widget.slider("Min Pdf(x100)", mMinPdf100, 0.0f, 0.1f))
         mOptionsChanged = true;
@@ -189,12 +189,12 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
     if (widget.checkbox("Render Background", mRenderBackGround))
         mOptionsChanged = true;
 
-    static const uint resolutions[] = { 0, 32, 64, 128, 256, 512, 1024};
+    static const uint resolutions[] = {0, 32, 64, 128, 256, 512, 1024};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
         {
-            list.push_back({ resolutions[i], std::to_string(resolutions[i]) });
+            list.push_back({resolutions[i], std::to_string(resolutions[i])});
         }
         if (widget.dropdown("Output Resolution", list, mSelectedResolution))
         {

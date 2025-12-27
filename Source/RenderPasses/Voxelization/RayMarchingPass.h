@@ -31,7 +31,7 @@ private:
     GridData& gridData;
     uint mDrawMode;
     uint mMaxBounce;
-    float mShadowBias;
+    float mShadowBias1000;
     float mMinPdf100;
     bool mCheckEllipsoid;
     bool mCheckVisibility;

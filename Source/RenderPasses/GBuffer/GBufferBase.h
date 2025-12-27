@@ -91,7 +91,7 @@ protected:
     /// Selected output size.
     RenderPassHelpers::IOSize mOutputSizeSelection = RenderPassHelpers::IOSize::Default;
     /// Output size in pixels when 'Fixed' size is selected.
-    uint2 mFixedOutputSize = {512, 512};
+    uint2 mFixedOutputSize = {64, 64};
     /// Which camera jitter sample pattern to use.
     SamplePattern mSamplePattern = SamplePattern::Center;
     /// Sample count for camera jitter.
