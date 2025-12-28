@@ -42,6 +42,8 @@ struct VoxelData
         float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
         return saturate(polygonsProjArea / totalProjArea);
     }
+
+    bool IsSolid() { return ABSDF.area > 0; }
 };
 
 enum class SampleStretegy : uint32_t
@@ -52,11 +54,7 @@ enum class SampleStretegy : uint32_t
 };
 FALCOR_ENUM_INFO(
     SampleStretegy,
-    {
-    { SampleStretegy::EnviromentMap, "EnviromentMap" },
-    { SampleStretegy::BSDF, "BSDF" },
-    { SampleStretegy::Mix, "Mix" }
-}
+    { { SampleStretegy::EnviromentMap, "EnviromentMap" }, { SampleStretegy::BSDF, "BSDF" }, { SampleStretegy::Mix, "Mix" } }
 );
 FALCOR_ENUM_REGISTER(SampleStretegy);
 

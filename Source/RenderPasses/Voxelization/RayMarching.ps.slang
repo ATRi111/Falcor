@@ -56,9 +56,7 @@ bool isSolidVoxel(int3 cellInt, float3 direction, out int offset)
     offset = vBuffer[cellInt];
     if (offset < 0)
         return false;
-    if (gBuffer[offset].ABSDF.area <= 0)
-        return false;
-    return true;
+    return gBuffer[offset].IsSolid();
 }
 
 // 先后用体素和椭球裁剪线段
@@ -125,7 +123,7 @@ float calcTrasmissionVisibility(HitResult hit, float3 direction)
     return hit.hit ? 0.f : 1.f;
 }
 
-float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal , float maxDistance)
+float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal, float maxDistance)
 {
     float3 from = hit.cell + shadowBias * mainNormal;
     hit = rayMarching(from, direction, maxDistance, false);
@@ -213,7 +211,7 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     default:
         break;
     }
-    return  visibility * result;
+    return visibility * result;
 }
 
 float3 shadingDirect(HitResult hit, uint offset, float3 v, float3 mainNormal, LightData light)
@@ -299,7 +297,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
         break;
     case SampleStretegy::Mix:
         float bsdfWeight = calcPrimitiveWeight(data);
-        if((float)Next(sg) <= bsdfWeight)
+        if ((float)Next(sg) <= bsdfWeight)
         {
             l = samplePrimitive(data, v, sg);
         }
@@ -317,7 +315,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
 
     pdf = max(pdf, minPdf);
     float visibility = calcLightVisibility(hit, l, mainNormal, -1);
-    if(visibility > 0)
+    if (visibility > 0)
     {
         float3 lightColor = visibility * envMapSampler.eval(l);
         directColor += shading(offset, v, l, lightColor) / pdf;
@@ -399,7 +397,7 @@ float4 renderBackground(float3 direction)
 
 PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
 {
-    PsOut psOut = { };
+    PsOut psOut = {};
     uint2 pixel = uint2(texCoord * pixelCount);
     float2 jitter = randomJitter();
     texCoord = saturate(texCoord + jitter);

@@ -21,7 +21,7 @@ public:
 
 protected:
     std::string getFileName() const;
-    void write(std::string fileName, void* gBuffer, void* vBuffer);
+    void write(std::string fileName, void* gBuffer, void* vBuffer, void* pBlockMap);
     ref<ComputePass> mSamplePolygonPass;
 
     ref<Device> mpDevice;
@@ -29,6 +29,7 @@ protected:
 
     ref<Buffer> gBuffer;
     StructuredBufferGroup polygonGroup;
+    ref<Texture> blockMap;
     ref<Buffer> solidVoxelCount;
 
     void* pVBuffer_CPU;

@@ -1,9 +1,10 @@
-#include "VoxelizationShared.slang"
-#include "Voxel/VoxelGrid.slang"
 #include "Math/Polygon.slang"
+#include "Voxel/VoxelGrid.slang"
+#include "VoxelizationShared.slang"
 
-RWStructuredBuffer<VoxelData> gBuffer;
 StructuredBuffer<PolygonInVoxel> polygonBuffer;
+RWStructuredBuffer<VoxelData> gBuffer;
+RWTexture2D<uint4> blockMap;
 
 cbuffer CB
 {
@@ -53,9 +54,31 @@ void Estimate(
     }
 
     float weight = 4.f * PI / (times * 2);
-    primitiveFunc.mul(2.35619449f * weight);
+    primitiveFunc.mul(PROJECT_CIRCLE_AREA * weight);
     polygonFunc.mul(weight);
     totalFunc.mul(weight);
+}
+
+void updateBlockMap(int3 cellInt)
+{
+    int3 blockInt = cellInt / BLOCK_TO_VOXEL;
+    int component = blockInt.z / 32;
+    uint value = 1 << blockInt.z % 32;
+    switch (component)
+    {
+    case 0:
+        InterlockedOr(blockMap[blockInt.xy].x, value);
+        break;
+    case 1:
+        InterlockedOr(blockMap[blockInt.xy].y, value);
+        break;
+    case 2:
+        InterlockedOr(blockMap[blockInt.xy].z, value);
+        break;
+    case 3:
+        InterlockedOr(blockMap[blockInt.xy].w, value);
+        break;
+    }
 }
 
 void calc(uint offset)
@@ -63,16 +86,21 @@ void calc(uint offset)
     if (offset >= voxelCount)
         return;
 
-    UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), 0);
-    Estimate(
-        gBuffer[offset + gBufferOffset].ellipsoid,
-        polygonBuffer[offset],
-        sampleFrequency * sampleFrequency,
-        sg,
-        gBuffer[offset + gBufferOffset].polygonsProjAreaFunc,
-        gBuffer[offset + gBufferOffset].primitiveProjAreaFunc,
-        gBuffer[offset + gBufferOffset].totalProjAreaFunc,
-    );
+    if (gBuffer[offset + gBufferOffset].IsSolid())
+    {
+        UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), 0);
+        Estimate(
+            gBuffer[offset + gBufferOffset].ellipsoid,
+            polygonBuffer[offset],
+            sampleFrequency * sampleFrequency,
+            sg,
+            gBuffer[offset + gBufferOffset].polygonsProjAreaFunc,
+            gBuffer[offset + gBufferOffset].primitiveProjAreaFunc,
+            gBuffer[offset + gBufferOffset].totalProjAreaFunc,
+        );
+
+        updateBlockMap(int3(polygonBuffer[offset].cellMin));
+    }
 }
 
 [numthreads(256, 1, 1)]

@@ -39,8 +39,8 @@ inline std::string ToString(int3 v)
 
 struct BufferDesc
 {
-    std::string name;      
-    std::string texname;   //如果不直接对应着色器资源，设为空字符串
+    std::string name;
+    std::string texname; // 如果不直接对应着色器资源，设为空字符串
     std::string desc;
     bool serialized;
     bool isInputOrOutut;
@@ -51,6 +51,7 @@ using BufferlList = std::vector<BufferDesc>;
 inline std::string kGBuffer = "gBuffer";
 inline std::string kVBuffer = "vBuffer";
 inline std::string kPolygonBuffer = "polygonBuffer";
+inline std::string kBlockBuffer = "blockBuffer";
 
 class VoxelizationBase
 {
@@ -118,6 +119,7 @@ private:
     size_t sizePerElement;
     size_t totalSize;
     size_t maxSizePerBuffer;
+
 public:
     StructuredBufferGroup(ref<Device> device, size_t sizePerElement, size_t maxSizePerBuffer)
         : mpDevice(device), sizePerElement(sizePerElement), totalSize(0), maxSizePerBuffer(maxSizePerBuffer)
@@ -135,20 +137,11 @@ public:
         return 0;
     }
 
-    uint getElementCountOfBuffer(uint index) const
-    {
-        return getSizeOfBuffer(index) / sizePerElement;
-    }
+    uint getElementCountOfBuffer(uint index) const { return getSizeOfBuffer(index) / sizePerElement; }
 
-    uint maxElementCountPerBuffer() const
-    {
-        return maxSizePerBuffer / sizePerElement;
-    }
+    uint maxElementCountPerBuffer() const { return maxSizePerBuffer / sizePerElement; }
 
-    uint size() const
-    {
-        return mBuffers.size();
-    }
+    uint size() const { return mBuffers.size(); }
 
     ref<Buffer> get(uint index)
     {
@@ -162,11 +155,13 @@ public:
         mBuffers.clear();
         totalSize = size;
         size_t offset = 0;
-        while(size > 0)
+        while (size > 0)
         {
             size_t copySize = std::min(size, maxSizePerBuffer);
             size_t elementCount = copySize / sizePerElement;
-            ref<Buffer> buffer = mpDevice->createStructuredBuffer(sizePerElement, elementCount, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource);
+            ref<Buffer> buffer = mpDevice->createStructuredBuffer(
+                sizePerElement, elementCount, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
+            );
             buffer->setBlob((const char*)pData + offset, 0, copySize);
             mBuffers.push_back(buffer);
             offset += copySize;

@@ -8,7 +8,9 @@ const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPa
 }; // namespace
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
-    : RenderPass(pDevice) , polygonGroup(pDevice,sizeof(PolygonInVoxel), 32768 * sizeof(PolygonInVoxel)), gridData(VoxelizationBase::GlobalGridData)
+    : RenderPass(pDevice)
+    , polygonGroup(pDevice, sizeof(PolygonInVoxel), 32768 * sizeof(PolygonInVoxel))
+    , gridData(VoxelizationBase::GlobalGridData)
 {
     mSceneNameIndex = 0;
     mSceneName = "Arcade";
@@ -55,11 +57,16 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
         else
         {
             ref<Buffer> cpuGBuffer = mpDevice->createBuffer(gBuffer->getSize(), ResourceBindFlags::None, MemoryType::ReadBack);
+            ref<Buffer> cpuBlockMap =
+                mpDevice->createBuffer(gridData.totalBlockCount() * sizeof(uint4), ResourceBindFlags::None, MemoryType::ReadBack);
             pRenderContext->copyResource(cpuGBuffer.get(), gBuffer.get());
+            pRenderContext->copyResource(cpuBlockMap.get(), blockMap.get());
             mpDevice->wait();
             void* pGBuffer_CPU = cpuGBuffer->map();
-            write(getFileName(), pGBuffer_CPU, pVBuffer_CPU);
+            void* pBlockMap_CPU = cpuBlockMap->map();
+            write(getFileName(), pGBuffer_CPU, pVBuffer_CPU, pBlockMap_CPU);
             cpuGBuffer->unmap();
+            cpuBlockMap->unmap();
             Tools::Profiler::Print();
             Tools::Profiler::Reset();
             mSamplingComplete = true;
@@ -71,7 +78,7 @@ void VoxelizationPass::compile(RenderContext* pRenderContext, const CompileData&
 
 void VoxelizationPass::renderUI(Gui::Widgets& widget)
 {
-    static const uint resolutions[] = { 16, 32, 64, 128, 256, 512,1000, 1024 };
+    static const uint resolutions[] = {16, 32, 64, 128, 256, 512, 1000, 1024};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
@@ -85,7 +92,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         }
     }
 
-    static const std::string sceneNames[] = { "Arcade", "Tree", "BoxBunny", "Box","Chandelier" };
+    static const std::string sceneNames[] = {"Arcade", "Tree", "BoxBunny", "Box", "Chandelier"};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)
@@ -139,9 +146,20 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
         defines.add(mpScene->getSceneDefines());
         mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
+
+    if (!blockMap)
+    {
+        uint2 blockCount = gridData.blockCount();
+        blockMap = mpDevice->createTexture2D(
+            blockCount.x, blockCount.y, ResourceFormat::RGBA32Uint, 1, 1, nullptr, ResourceBindFlags::UnorderedAccess
+        );
+        pRenderContext->clearUAV(blockMap->getUAV().get(), uint4(0));
+    }
+
     ShaderVar var = mSamplePolygonPass->getRootVar();
     var[kGBuffer] = gBuffer;
     var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
+    var[kBlockBuffer] = blockMap;
 
     uint gBufferOffset = mCompleteTimes * polygonGroup.maxElementCountPerBuffer();
     uint elementCount = polygonGroup.getElementCountOfBuffer(mCompleteTimes);
@@ -168,7 +186,7 @@ std::string VoxelizationPass::getFileName() const
     return oss.str();
 }
 
-void VoxelizationPass::write(std::string fileName, void* pGBuffer, void* pVBuffer)
+void VoxelizationPass::write(std::string fileName, void* pGBuffer, void* pVBuffer, void* pBlockMap)
 {
     std::ofstream f;
     std::string s = VoxelizationBase::ResourceFolder + fileName;
@@ -177,6 +195,7 @@ void VoxelizationPass::write(std::string fileName, void* pGBuffer, void* pVBuffe
 
     f.write(reinterpret_cast<const char*>(pVBuffer), gridData.totalVoxelCount() * sizeof(int));
     f.write(reinterpret_cast<const char*>(pGBuffer), gridData.solidVoxelCount * sizeof(VoxelData));
+    f.write(reinterpret_cast<const char*>(pBlockMap), gridData.totalBlockCount() * sizeof(uint4));
 
     f.close();
     VoxelizationBase::FileUpdated = true;
