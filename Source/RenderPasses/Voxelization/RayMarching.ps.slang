@@ -14,6 +14,7 @@ import Rendering.Lights.EnvMapSampler;
 ParameterBlock<EnvMapSampler> envMapSampler;
 Texture3D<int> vBuffer;
 StructuredBuffer<VoxelData> gBuffer;
+Texture2D<uint4> blockMap;
 RWStructuredBuffer<float4> selectedVoxel;
 
 cbuffer GridData
@@ -30,7 +31,7 @@ cbuffer CB
     float4x4 invVP;
     float shadowBias;
     uint drawMode;
-    uint sampleStretegy;
+    uint sampleStrategy;
     uint maxBounce;
     uint frameIndex;
     float minPdf;
@@ -281,9 +282,9 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
     float3 l;
     float3 lightColor = 0;
     float pdf = 0;
-    switch (sampleStretegy)
+    switch (sampleStrategy)
     {
-    case SampleStretegy::EnviromentMap:
+    case SampleStrategy::EnviromentMap:
         EnvMapSample envSample;
         envMapSampler.sample(Next2(sg), envSample);
         l = envSample.dir;
@@ -291,11 +292,11 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             l = -l;
         pdf = envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l);
         break;
-    case SampleStretegy::BSDF:
+    case SampleStrategy::BSDF:
         l = samplePrimitive(data, v, sg);
         pdf = calcPrimitivePdf(data, v, l);
         break;
-    case SampleStretegy::Mix:
+    case SampleStrategy::Mix:
         float bsdfWeight = calcPrimitiveWeight(data);
         if ((float)Next(sg) <= bsdfWeight)
         {

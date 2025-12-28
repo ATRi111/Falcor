@@ -39,7 +39,7 @@ private:
     bool mDebug;
     bool mRenderBackGround;
     float3 mClearColor;
-    uint mSampleStretegy;
+    uint mSampleStrategy;
 
     bool mDisplayNDF;
     float2 mSelectedUV;

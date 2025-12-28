@@ -51,7 +51,7 @@ using BufferlList = std::vector<BufferDesc>;
 inline std::string kGBuffer = "gBuffer";
 inline std::string kVBuffer = "vBuffer";
 inline std::string kPolygonBuffer = "polygonBuffer";
-inline std::string kBlockBuffer = "blockBuffer";
+inline std::string kBlockMap = "blockMap";
 
 class VoxelizationBase
 {

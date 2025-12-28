@@ -149,17 +149,14 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
 
     if (!blockMap)
     {
-        uint2 blockCount = gridData.blockCount();
-        blockMap = mpDevice->createTexture2D(
-            blockCount.x, blockCount.y, ResourceFormat::RGBA32Uint, 1, 1, nullptr, ResourceBindFlags::UnorderedAccess
-        );
+        blockMap = mpDevice->createStructuredBuffer(sizeof(uint), 4 * gridData.totalBlockCount(), ResourceBindFlags::UnorderedAccess);
         pRenderContext->clearUAV(blockMap->getUAV().get(), uint4(0));
     }
 
     ShaderVar var = mSamplePolygonPass->getRootVar();
     var[kGBuffer] = gBuffer;
     var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
-    var[kBlockBuffer] = blockMap;
+    var[kBlockMap] = blockMap;
 
     uint gBufferOffset = mCompleteTimes * polygonGroup.maxElementCountPerBuffer();
     uint elementCount = polygonGroup.getElementCountOfBuffer(mCompleteTimes);
@@ -167,6 +164,7 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     cb["voxelCount"] = elementCount;
     cb["sampleFrequency"] = mSampleFrequency;
     cb["gBufferOffset"] = gBufferOffset;
+    cb["blockCount"] = gridData.blockCount();
 
     Tools::Profiler::BeginSample("Sample Polygons");
     mSamplePolygonPass->execute(pRenderContext, uint3(elementCount, 1, 1));

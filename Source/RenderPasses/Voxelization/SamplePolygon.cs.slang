@@ -4,13 +4,14 @@
 
 StructuredBuffer<PolygonInVoxel> polygonBuffer;
 RWStructuredBuffer<VoxelData> gBuffer;
-RWTexture2D<uint4> blockMap;
+RWStructuredBuffer<uint> blockMap; // 逻辑上是Texture2D<uint4>
 
 cbuffer CB
 {
     uint voxelCount;
     uint sampleFrequency;
     uint gBufferOffset;
+    uint2 blockCount;
 }
 
 void Estimate(
@@ -64,21 +65,9 @@ void updateBlockMap(int3 cellInt)
     int3 blockInt = cellInt / BLOCK_TO_VOXEL;
     int component = blockInt.z / 32;
     uint value = 1 << blockInt.z % 32;
-    switch (component)
-    {
-    case 0:
-        InterlockedOr(blockMap[blockInt.xy].x, value);
-        break;
-    case 1:
-        InterlockedOr(blockMap[blockInt.xy].y, value);
-        break;
-    case 2:
-        InterlockedOr(blockMap[blockInt.xy].z, value);
-        break;
-    case 3:
-        InterlockedOr(blockMap[blockInt.xy].w, value);
-        break;
-    }
+    uint index = blockInt.x + blockInt.y * blockCount.x;
+    index = 4 * index + component; // 4个分量一组
+    InterlockedOr(blockMap[index], value);
 }
 
 void calc(uint offset)

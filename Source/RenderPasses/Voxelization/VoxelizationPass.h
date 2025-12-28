@@ -29,7 +29,7 @@ protected:
 
     ref<Buffer> gBuffer;
     StructuredBufferGroup polygonGroup;
-    ref<Texture> blockMap;
+    ref<Buffer> blockMap;
     ref<Buffer> solidVoxelCount;
 
     void* pVBuffer_CPU;

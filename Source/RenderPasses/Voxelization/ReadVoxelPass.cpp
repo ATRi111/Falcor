@@ -34,6 +34,11 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::Unknown)
         .rawBuffer(gridData.solidVoxelCount * sizeof(VoxelData));
 
+    reflector.addOutput(kBlockMap, kBlockMap)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::RGBA32Uint)
+        .texture2D(gridData.blockCount().x, gridData.blockCount().y);
+
     return reflector;
 }
 
@@ -68,6 +73,11 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     VoxelData* gBuffer = new VoxelData[gridData.solidVoxelCount];
     tryRead(f, offset, gridData.solidVoxelCount * sizeof(VoxelData), gBuffer, fileSize);
     pGBuffer->setBlob(gBuffer, 0, gridData.solidVoxelCount * sizeof(VoxelData));
+
+    ref<Texture> pBlockMap = renderData.getTexture(kBlockMap);
+    uint4* blockMap = new uint4[gridData.totalBlockCount()];
+    tryRead(f, offset, gridData.totalBlockCount() * sizeof(uint4), blockMap, fileSize);
+    pBlockMap->setSubresourceBlob(0, blockMap, gridData.totalBlockCount() * sizeof(uint4));
 
     mComplete = true;
 }

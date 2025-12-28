@@ -20,7 +20,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mCheckVisibility = true;
     mCheckCoverage = true;
     mDrawMode = 0;
-    mSampleStretegy = 2;
+    mSampleStrategy = 2;
     mMaxBounce = 3;
     mRenderBackGround = true;
     mClearColor = float3(0);
@@ -53,6 +53,11 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::Unknown)
         .rawBuffer(gridData.solidVoxelCount * sizeof(VoxelData));
+
+    reflector.addInput(kBlockMap, kBlockMap)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::RGBA32Uint)
+        .texture2D(gridData.blockCount().x, gridData.blockCount().y);
 
     reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
@@ -117,6 +122,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
         var[kVBuffer] = renderData.getTexture(kVBuffer);
         var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
+        var[kBlockMap] = renderData.getTexture(kBlockMap);
         var["selectedVoxel"] = mSelectedVoxel;
 
         auto cb_GridData = var["GridData"];
@@ -130,7 +136,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
         cb["shadowBias"] = mShadowBias1000 / 1000 / gridData.voxelSize.x;
         cb["drawMode"] = mDrawMode;
-        cb["sampleStretegy"] = mSampleStretegy;
+        cb["sampleStrategy"] = mSampleStrategy;
         cb["maxBounce"] = mMaxBounce;
         cb["frameIndex"] = mFrameIndex;
         cb["minPdf"] = mMinPdf100 / 100;
@@ -178,7 +184,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
         mOptionsChanged = true;
-    if (widget.dropdown("Sample Stretegy", reinterpret_cast<SampleStretegy&>(mSampleStretegy)))
+    if (widget.dropdown("Sample Strategy", reinterpret_cast<SampleStrategy&>(mSampleStrategy)))
         mOptionsChanged = true;
     if (widget.slider("Max Bounce", mMaxBounce, 0u, 10u))
         mOptionsChanged = true;
