@@ -133,6 +133,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
         auto cb = var["CB"];
         cb["pixelCount"] = mOutputResolution;
+        cb["blockCount"] = gridData.blockCount3D();
         cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
         cb["shadowBias"] = mShadowBias1000 / 1000 / gridData.voxelSize.x;
         cb["drawMode"] = mDrawMode;

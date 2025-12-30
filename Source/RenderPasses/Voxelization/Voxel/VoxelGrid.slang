@@ -16,7 +16,15 @@ struct GridData
     size_t solidVoxelCount;
 
     size_t totalVoxelCount() { return (size_t)voxelCount.x * (size_t)voxelCount.y * (size_t)voxelCount.z; }
-    uint2 blockCount() { return uint2(voxelCount.x / BLOCK_TO_VOXEL, voxelCount.y / BLOCK_TO_VOXEL); }
+    uint2 blockCount()
+    {
+        return uint2((voxelCount.x + BLOCK_TO_VOXEL - 1) / BLOCK_TO_VOXEL, (voxelCount.y + BLOCK_TO_VOXEL - 1) / BLOCK_TO_VOXEL);
+    }
+
+    uint3 blockCount3D()
+    {
+        return uint3((voxelCount.x + BLOCK_TO_VOXEL - 1) / BLOCK_TO_VOXEL, (voxelCount.y + BLOCK_TO_VOXEL - 1) / BLOCK_TO_VOXEL, (voxelCount.z + BLOCK_TO_VOXEL - 1) / BLOCK_TO_VOXEL);
+    }
 
     uint totalBlockCount()
     {
@@ -44,7 +52,7 @@ inline void leave(inout float3 cell, inout int3 cellInt, int3 directions, float3
 {
     float3 border = cellInt + (directions + 1) / 2;
     float3 t = (border - cell) * reciprocal_direction;
-    float tMin = 2.0f;
+    float tMin = 2;
     int3 selectedDirection = 0;
     if (direction.x != 0 && t.x < tMin)
     {
@@ -61,17 +69,33 @@ inline void leave(inout float3 cell, inout int3 cellInt, int3 directions, float3
         tMin = t.z;
         selectedDirection = int3(0, 0, directions.z);
     }
+
     cell += tMin * direction;
     cellInt += selectedDirection;
 }
 
+inline float leaveBlockFace(float c, int cInt, float reciprocal)
+{
+    int temp = cInt % BLOCK_TO_VOXEL;
+    float t = -1;
+    if (reciprocal < 0)
+        t = (cInt - temp - c) * reciprocal;
+    if (reciprocal > 0)
+        t = (cInt - temp + BLOCK_TO_VOXEL - c) * reciprocal;
+    return t > 0 ? t : 1e30;
+}
+
 inline void leaveBlock(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
 {
-    cellInt /= BLOCK_TO_VOXEL; // 转换到块坐标
-    cell /= BLOCK_TO_VOXEL;
-    leave(cell, cellInt, directions, direction, reciprocal_direction);
-    cellInt *= BLOCK_TO_VOXEL;
-    cell *= BLOCK_TO_VOXEL;
+    float tMin = 2 * BLOCK_TO_VOXEL;
+    float t = leaveBlockFace(cell.x, cellInt.x, reciprocal_direction.x);
+    tMin = min(t, tMin);
+    t = leaveBlockFace(cell.y, cellInt.y, reciprocal_direction.y);
+    tMin = min(t, tMin);
+    t = leaveBlockFace(cell.z, cellInt.z, reciprocal_direction.z);
+    tMin = min(t, tMin);
+    cell += tMin * direction;
+    cellInt = int3(cell + direction * 1e-3);
 }
 #endif
 

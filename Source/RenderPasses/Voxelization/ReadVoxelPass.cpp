@@ -127,6 +127,7 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     GridData& data = VoxelizationBase::GlobalGridData;
     widget.text("Voxel Size: " + ToString(data.voxelSize));
     widget.text("Voxel Count: " + ToString((int3)data.voxelCount));
+    widget.text("Block Count: " + ToString((int3)data.blockCount3D()));
     widget.text("Grid Min: " + ToString(data.gridMin));
     widget.text("Solid Voxel Count: " + ToString(data.solidVoxelCount));
 }
