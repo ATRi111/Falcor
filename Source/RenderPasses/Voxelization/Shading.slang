@@ -5,14 +5,18 @@ import Utils.Math.MathHelpers;
 
 const static float Pi = 3.14159265359;
 
-float3 calcSchlick(float3 f0,float3 f90, float cosTheta)
+inline float pow5(float x)
 {
-    return lerp(f0, f90, safePow(1 - cosTheta, 5)); // 不能出现负底数
+    float x2 = x * x;
+    return x2 * x2 * x;
 }
-
-float calcSchlick(float f0, float f90, float cosTheta)
+inline float3 calcSchlick(float3 f0, float3 f90, float cosTheta)
 {
-    return lerp(f0, f90, safePow(1 - cosTheta, 5)); // 不能出现负底数
+    return lerp(f0, f90, pow5(1 - cosTheta));
+}
+inline float calcSchlick(float f0, float f90, float cosTheta)
+{
+    return lerp(f0, f90, pow5(1 - cosTheta));
 }
 
 inline float ggx(float NdotH, float alpha)
@@ -39,7 +43,7 @@ float Lambda(float3 n, float3 x, float alpha)
     temp = safeSqrt(temp) / max(1e-6, NdotX) - 1;
     return temp / 2;
 }
-//带有余弦项，已经与分母中的余弦项约分掉
+// 带有余弦项，已经与分母中的余弦项约分掉
 float3 cookTorrenceCos(float3 l, float3 v, float3 h, float3 n, float3 spec, float alpha)
 {
     float3 specColor = ggx(n, h, alpha) * fresnel(v, h, spec) / (1 + Lambda(n, l, alpha) + Lambda(n, v, alpha)) / 4 / max(1e-6, dot(n, v));
@@ -76,11 +80,11 @@ inline float weightedGGX(NDF NDF, float3 h)
         {
             float3 n = NDF.weightedNormals[i].xyz;
 
-            float cosTerm = dot(n, h);
-            if (cosTerm < 0)
+            float NdotH = dot(n, h);
+            if (NdotH < 0)
                 n = -n;
             float rough = NDF.roughness[i];
-            sum += ggx(n, h, rough * rough) * w;
+            sum += ggx(NdotH, rough * rough) * w;
         }
     }
     return sum;
@@ -118,62 +122,15 @@ inline float3 weightedDiffuseCos(NDF NDF, float3 l, float3 v, float3 h, float3 d
     return sum;
 }
 
-inline float3x3 rotateMatrix(float cosAngle, float3 axis)
-{
-    float c = cosAngle;
-    float s = safeSqrt(1 - cosAngle * cosAngle); // 默认角度小于180°
-
-    float3 temp = (1 - c) * axis;
-
-    float3x3 rotate;
-    rotate[0][0] = c + temp[0] * axis[0];
-    rotate[0][1] = temp[1] * axis[0] - s * axis[2];
-    rotate[0][2] = temp[2] * axis[0] + s * axis[1];
-
-    rotate[1][0] = temp[0] * axis[1] + s * axis[2];
-    rotate[1][1] = c + temp[1] * axis[1];
-    rotate[1][2] = temp[2] * axis[1] - s * axis[0];
-
-    rotate[2][0] = temp[0] * axis[2] - s * axis[1];
-    rotate[2][1] = temp[1] * axis[2] + s * axis[0];
-    rotate[2][2] = c + temp[2] * axis[2];
-
-    return rotate;
-}
-inline float3x3 rotateMatrix(float3 from, float3 to)
-{
-    float cosAngle = dot(from, to);
-    float3 axis = cross(from, to);
-    float s = length(axis);
-
-    if (s < 1e-6f) // 几乎共线
-    {
-        if (cosAngle > 0.0f)
-        {
-            return float3x3(1.0f, 0, 0, 0, 1.0f, 0, 0, 0, 1.0f);
-        }
-        else
-        {
-            float3 ortho = (abs(from.x) < 0.9f) ? float3(1, 0, 0) : float3(0, 1, 0);
-            float3 axis180 = normalize(cross(from, ortho));
-            return rotateMatrix(-1.0f, axis180);
-        }
-    }
-
-    axis /= s;
-    return rotateMatrix(cosAngle, axis);
-}
-
 inline float calcDiffusePdf(float NdotL)
 {
     return NdotL / Pi;
 }
-inline float3 sampleDiffuse(float3 n, float3x3 rot,float2 uDir)
+inline float3 sampleDiffuse(float3 n, float2 uDir)
 {
     float2 d = sample_disk_concentric(uDir);
     float z = safeSqrt(1.f - dot(d, d));
     float3 l = float3(d, z);
-    l = mul(rot, l);
     return l;
 }
 
@@ -181,15 +138,13 @@ inline float calcSpecularPdf(float VdotH, float NdotH, float alpha)
 {
     return ggx(NdotH, alpha) * NdotH / (4.0 * max(1e-6, VdotH));
 }
-inline float3 sampleSpecular(float3 n, float3 v, float3x3 rot, float alpha, float2 uDir)
+inline float3 sampleSpecular(float3 n, float3 v, float alpha, float2 uDir)
 {
     float phi = 2.0 * Pi * uDir.x;
     float cosTheta = safeSqrt((1.0 - uDir.y) / (1.0 + (alpha * alpha - 1.0) * uDir.y));
     float sinTheta = safeSqrt(1.0 - cosTheta * cosTheta);
     float3 h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
-    h = mul(rot, h);
-    float3 l = reflect(-v, h);
-    return l;
+    return h;
 }
 
 inline float calcSpecularWeight(float3 spec)
@@ -201,14 +156,33 @@ inline float calcLobePdf(float NdotL, float NdotH, float VdotH, float alpha, flo
 {
     return (1 - specularWeight) * calcDiffusePdf(NdotL) + specularWeight * calcSpecularPdf(VdotH, NdotH, alpha);
 }
+
+inline void buildTBN(float3 n, out float3 t, out float3 b)
+{
+    float3 up = (abs(n.z) < 0.999f) ? float3(0, 0, 1) : float3(1, 0, 0);
+    t = normalize(cross(up, n));
+    b = cross(n, t);
+}
+inline float3 localToWorld(float3 localDir, float3 t, float3 b, float3 n)
+{
+    return localDir.x * t + localDir.y * b + localDir.z * n;
+}
+
 inline float3 sampleLobe(float3 n, float3 v, float alpha, float specularWeight, float2 uDir, float uEnergy)
 {
-    float3x3 rot = rotateMatrix(float3(0, 0, 1), n);
-    float3 l;
+    float3 t, b, l;
+    buildTBN(n, t, b);
     if (uEnergy <= specularWeight)
-        l = sampleSpecular(n, v, rot, alpha, uDir);
+    {
+        float3 h = sampleSpecular(n, v, alpha, uDir);
+        h = localToWorld(h, t, b, n);
+        l = reflect(-v, h);
+    }
     else
-        l = sampleDiffuse(n, rot, uDir);
+    {
+        l = sampleDiffuse(n, uDir);
+        l = localToWorld(l, t, b, n);
+    }
     return l;
 }
 
@@ -218,7 +192,8 @@ inline float calcSurfacePdf(NDF NDF, float3 l, float3 v, float specularWeight)
     if (length(h) == 0)
         return 0;
     float pdf = 0;
-    for(uint i = 0; i < LOBE_COUNT; i++)
+    float VdotH = dot(v, h);
+    for (uint i = 0; i < LOBE_COUNT; i++)
     {
         float w = NDF.weightedNormals[i].w;
         if (w > 0)
@@ -230,9 +205,8 @@ inline float calcSurfacePdf(NDF NDF, float3 l, float3 v, float specularWeight)
             if (NdotL <= 0)
                 continue;
             float NdotH = dot(n, h);
-            float VdotH = dot(v, h);
             float rough = NDF.roughness[i];
-            pdf += w * calcLobePdf(NdotL, NdotH, VdotH, rough * rough, specularWeight); //单样本多重重要性采样
+            pdf += w * calcLobePdf(NdotL, NdotH, VdotH, rough * rough, specularWeight); // 单样本多重重要性采样
         }
     }
     return pdf;
@@ -257,13 +231,13 @@ inline float calcPrimitiveWeight(VoxelData data)
     float glossy = (1 - rough) * calcSpecularWeight(data.ABSDF.specular);
     return lerp(0.8, 0.2, glossy);
 }
-inline float calcPrimitivePdf(VoxelData data, float3 v,float3 l)
+inline float calcPrimitivePdf(VoxelData data, float3 v, float3 l)
 {
     if (isTransmition(v, l))
         return 1;
 
     float specularWeight = calcSpecularWeight(data.ABSDF.specular);
-    return calcSurfacePdf(data.ABSDF.NDF, l, v, specularWeight); //依然无偏，且方差更小
+    return calcSurfacePdf(data.ABSDF.NDF, l, v, specularWeight); // 依然无偏，且方差更小
 }
 inline float3 samplePrimitive(VoxelData data, float3 v, inout UniformSampleGenerator sg)
 {

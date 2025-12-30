@@ -46,7 +46,7 @@ struct HitResult
     bool hit;
     int3 cellInt;
     float3 cell;
-}
+};
 
 struct PsOut
 {
@@ -66,7 +66,7 @@ bool isSolidBlock(int3 blockInt)
     int component = blockInt.z / 32;
     uint value = 1 << blockInt.z % 32;
     uint4 zMap = blockMap[blockInt.xy];
-    switch(component)
+    switch (component)
     {
     case 0:
         value &= zMap.x;
@@ -141,7 +141,7 @@ HitResult rayMarching_DDA(float3 from, float3 direction, float maxDistance, bool
     return hit;
 }
 
-HitResult rayMarching_Block(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
+HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
 {
     float3 cell = from;
     int3 cellInt = int3(floor(from));
@@ -152,7 +152,7 @@ HitResult rayMarching_Block(float3 from, float3 direction, float maxDistance, bo
     if (ignoreFirst)
         leave(cell, cellInt, directions, direction, reciprocal_direction);
 
-    while(true)
+    while (true)
     {
         if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
             break;
@@ -203,8 +203,8 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
         HitResult hit = { false, int3(from), from };
         return hit;
     }
-#if DEBUG
-    return rayMarching_Block(from, direction, maxDistance, ignoreFirst);
+#if USE_MIP_MAP
+    return rayMarching_Mipmap(from, direction, maxDistance, ignoreFirst);
 #else
     return rayMarching_DDA(from, direction, maxDistance, ignoreFirst);
 #endif
@@ -219,7 +219,11 @@ float calcTrasmissionVisibility(HitResult hit, float3 direction)
 float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal, float maxDistance)
 {
     float3 from = hit.cell + shadowBias * mainNormal;
+#if DEBUG
+    hit = rayMarching(from, direction, maxDistance, true);
+#else
     hit = rayMarching(from, direction, maxDistance, false);
+#endif
     return hit.hit ? 0.f : 1.f;
 }
 

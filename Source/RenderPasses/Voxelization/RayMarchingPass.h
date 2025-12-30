@@ -36,6 +36,7 @@ private:
     bool mCheckEllipsoid;
     bool mCheckVisibility;
     bool mCheckCoverage;
+    bool mUseMipmap;
     bool mDebug;
     bool mRenderBackGround;
     float3 mClearColor;

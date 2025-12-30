@@ -19,6 +19,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mCheckEllipsoid = true;
     mCheckVisibility = true;
     mCheckCoverage = true;
+    mUseMipmap = true;
     mDrawMode = 0;
     mSampleStrategy = 2;
     mMaxBounce = 3;
@@ -107,6 +108,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
         mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
         mpFullScreenPass->addDefine("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
+        mpFullScreenPass->addDefine("USE_MIP_MAP", mUseMipmap ? "1" : "0");
         mpFullScreenPass->addDefine("DEBUG", mDebug ? "1" : "0");
 
         auto var = mpFullScreenPass->getRootVar();
@@ -178,6 +180,8 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
     if (widget.checkbox("Check Visibility", mCheckVisibility))
         mOptionsChanged = true;
     if (widget.checkbox("Check Coverage", mCheckCoverage))
+        mOptionsChanged = true;
+    if (widget.checkbox("Use Mipmap", mUseMipmap))
         mOptionsChanged = true;
     if (widget.slider("Shadow Bias(x1000)", mShadowBias1000, 0.0f, 1.0f))
         mOptionsChanged = true;
