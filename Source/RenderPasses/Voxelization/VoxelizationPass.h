@@ -28,7 +28,8 @@ protected:
     ref<Scene> mpScene;
 
     ref<Buffer> gBuffer;
-    StructuredBufferGroup polygonGroup;
+    ref<Buffer> polygonRangeBuffer;
+    PolygonBufferGroup polygonGroup;
     ref<Buffer> blockMap;
     ref<Buffer> solidVoxelCount;
 

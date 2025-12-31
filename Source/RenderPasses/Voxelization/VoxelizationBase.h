@@ -51,6 +51,7 @@ using BufferlList = std::vector<BufferDesc>;
 inline std::string kGBuffer = "gBuffer";
 inline std::string kVBuffer = "vBuffer";
 inline std::string kPolygonBuffer = "polygonBuffer";
+inline std::string kPolygonRangeBuffer = "polygonRangeBuffer";
 inline std::string kBlockMap = "blockMap";
 
 class VoxelizationBase
@@ -111,35 +112,67 @@ struct MeshHeader
     uint triangleOffset;
 };
 
-class StructuredBufferGroup
+class PolygonBufferGroup
 {
 private:
     ref<Device> mpDevice;
     std::vector<ref<Buffer>> mBuffers;
-    size_t sizePerElement;
-    size_t totalSize;
-    size_t maxSizePerBuffer;
+    std::vector<uint> voxelCount;   //各缓冲区中的体素个数
+    std::vector<uint> gBufferOffsets;
+    std::vector<uint> polygonCount; //各缓冲区中的多边形个数
+
+    std::vector<Polygon> currentPolygons;    //正在处理的Polygon
+    uint currentVoxelCount = 0;
+    uint currentPolygonCount = 0;
+
+    void flushCurrent()
+    {
+        if (currentPolygonCount == 0)
+            return;
+
+        if (size() == 0)
+            gBufferOffsets.push_back(0);
+        else
+            gBufferOffsets.push_back(voxelCount.back() + gBufferOffsets.back());
+
+        ref<Buffer> buffer = mpDevice->createStructuredBuffer(
+            sizeof(Polygon),
+            currentPolygonCount,
+            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+        );
+
+        buffer->setBlob(currentPolygons.data(), 0, size_t(currentPolygonCount) * sizeof(Polygon));
+
+        mBuffers.push_back(buffer);
+        voxelCount.push_back(currentVoxelCount);
+        polygonCount.push_back(currentPolygonCount);
+
+        currentPolygons.clear();
+        currentVoxelCount = 0;
+        currentPolygonCount = 0;
+    }
 
 public:
-    StructuredBufferGroup(ref<Device> device, size_t sizePerElement, size_t maxSizePerBuffer)
-        : mpDevice(device), sizePerElement(sizePerElement), totalSize(0), maxSizePerBuffer(maxSizePerBuffer)
-    {
-        FALCOR_ASSERT(maxSizePerBuffer % sizePerElement == 0);
-    }
+    uint maxPolygonCount = 8000;
+    PolygonBufferGroup(ref<Device> device) : mpDevice(device) {}
 
-    uint getSizeOfBuffer(uint index) const
+    uint getVoxelOffset(uint index) const
     {
         FALCOR_ASSERT(index < mBuffers.size());
-        if (index < mBuffers.size() - 1)
-            return maxSizePerBuffer;
-        if (index == mBuffers.size() - 1)
-            return totalSize - maxSizePerBuffer * (mBuffers.size() - 1);
-        return 0;
+        return gBufferOffsets[index];
     }
 
-    uint getElementCountOfBuffer(uint index) const { return getSizeOfBuffer(index) / sizePerElement; }
+    uint getVoxelCount(uint index) const
+    {
+        FALCOR_ASSERT(index < mBuffers.size());
+        return voxelCount[index];
+    }
 
-    uint maxElementCountPerBuffer() const { return maxSizePerBuffer / sizePerElement; }
+    uint getPolygonCount(uint index) const
+    {
+        FALCOR_ASSERT(index < mBuffers.size());
+        return polygonCount[index];
+    }
 
     uint size() const { return mBuffers.size(); }
 
@@ -149,23 +182,42 @@ public:
         return mBuffers[index];
     }
 
-    void setBlob(const void* pData, size_t size)
+    void reset()
     {
-        FALCOR_ASSERT(size % sizePerElement == 0);
         mBuffers.clear();
-        totalSize = size;
-        size_t offset = 0;
-        while (size > 0)
+        voxelCount.clear();
+        polygonCount.clear();
+        gBufferOffsets.clear();
+        currentVoxelCount = 0;
+        currentPolygonCount = 0;
+    }
+
+    void generate(const std::vector<std::vector<Polygon>>& polygonArrays, std::vector<PolygonRange>& polygonRangeBuffer)
+    {
+        FALCOR_ASSERT(polygonRangeBuffer.size() == polygonArrays.size());
+        reset();
+        currentPolygons.reserve(maxPolygonCount);
+
+        for (size_t v = 0; v < polygonArrays.size(); ++v)
         {
-            size_t copySize = std::min(size, maxSizePerBuffer);
-            size_t elementCount = copySize / sizePerElement;
-            ref<Buffer> buffer = mpDevice->createStructuredBuffer(
-                sizePerElement, elementCount, ResourceBindFlags::UnorderedAccess | ResourceBindFlags::ShaderResource
-            );
-            buffer->setBlob((const char*)pData + offset, 0, copySize);
-            mBuffers.push_back(buffer);
-            offset += copySize;
-            size -= copySize;
+            const std::vector<Polygon>& polys = polygonArrays[v];
+            const uint n = (uint)polys.size();
+
+            FALCOR_ASSERT(n > 0 && n <= maxPolygonCount);
+
+            if (currentPolygonCount + n > maxPolygonCount)
+            {
+                flushCurrent();
+            }
+
+            polygonRangeBuffer[v].count = n;
+            polygonRangeBuffer[v].localHead = currentPolygonCount;
+
+            currentPolygons.insert(currentPolygons.end(), polys.begin(), polys.end());
+            currentPolygonCount += n;
+            currentVoxelCount ++;
         }
+
+        flushCurrent();
     }
 };

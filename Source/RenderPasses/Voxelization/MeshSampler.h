@@ -21,8 +21,10 @@ private:
 public:
     std::vector<VoxelData> gBuffer;
     std::vector<int> vBuffer;
-    std::vector<PolygonInVoxel> polygonBuffer;
+    std::vector<std::vector<Polygon>> polygonArrays;
+    std::vector<PolygonRange> polygonRangeBuffer;
     bool lerpNormal;
+    size_t totalPolygonCount;
 
     MeshSampler() : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance())
     {
@@ -30,19 +32,17 @@ public:
         currentNormal = nullptr;
         currentSpecular = nullptr;
         lerpNormal = false;
+        totalPolygonCount = 0;
     }
 
     void reset()
     {
-        clear();
-        vBuffer.assign(gridData.totalVoxelCount(), -1);
-    }
-
-    void clear()
-    {
         gBuffer.clear();
         vBuffer.clear();
-        polygonBuffer.clear();
+        polygonArrays.clear();
+        polygonRangeBuffer.clear();
+        totalPolygonCount = 0;
+        vBuffer.assign(gridData.totalVoxelCount(), -1);
     }
 
     int tryGetOffset(int3 cellInt)
@@ -54,9 +54,9 @@ public:
             vBuffer[index] = offset;
             gBuffer.emplace_back();
             gBuffer[offset].init();
-            polygonBuffer.emplace_back();
-            polygonBuffer[offset].init();
-            polygonBuffer[offset].cellMin = float3(cellInt);
+            polygonArrays.emplace_back();
+            polygonRangeBuffer.emplace_back();
+            polygonRangeBuffer[offset].init(cellInt);
         }
         return vBuffer[index];
     }
@@ -72,7 +72,8 @@ public:
         Tools::Profiler::BeginSample("Sample Texture");
         int offset = tryGetOffset(cellInt);
 
-        bool added = polygonBuffer[offset].add(polygon);
+        polygonArrays[offset].push_back(polygon);
+        totalPolygonCount++;
 
         std::vector<float2> uvs;
         for (uint i = 0; i < polygon.count; i++)
@@ -97,7 +98,7 @@ public:
         }
         if (normal.y < 0)
             normal = -normal;
-        float area = added ? polygon.calcArea() : 0;
+        float area = polygon.calcArea();
         ABSDFInput input = {baseColor, spec, normal, area };
         gBuffer[offset].ABSDF.accumulate(input);
 
@@ -156,17 +157,5 @@ public:
             sampleMesh(meshList[i], pPos, pNormal, pUV, pTri);
         }
         gridData.solidVoxelCount = gBuffer.size();
-    }
-
-    void analyzeAll()
-    {
-        for (uint i = 0; i < gBuffer.size(); i++)
-        {
-            Tools::Profiler::BeginSample("Fit Ellipsoid");
-            gBuffer[i].ellipsoid.fit(polygonBuffer[i]);
-            Tools::Profiler::EndSample("Fit Ellipsoid");
-
-            gBuffer[i].ABSDF.normalizeSelf();
-        }
     }
 };

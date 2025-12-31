@@ -130,46 +130,22 @@ struct Polygon
     }
 };
 
-struct PolygonInVoxel
+struct PolygonRange
 {
-    Polygon polygons[MAX_POLYGON_COUNT];
-    float3 cellMin;
+    uint localHead;
     uint count;
+    int3 cellInt;
 
     MUTATING
-    void init()
+    void init(int3 c)
     {
+        localHead = 0;
         count = 0;
-        cellMin = float3(0);
+        cellInt = c;
     }
 
-    MUTATING
-    bool add(Polygon polygon)
-    {
-        if (count < MAX_POLYGON_COUNT)
-        {
-            polygons[count] = polygon;
-            count++;
-            return true;
-        }
-        return false;
-    }
-
-    float calcTotalProjArea(float3 direction)
-    {
-        float sum = 0;
-        for (uint i = 0; i < count; ++i)
-        {
-            sum += polygons[i].calcProjArea(direction);
-        }
-        return sum;
-    }
-
-#if defined(HOST_CODE)
-    float3 calcCentroid(float& totalArea) const
-#else
-    float3 calcCentroid(out float totalArea)
-#endif
+#if !defined(HOST_CODE)
+    float3 calcCentroid(StructuredBuffer<Polygon> polygons, out float totalArea)
     {
         float3 sum = float3(0);
         totalArea = 0;
@@ -177,24 +153,25 @@ struct PolygonInVoxel
         for (uint i = 0; i < count; ++i)
         {
             float area;
-            float3 c = polygons[i].calcCentroid(area);
+            float3 c = polygons[i + localHead].calcCentroid(area);
             sum += c * area;
             totalArea += area;
         }
 
         if (totalArea <= 0)
-            return cellMin + float3(0.5f);
+            return cellInt + float3(0.5f);
 
         return sum / totalArea;
     }
 
-#if defined(HOST_CODE)
-    void addTo(std::vector<float3>& points)
+    float calcTotalProjArea(StructuredBuffer<Polygon> polygons, float3 direction)
     {
-        for (uint i = 0; i < count; i++)
+        float sum = 0;
+        for (uint i = 0; i < count; ++i)
         {
-            polygons[i].addTo(points);
+            sum += polygons[i + localHead].calcProjArea(direction);
         }
+        return sum;
     }
 #endif
 };

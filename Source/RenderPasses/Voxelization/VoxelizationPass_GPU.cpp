@@ -10,7 +10,7 @@ const std::string kAnalyzeProgramFile = "E:/Project/Falcor/Source/RenderPasses/V
 VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props)
     : VoxelizationPass(pDevice, props)
 {
-    maxSolidVoxelCount = (uint)ceil(4294967296.0 / sizeof(PolygonInVoxel)); //缓冲区最大容量为4G
+    maxSolidVoxelCount = (uint)ceil(4294967296.0 / sizeof(VoxelData)); //缓冲区最大容量为4G
 
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
     Sampler::Desc samplerDesc;

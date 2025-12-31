@@ -39,17 +39,14 @@ struct Ellipsoid
     float3 center; // 相对于所在体素左下角的偏移量（涉及求交运算时，以椭球的中心为原点）
     float3x3 B;    // x^T B x <=1
 
-#if defined(HOST_CODE)
-    void fit(const PolygonInVoxel& piv)
-#else
+#if !defined(HOST_CODE)
     [mutating]
-    void fit(PolygonInVoxel piv)
-#endif
+    void fit(StructuredBuffer<Polygon> polygons, PolygonRange range)
     {
         float3 sum = float3(0);
         float totalArea = 0.0f;
 
-        center = piv.calcCentroid(totalArea);
+        center = range.calcCentroid(polygons, totalArea);
         if (totalArea <= 0.0f)
         {
             B = zeros();
@@ -59,9 +56,9 @@ struct Ellipsoid
 
         float3x3 cov = zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
 
-        for (uint pi = 0; pi < piv.count; ++pi)
+        for (size_t pi = 0; pi < range.count; ++pi)
         {
-            Polygon poly = piv.polygons[pi];
+            Polygon poly = polygons[pi + range.localHead];
 
             float3 v0 = poly.vertices[0];
             for (uint i = 1; i + 1 < poly.count; ++i)
@@ -121,9 +118,9 @@ struct Ellipsoid
 
         float3x3 inv = inverse(cov);
         float maxDot = 1e-12f;
-        for (uint pi = 0; pi < piv.count; ++pi)
+        for (size_t pi = 0; pi < range.count; ++pi)
         {
-            Polygon poly = piv.polygons[pi];
+            Polygon poly = polygons[pi + range.localHead];
             for (uint i = 0; i < poly.count; ++i)
             {
                 float3 v = poly.vertices[i] - center;
@@ -132,8 +129,9 @@ struct Ellipsoid
             }
         }
         B = inv * (1.0f / maxDot);
-        center -= piv.cellMin;
+        center -= range.cellInt;
     }
+#endif
 
     float2 clip(float3 from, float3 to)
     {

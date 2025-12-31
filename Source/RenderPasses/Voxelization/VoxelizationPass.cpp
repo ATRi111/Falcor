@@ -9,11 +9,11 @@ const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPa
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice)
-    , polygonGroup(pDevice, sizeof(PolygonInVoxel), 32768 * sizeof(PolygonInVoxel))
+    , polygonGroup(pDevice)
     , gridData(VoxelizationBase::GlobalGridData)
 {
-    mSceneNameIndex = 0;
-    mSceneName = "Arcade";
+    mSceneNameIndex = 4;
+    mSceneName = "Chandelier";
     mVoxelizationComplete = true;
     mSamplingComplete = true;
     mCompleteTimes = 0;
@@ -115,6 +115,16 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
     }
 
+    static const uint polygonPerframes[] = { 1000,2000,4000,8000 };
+    {
+        Gui::DropdownList list;
+        for (uint32_t i = 0; i < sizeof(polygonPerframes) / sizeof(uint); i++)
+        {
+            list.push_back({ polygonPerframes[i], std::to_string(polygonPerframes[i]) });
+        }
+        widget.dropdown("Polygon Per Frame", list, polygonGroup.maxPolygonCount);
+    }
+
     if (mpScene && mVoxelizationComplete && mSamplingComplete && widget.button("Generate"))
     {
         ImageLoader::Instance().setSceneName(mSceneName);
@@ -155,19 +165,19 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
 
     ShaderVar var = mSamplePolygonPass->getRootVar();
     var[kGBuffer] = gBuffer;
+    var[kPolygonRangeBuffer] = polygonRangeBuffer;
     var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
     var[kBlockMap] = blockMap;
 
-    uint gBufferOffset = mCompleteTimes * polygonGroup.maxElementCountPerBuffer();
-    uint elementCount = polygonGroup.getElementCountOfBuffer(mCompleteTimes);
+    uint voxelCount = polygonGroup.getVoxelCount(mCompleteTimes);
     auto cb = var["CB"];
-    cb["voxelCount"] = elementCount;
+    cb["voxelCount"] = voxelCount;
     cb["sampleFrequency"] = mSampleFrequency;
-    cb["gBufferOffset"] = gBufferOffset;
+    cb["gBufferOffset"] = polygonGroup.getVoxelOffset(mCompleteTimes);
     cb["blockCount"] = gridData.blockCount();
 
     Tools::Profiler::BeginSample("Sample Polygons");
-    mSamplePolygonPass->execute(pRenderContext, uint3(elementCount, 1, 1));
+    mSamplePolygonPass->execute(pRenderContext, uint3(voxelCount, 1, 1));
     mpDevice->wait();
     Tools::Profiler::EndSample("Sample Polygons");
 }

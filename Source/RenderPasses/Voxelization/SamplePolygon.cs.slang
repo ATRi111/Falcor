@@ -2,8 +2,9 @@
 #include "Voxel/VoxelGrid.slang"
 #include "VoxelizationShared.slang"
 
-StructuredBuffer<PolygonInVoxel> polygonBuffer;
-RWStructuredBuffer<VoxelData> gBuffer;
+StructuredBuffer<Polygon> polygonBuffer;    //局部缓冲区
+StructuredBuffer<PolygonRange> polygonRangeBuffer;
+RWStructuredBuffer<VoxelData> gBuffer; 
 RWStructuredBuffer<uint> blockMap; // 逻辑上是Texture2D<uint4>
 
 cbuffer CB
@@ -14,48 +15,43 @@ cbuffer CB
     uint2 blockCount;
 }
 
-void Estimate(
-    Ellipsoid e,
-    PolygonInVoxel p,
-    uint times,
-    inout UniformSampleGenerator sg,
-    inout SphericalFunc polygonFunc,
-    inout SphericalFunc primitiveFunc,
-    inout SphericalFunc totalFunc
-)
+void Estimate(Ellipsoid e, PolygonRange range,inout UniformSampleGenerator sg, inout SphericalFunc polygonFunc, inout SphericalFunc primitiveFunc, inout SphericalFunc totalFunc)
 {
-    float3 cellCenter = p.cellMin + 0.5f;
-    for (uint i = 0; i < times; i++)
+    float3 cellMin = range.cellInt;
+    float3 cellCenter = cellMin + 0.5f;
+    for (uint i = 0; i < sampleFrequency; i++)
     {
         float3 direction = sample_sphere(Next2(sg));
         Basis2 basis = orthonormal_basis(direction);
-        SamplingRay ray = rayToVoxel(Next2(sg), direction, basis, cellCenter);
-
-        float3 from = ray.origin;
-        float3 to = from + 2 * ray.direction;
-        float2 inOut = clip(p.cellMin, p.cellMin + 1.f, from, to);
-        if (inOut.x >= 0) // 命中体素
+        uint hitCount = 0;
+        for (uint j = 0; j < sampleFrequency; j++)
         {
-            float3 v = to - from;
-            to = from + inOut.y * v - p.cellMin;
-            from = from + inOut.x * v - p.cellMin;
-            inOut = e.clip(from, to);
-            if (inOut.x >= 0) // 命中图元
+            SamplingRay ray = rayToVoxel(Next2(sg), direction, basis, cellCenter);
+            float3 from = ray.origin;
+            float3 to = from + 2 * ray.direction;
+            float2 inOut = clip(cellMin, cellMin + 1.f, from, to);
+            if (inOut.x >= 0) // 命中体素
             {
-                primitiveFunc.accumulate(direction);
-                primitiveFunc.accumulate(-direction); // 正反方向的采样结果总是相同
+                float3 v = to - from;
+                to = from + inOut.y * v - cellMin;
+                from = from + inOut.x * v - cellMin;
+                inOut = e.clip(from, to);
+                if (inOut.x >= 0) // 命中图元
+                    hitCount++;
             }
         }
 
-        float totalProjArea = p.calcTotalProjArea(direction);
+        primitiveFunc.accumulate(hitCount, direction);
+        primitiveFunc.accumulate(hitCount,-direction); // 正反方向的采样结果总是相同
+
+        float totalProjArea = range.calcTotalProjArea(polygonBuffer, direction);
         polygonFunc.accumulate(totalProjArea, direction);
         polygonFunc.accumulate(totalProjArea, -direction);
         totalFunc.accumulate(totalProjArea, direction);
         totalFunc.accumulate(totalProjArea, -direction);
     }
-
-    float weight = 4.f * PI / (times * 2);
-    primitiveFunc.mul(PROJECT_CIRCLE_AREA * weight);
+    float weight = 4.f * PI / (sampleFrequency * 2);
+    primitiveFunc.mul(PROJECT_CIRCLE_AREA * weight / sampleFrequency);
     polygonFunc.mul(weight);
     totalFunc.mul(weight);
 }
@@ -75,21 +71,30 @@ void calc(uint offset)
     if (offset >= voxelCount)
         return;
 
-    if (gBuffer[offset + gBufferOffset].IsSolid())
-    {
-        UniformSampleGenerator sg = UniformSampleGenerator(uint2(offset, 0), 0);
-        Estimate(
-            gBuffer[offset + gBufferOffset].ellipsoid,
-            polygonBuffer[offset],
-            sampleFrequency * sampleFrequency,
-            sg,
-            gBuffer[offset + gBufferOffset].polygonsProjAreaFunc,
-            gBuffer[offset + gBufferOffset].primitiveProjAreaFunc,
-            gBuffer[offset + gBufferOffset].totalProjAreaFunc,
-        );
+    uint index = offset + gBufferOffset;
+    VoxelData data = gBuffer[index];
+    if (!data.IsSolid())
+        return;
 
-        updateBlockMap(int3(polygonBuffer[offset].cellMin));
-    }
+    PolygonRange range = polygonRangeBuffer[index];
+
+    data.ellipsoid.fit(polygonBuffer, range);
+    data.ABSDF.normalizeSelf();
+
+    SphericalFunc polyF = data.polygonsProjAreaFunc;
+    SphericalFunc primF = data.primitiveProjAreaFunc;
+    SphericalFunc totalF = data.totalProjAreaFunc;
+
+    UniformSampleGenerator sg = UniformSampleGenerator(uint2(index, 0), 0);
+    Estimate(data.ellipsoid, range, sg, polyF, primF, totalF);
+
+    data.polygonsProjAreaFunc = polyF;
+    data.primitiveProjAreaFunc = primF;
+    data.totalProjAreaFunc = totalF;
+
+    gBuffer[index] = data;
+
+    updateBlockMap(range.cellInt);
 }
 
 [numthreads(256, 1, 1)]

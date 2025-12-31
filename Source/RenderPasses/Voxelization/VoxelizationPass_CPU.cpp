@@ -95,16 +95,18 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
 
     meshSampler.reset();
     meshSampler.sampleAll(header, meshList, pPos, pNormal, pUV, pTri);
-    gridData.solidVoxelCount = meshSampler.gBuffer.size();
-    meshSampler.analyzeAll();
+    polygonGroup.generate(meshSampler.polygonArrays, meshSampler.polygonRangeBuffer);
     cpuPositions->unmap();
     cpuNormals->unmap();
     cpuTexCoords->unmap();
     cpuTriangles->unmap();
 
     gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
-    polygonGroup.setBlob(meshSampler.polygonBuffer.data(), gridData.solidVoxelCount * sizeof(PolygonInVoxel));
     gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gridData.solidVoxelCount * sizeof(VoxelData));
+
+    polygonRangeBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonRange), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
+    polygonRangeBuffer->setBlob(meshSampler.polygonRangeBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonRange));
+
     pVBuffer_CPU = meshSampler.vBuffer.data();
 
     mpDevice->wait();
