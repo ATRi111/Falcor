@@ -24,7 +24,6 @@ public:
     std::vector<std::vector<Polygon>> polygonArrays;
     std::vector<PolygonRange> polygonRangeBuffer;
     bool lerpNormal;
-    size_t totalPolygonCount;
 
     MeshSampler() : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance())
     {
@@ -32,7 +31,6 @@ public:
         currentNormal = nullptr;
         currentSpecular = nullptr;
         lerpNormal = false;
-        totalPolygonCount = 0;
     }
 
     void reset()
@@ -41,7 +39,6 @@ public:
         vBuffer.clear();
         polygonArrays.clear();
         polygonRangeBuffer.clear();
-        totalPolygonCount = 0;
         vBuffer.assign(gridData.totalVoxelCount(), -1);
     }
 
@@ -73,7 +70,6 @@ public:
         int offset = tryGetOffset(cellInt);
 
         polygonArrays[offset].push_back(polygon);
-        totalPolygonCount++;
 
         std::vector<float2> uvs;
         for (uint i = 0; i < polygon.count; i++)

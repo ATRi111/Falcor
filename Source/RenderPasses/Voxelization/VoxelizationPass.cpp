@@ -46,6 +46,9 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
     {
         voxelize(pRenderContext, renderData);
         mVoxelizationComplete = true;
+
+        blockMap = mpDevice->createStructuredBuffer(sizeof(uint), 4 * gridData.totalBlockCount(), ResourceBindFlags::UnorderedAccess);
+        pRenderContext->clearUAV(blockMap->getUAV().get(), uint4(0));
     }
     else
     {
@@ -155,12 +158,6 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
         mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
-    }
-
-    if (!blockMap)
-    {
-        blockMap = mpDevice->createStructuredBuffer(sizeof(uint), 4 * gridData.totalBlockCount(), ResourceBindFlags::UnorderedAccess);
-        pRenderContext->clearUAV(blockMap->getUAV().get(), uint4(0));
     }
 
     ShaderVar var = mSamplePolygonPass->getRootVar();
