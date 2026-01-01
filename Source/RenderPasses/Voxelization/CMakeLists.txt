@@ -13,6 +13,7 @@ target_sources(Voxelization PRIVATE
     Math/Triangle.slang
     Math/Sampling.slang
     Math/SphericalHarmonics.slang
+    Math/LebedevQuadrature.slang
     Math/VoxelizationUtility.h
     Math/VoxelizationUtility.slang
     Math/Random.h

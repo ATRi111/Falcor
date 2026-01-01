@@ -6,7 +6,7 @@
 #include "Math/SphericalHarmonics.slang"
 BEGIN_NAMESPACE_FALCOR
 
-typedef SphericalHarmonics SphericalFunc;
+typedef EvenSphericalHarmonics SphericalFunc;
 
 struct VoxelData
 {

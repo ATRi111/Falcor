@@ -1,4 +1,5 @@
 #include "Math/Polygon.slang"
+#include "Math/LebedevQuadrature.slang"
 #include "Voxel/VoxelGrid.slang"
 #include "VoxelizationShared.slang"
 
@@ -19,9 +20,10 @@ void Estimate(Ellipsoid e, PolygonRange range,inout UniformSampleGenerator sg, i
 {
     float3 cellMin = range.cellInt;
     float3 cellCenter = cellMin + 0.5f;
-    for (uint i = 0; i < sampleFrequency; i++)
+    for (uint i = 0; i < LEBEDEV_DIRECTION_COUNT; i+= 2)
     {
-        float3 direction = sample_sphere(Next2(sg));
+        LebedevSample sample = LebedevSamples[i];
+        float3 direction = sample.direction;
         Basis2 basis = orthonormal_basis(direction);
         uint hitCount = 0;
         for (uint j = 0; j < sampleFrequency; j++)
@@ -41,19 +43,15 @@ void Estimate(Ellipsoid e, PolygonRange range,inout UniformSampleGenerator sg, i
             }
         }
 
-        primitiveFunc.accumulate(hitCount, direction);
-        primitiveFunc.accumulate(hitCount,-direction); // 正反方向的采样结果总是相同
+        float weight = 8 * PI * sample.weight; // 正反方向的采样结果总是相同,只统计其中一个方向,则权重翻倍
+        float primitiveProjArea = PROJECT_CIRCLE_AREA * hitCount / (float)sampleFrequency;
+        primitiveFunc.accumulate(weight * primitiveProjArea, direction);
 
         float totalProjArea = range.calcTotalProjArea(polygonBuffer, direction);
-        polygonFunc.accumulate(totalProjArea, direction);
-        polygonFunc.accumulate(totalProjArea, -direction);
-        totalFunc.accumulate(totalProjArea, direction);
-        totalFunc.accumulate(totalProjArea, -direction);
+        //TODO:计算可见投影面积
+        polygonFunc.accumulate(weight * totalProjArea, direction);
+        totalFunc.accumulate(weight * totalProjArea, direction);
     }
-    float weight = 4.f * PI / (sampleFrequency * 2);
-    primitiveFunc.mul(PROJECT_CIRCLE_AREA * weight / sampleFrequency);
-    polygonFunc.mul(weight);
-    totalFunc.mul(weight);
 }
 
 void updateBlockMap(int3 cellInt)
