@@ -88,7 +88,7 @@ public:
 
     uint2 size() const { return mipLevels[0].size; }
 
-    CPUTexture(float4* data, uint2 size, TextureType type) : type(type), borderColor(float4(0))
+    CPUTexture(float4* data, uint2 size, TextureType type) : type(type)
     {
         uint2 mipSize = size;
         while (mipSize.x > 0 && mipSize.y > 0)
@@ -100,12 +100,19 @@ public:
         }
 
         memcpy(mipLevels[0].pixels.data(), data, mipLevels[0].bytes());
-        if (type == Normal)
+        switch (type)
         {
+        case BaseColor:
+        case Specular:
+            borderColor = float4(0);
+            break;
+        case Normal:
             for (size_t i = 0; i < mipLevels[0].pixels.size(); i++)
             {
                 mipLevels[0].pixels[i] = ColorToNormal(mipLevels[0].pixels[i]);
             }
+            borderColor = float4(0, 0, 1, 0);
+            break;
         }
         for (uint i = 1; i < mipLevels.size(); i++)
         {
