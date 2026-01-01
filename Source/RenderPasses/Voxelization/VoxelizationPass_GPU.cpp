@@ -3,14 +3,12 @@
 namespace
 {
 const std::string kClipProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/ClipMesh.cs.slang";
-const std::string kAnalyzeProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/AnalyzePolygon.cs.slang";
 
 }; // namespace
 
-VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props)
-    : VoxelizationPass(pDevice, props)
+VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props) : VoxelizationPass(pDevice, props)
 {
-    maxSolidVoxelCount = (uint)ceil(4294967296.0 / sizeof(VoxelData)); //缓冲区最大容量为4G
+    maxSolidVoxelCount = (uint)ceil(4294967296.0 / sizeof(VoxelData)); // 缓冲区最大容量为4G
 
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
     Sampler::Desc samplerDesc;
@@ -23,7 +21,6 @@ void VoxelizationPass_GPU::setScene(RenderContext* pRenderContext, const ref<Sce
 {
     VoxelizationPass::setScene(pRenderContext, pScene);
     mClipPass = nullptr;
-    mAnalyzePass = nullptr;
 }
 
 void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderData& renderData)
@@ -47,18 +44,6 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
 
         mClipPass = ComputePass::create(mpDevice, desc, defines, true);
     }
-    if (!mAnalyzePass)
-    {
-        ProgramDesc desc;
-        desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kAnalyzeProgramFile).csEntry("main");
-        desc.addTypeConformances(mpScene->getTypeConformances());
-
-        DefineList defines;
-        defines.add(mpScene->getSceneDefines());
-
-        mAnalyzePass = ComputePass::create(mpDevice, desc, defines, true);
-    }
 
     mClipPass->addDefine("DISABLE_LOCK", "1");
     ShaderVar var = mClipPass->getRootVar();
@@ -66,8 +51,8 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     mpScene->bindShaderData(var["scene"]);
     var[kGBuffer] = gBuffer;
     var[kVBuffer] = vBuffer;
-    //TODO
-    // var[kPolygonBuffer] = polygonGroup;
+    // TODO
+    //  var[kPolygonBuffer] = polygonGroup;
     var["solidVoxelCount"] = solidVoxelCount;
 
     auto cb_grid = var["GridData"];
@@ -76,7 +61,7 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     cb_grid["voxelCount"] = gridData.voxelCount;
 
     uint meshCount = mpScene->getMeshCount();
-    for (MeshID meshID{ 0 }; meshID.get() < meshCount; ++meshID)
+    for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
     {
         MeshDesc meshDesc = mpScene->getMesh(meshID);
         uint triangleCount = meshDesc.getTriangleCount();
@@ -101,14 +86,6 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     uint* p = reinterpret_cast<uint*>(cpuSolidVoxelCount->map());
     pVBuffer_CPU = cpuVBuffer->map();
     gridData.solidVoxelCount = p[0];
-
-    var = mAnalyzePass->getRootVar();
-    var[kGBuffer] = gBuffer;
-    //TODO
-    //var[kPolygonBuffer] = polygonGroup;
-    auto cb = var["CB"];
-    cb["solidVoxelCount"] = p[0];
-    mAnalyzePass->execute(pRenderContext, uint3(p[0], 1, 1));
 
     mpDevice->wait();
     cpuSolidVoxelCount->unmap();

@@ -4,13 +4,11 @@
 
 namespace
 {
-const std::string kSamplePolygonProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/SamplePolygon.cs.slang";
+const std::string kAnalyzePolygonProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/AnalyzePolygon.cs.slang";
 }; // namespace
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
-    : RenderPass(pDevice)
-    , polygonGroup(pDevice)
-    , gridData(VoxelizationBase::GlobalGridData)
+    : RenderPass(pDevice), polygonGroup(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mSceneNameIndex = 4;
     mSceneName = "Chandelier";
@@ -118,12 +116,12 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
     }
 
-    static const uint polygonPerframes[] = { 1000,2000,4000,8000 };
+    static const uint polygonPerFrames[] = {1000, 2000, 4000, 8000, 16000, 32000, 64000};
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < sizeof(polygonPerframes) / sizeof(uint); i++)
+        for (uint32_t i = 0; i < sizeof(polygonPerFrames) / sizeof(uint); i++)
         {
-            list.push_back({ polygonPerframes[i], std::to_string(polygonPerframes[i]) });
+            list.push_back({polygonPerFrames[i], std::to_string(polygonPerFrames[i])});
         }
         widget.dropdown("Polygon Per Frame", list, polygonGroup.maxPolygonCount);
     }
@@ -152,7 +150,7 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     {
         ProgramDesc desc;
         desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kSamplePolygonProgramFile).csEntry("main");
+        desc.addShaderLibrary(kAnalyzePolygonProgramFile).csEntry("main");
         desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;

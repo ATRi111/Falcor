@@ -9,7 +9,10 @@ class VoxelizationPass_GPU : public VoxelizationPass
 public:
     FALCOR_PLUGIN_CLASS(VoxelizationPass_GPU, "VoxelizationPass_GPU", "Insert pass description here.");
 
-    static ref<VoxelizationPass_GPU> create(ref<Device> pDevice, const Properties& props) { return make_ref<VoxelizationPass_GPU>(pDevice, props); }
+    static ref<VoxelizationPass_GPU> create(ref<Device> pDevice, const Properties& props)
+    {
+        return make_ref<VoxelizationPass_GPU>(pDevice, props);
+    }
 
     VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props);
 
@@ -17,10 +20,10 @@ public:
 
     virtual void voxelize(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void sample(RenderContext* pRenderContext, const RenderData& renderData) override;
+
 private:
     uint maxSolidVoxelCount;
     ref<ComputePass> mClipPass;
-    ref<ComputePass> mAnalyzePass;
 
     ref<SampleGenerator> mpSampleGenerator;
     ref<Sampler> mpSampler;
