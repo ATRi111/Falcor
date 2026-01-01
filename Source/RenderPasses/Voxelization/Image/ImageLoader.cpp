@@ -61,7 +61,7 @@ ImageLoader::~ImageLoader()
     }
 }
 
-Image* ImageLoader::loadImage(uint materialId, TextureType type)
+CPUTexture* ImageLoader::loadImage(uint materialId, TextureType type)
 {
     if (!pIdToPath)
         return nullptr;
@@ -70,19 +70,15 @@ Image* ImageLoader::loadImage(uint materialId, TextureType type)
     if (it != imageCache.end())
         return it->second;
 
-    FilterFunction filterFunction;
     switch (type)
     {
     case BaseColor:
-        filterFunction = FilterFunction::Average;
         stbi_ldr_to_hdr_gamma(2.2f);
         break;
     case Normal:
-        filterFunction = FilterFunction::Normalize;
         stbi_ldr_to_hdr_gamma(1.0f);
         break;
     case Specular:
-        filterFunction = FilterFunction::Average;
         stbi_ldr_to_hdr_gamma(1.0f);
         break;
     }
@@ -95,7 +91,7 @@ Image* ImageLoader::loadImage(uint materialId, TextureType type)
         return nullptr;
     }
 
-    Image* image = new Image(reinterpret_cast<float4*>(pixels), uint2(w, h), filterFunction);
+    CPUTexture* image = new CPUTexture(reinterpret_cast<float4*>(pixels), uint2(w, h), type);
     image->name = filePath;
     imageCache[filePath] = image;
 

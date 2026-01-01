@@ -19,7 +19,7 @@ target_sources(Voxelization PRIVATE
     Math/Random.h
     Math/Random.slang
 
-    Image/Image.h
+    Image/CPUTexture.h
     Image/ImageLoader.cpp
     Image/ImageLoader.h
 

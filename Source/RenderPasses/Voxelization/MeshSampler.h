@@ -14,9 +14,9 @@ class MeshSampler
 private:
     GridData& gridData;
     ImageLoader& loader;
-    Image* currentBaseColor;
-    Image* currentSpecular;
-    Image* currentNormal;
+    CPUTexture* currentBaseColor;
+    CPUTexture* currentSpecular;
+    CPUTexture* currentNormal;
 
 public:
     std::vector<VoxelData> gBuffer;
@@ -71,17 +71,16 @@ public:
 
         polygonArrays[offset].push_back(polygon);
 
-        std::vector<float2> uvs;
+        std::array<float2, MAX_VERTEX_COUNT> uvs;
         for (uint i = 0; i < polygon.count; i++)
         {
-            float2 uv = tri.lerpUV(polygon.vertices[i]);
-            uvs.push_back(uv);
+            uvs[i] = tri.lerpUV(polygon.vertices[i]);
         }
-        float3 baseColor = currentBaseColor ? currentBaseColor->SampleArea(uvs).xyz() : float3(0.5f);
-        float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs) : float4(0, 0.5f, 0, 0);
+        float3 baseColor = currentBaseColor ? currentBaseColor->SampleArea(uvs.data(), polygon.count).xyz() : float3(0.5f);
+        float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs.data(), polygon.count) : float4(0, 0.5f, 0, 0);
 
         float3 normal;
-        if(lerpNormal)
+        if (lerpNormal)
         {
             float dummy;
             float3 centroid = polygon.calcCentroid(dummy);
@@ -89,13 +88,13 @@ public:
         }
         else
         {
-            normal = currentNormal ? currentNormal->SampleArea(uvs).xyz() : float3(0.5f, 0.5f, 1.f);
+            normal = currentNormal ? currentNormal->SampleArea(uvs.data(), polygon.count).xyz() : float3(0.5f, 0.5f, 1.f);
             normal = calcShadingNormal(tri.TBN, normal);
         }
         if (normal.y < 0)
             normal = -normal;
         float area = polygon.calcArea();
-        ABSDFInput input = {baseColor, spec, normal, area };
+        ABSDFInput input = {baseColor, spec, normal, area};
         gBuffer[offset].ABSDF.accumulate(input);
 
         Tools::Profiler::EndSample("Sample Texture");

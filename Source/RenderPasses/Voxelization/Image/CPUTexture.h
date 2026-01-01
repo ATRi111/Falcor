@@ -15,37 +15,26 @@ enum FilterMode
     Bilinear,
 };
 
-enum FilterFunction
+enum TextureType
 {
-    Average,
-    Normalize,
+    BaseColor,
+    Specular,
+    Normal, // 法线纹理直接存法线而非颜色,w分量必须保持为0
 };
 
 struct MipLevel
 {
-    static float4 NormalizeColor(const float4& c)
-    {
-        float3 normal = c.xyz() * 2.f - 1.f;
-        normal = math::normalize(normal);
-        return float4(normal * 0.5f + 0.5f, 1.0f);
-    }
-
     std::vector<float4> pixels;
     uint2 size;
-    FilterFunction filterFunction;
+    TextureType type;
 
-    MipLevel(uint2 size, FilterFunction filterFunction) : pixels(size.x * size.y), size(size), filterFunction(filterFunction) {}
+    MipLevel(uint2 size, TextureType type) : pixels(size.x * size.y), size(size), type(type) {}
 
-    float4 Filter(const std::vector<float4>& v) const
+    float4 Filter(const float4& c0, const float4& c1, const float4& c2, const float4& c3) const
     {
-        float4 result = float4(0);
-        for (const float4& c : v)
-        {
-            result += c;
-        }
-        result /= (float)v.size();
-        if (filterFunction == Normalize)
-            result = MipLevel::NormalizeColor(result);
+        float4 result = (c0 + c1 + c2 + c3) * 0.25f;
+        if (type == Normal)
+            result = normalize(result);
         return result;
     }
 
@@ -55,15 +44,15 @@ struct MipLevel
         {
             for (uint x = 0; x < size.x; x++)
             {
-                uint2 uv0 = uint2(x * 2, y * 2);
-                uint2 uv1 = uint2(x * 2 + 1, y * 2);
-                uint2 uv2 = uint2(x * 2, y * 2 + 1);
-                uint2 uv3 = uint2(x * 2 + 1, y * 2 + 1);
-                float4 c0 = higherLevel[uv0.x + uv0.y * size.x * 2];
-                float4 c1 = higherLevel[uv1.x + uv1.y * size.x * 2];
-                float4 c2 = higherLevel[uv2.x + uv2.y * size.x * 2];
-                float4 c3 = higherLevel[uv3.x + uv3.y * size.x * 2];
-                pixels[x + y * size.x] = Filter({c0, c1, c2, c3});
+                uint2 xy0 = uint2(x * 2, y * 2);
+                uint2 xy1 = uint2(x * 2 + 1, y * 2);
+                uint2 xy2 = uint2(x * 2, y * 2 + 1);
+                uint2 xy3 = uint2(x * 2 + 1, y * 2 + 1);
+                float4 c0 = higherLevel[xy0.x + xy0.y * size.x * 2];
+                float4 c1 = higherLevel[xy1.x + xy1.y * size.x * 2];
+                float4 c2 = higherLevel[xy2.x + xy2.y * size.x * 2];
+                float4 c3 = higherLevel[xy3.x + xy3.y * size.x * 2];
+                pixels[x + y * size.x] = Filter(c0, c1, c2, c3);
             }
         }
     }
@@ -71,19 +60,19 @@ struct MipLevel
     size_t bytes() const { return sizeof(float4) * (size_t)size.x * size.y; }
 };
 
-class Image
+class CPUTexture
 {
 public:
-    static float PolygonArea(std::vector<float2>& points)
+    static float4 ColorToNormal(const float4& c) { return float4(c.xyz() * 2.f - 1.f, 0.f); }
+    static float PolygonArea(float2* points, uint count)
     {
-        const size_t n = points.size();
-        if (n < 3)
+        if (count < 3)
             return 0.0f;
         float area = 0;
-        for (size_t i = 0; i < n; ++i)
+        for (size_t i = 0; i < count; ++i)
         {
             float2 a = points[i];
-            float2 b = points[(i + 1) % n];
+            float2 b = points[(i + 1) % count];
             area += a.x * b.y - a.y * b.x;
         }
         area = 0.5f * abs(area);
@@ -94,22 +83,30 @@ public:
     std::vector<MipLevel> mipLevels;
     AddressingMode addressingMode;
     FilterMode filterMode;
-    FilterFunction filterFunction;
+    TextureType type;
     float4 borderColor;
 
     uint2 size() const { return mipLevels[0].size; }
 
-    Image(float4* data, uint2 size, FilterFunction filterFunction) : filterFunction(filterFunction), borderColor(float4(0))
+    CPUTexture(float4* data, uint2 size, TextureType type) : type(type), borderColor(float4(0))
     {
         uint2 mipSize = size;
         while (mipSize.x > 0 && mipSize.y > 0)
         {
-            mipLevels.emplace_back(mipSize, filterFunction);
+            mipLevels.emplace_back(mipSize, type);
             // 不考虑纹理大小不是2的整数次幂的情况
             mipSize.x >>= 1;
             mipSize.y >>= 1;
         }
+
         memcpy(mipLevels[0].pixels.data(), data, mipLevels[0].bytes());
+        if (type == Normal)
+        {
+            for (size_t i = 0; i < mipLevels[0].pixels.size(); i++)
+            {
+                mipLevels[0].pixels[i] = ColorToNormal(mipLevels[0].pixels[i]);
+            }
+        }
         for (uint i = 1; i < mipLevels.size(); i++)
         {
             mipLevels[i].GenerateMipLevel(mipLevels[i - 1].pixels);
@@ -166,8 +163,8 @@ public:
         float4 c10 = SamplePoint(uv + float2(0, dv), mipLevel);
         float4 c11 = SamplePoint(uv + float2(du, dv), mipLevel);
         float4 result = c00 * w00 + c01 * w01 + c10 * w10 + c11 * w11;
-        if (filterFunction == Normalize)
-            result = MipLevel::NormalizeColor(result);
+        if (type == Normal)
+            result = normalize(result);
         return result;
     }
 
@@ -181,8 +178,8 @@ public:
         float4 c0 = Sample(uv, mip0);
         float4 c1 = Sample(uv, mip1);
         float4 result = c0 * w0 + c1 * w1;
-        if (filterFunction == Normalize)
-            result = MipLevel::NormalizeColor(result);
+        if (type == Normal)
+            result = normalize(result);
         return result;
     }
 
@@ -198,9 +195,9 @@ public:
         return borderColor;
     }
 
-    float4 SampleArea(std::vector<float2>& uvs) const
+    float4 SampleArea(float2* uvs, uint count) const
     {
-        switch (uvs.size())
+        switch (count)
         {
         case 0:
             return borderColor;
@@ -210,12 +207,12 @@ public:
             return Sample(0.5f * (uvs[0] + uvs[1]));
         default:
             float2 center = float2(0);
-            for (uint i = 0; i < uvs.size(); i++)
+            for (uint i = 0; i < count; i++)
             {
                 center += uvs[i];
             }
-            center /= (float)uvs.size();
-            float area = PolygonArea(uvs);
+            center /= (float)count;
+            float area = PolygonArea(uvs, count);
             area *= mipLevels[0].size.x * mipLevels[0].size.y;
             float lod = 0.5f * math::log2(area);
             return SampleTrilinear(center, lod);
