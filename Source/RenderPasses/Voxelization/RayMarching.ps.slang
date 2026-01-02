@@ -14,7 +14,8 @@ import Rendering.Lights.EnvMapSampler;
 
 ParameterBlock<EnvMapSampler> envMapSampler;
 Texture3D<int> vBuffer;
-StructuredBuffer<VoxelData> gBuffer;
+StructuredBuffer<PrimitiveBSDF> gBuffer;
+StructuredBuffer<Ellipsoid> pBuffer;
 Texture2D<uint4> blockMap;
 RWStructuredBuffer<float4> selectedVoxel;
 
@@ -59,7 +60,7 @@ bool isSolidVoxel(int3 cellInt, out int offset)
     offset = vBuffer[cellInt];
     if (offset < 0)
         return false;
-    return gBuffer[offset].IsSolid();
+    return gBuffer[offset].solid;
 }
 
 bool isSolidBlock(int3 blockInt)
@@ -226,101 +227,56 @@ float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal, fl
 
 float3 debugShading(HitResult hit, uint offset, float3 v)
 {
-    VoxelData voxelData = gBuffer[offset];
-    ABSDF ABSDF = voxelData.ABSDF;
-    NDF NDF = ABSDF.NDF;
-    Ellipsoid e = voxelData.ellipsoid;
-    SphericalFunc polygonsProjAreaFunc = voxelData.polygonsProjAreaFunc;
-    SphericalFunc primitiveProjAreaFunc = voxelData.primitiveProjAreaFunc;
+    PrimitiveBSDF bsdf = gBuffer[offset];
+    Ellipsoid e = pBuffer[offset];
     float result = 0;
     switch (drawMode)
     {
     case ABSDFDrawMode::Normal:
-        return NDF.getMainNormal(v) * 0.5 + 0.5;
+        return bsdf.surface.getMainNormal(v) * 0.5 + 0.5;
     case ABSDFDrawMode::EllipsoidProjArea:
         result = e.projectArea(v) / PI * 2;
-        break;
-    case ABSDFDrawMode::Roughness:
-        result = ABSDF.NDF.getAverageRoughness();
-        break;
-    case ABSDFDrawMode::TotalArea:
-        result = ABSDF.area;
         break;
     case ABSDFDrawMode::EllipsoidCenter:
         return e.center;
     case ABSDFDrawMode::PolygonsProjArea:
-        result = polygonsProjAreaFunc.calc(v);
+        result = bsdf.polygonsProjAreaFunc.calc(v);
         break;
     case ABSDFDrawMode::TotalProjArea:
-        result = voxelData.totalProjAreaFunc.calc(v);
+        result = bsdf.totalProjAreaFunc.calc(v);
         break;
     case ABSDFDrawMode::PrimitiveProjArea:
-        result = primitiveProjAreaFunc.calc(v);
+        result = bsdf.primitiveProjAreaFunc.calc(v);
         break;
     case ABSDFDrawMode::Coverage:
-        result = polygonsProjAreaFunc.calc(v) / primitiveProjAreaFunc.calc(v);
+        result = bsdf.polygonsProjAreaFunc.calc(v) / bsdf.primitiveProjAreaFunc.calc(v);
         break;
     case ABSDFDrawMode::InternalVisibility:
-        return voxelData.calcInternalVisibility(v);
+        return bsdf.calcInternalVisibility(v);
     default:
         break;
     }
     return valueToColor(result);
 }
 
-float3 shading(uint offset, float3 v, float3 l, float3 lightColor, bool isTransmittance)
+float3 shading(uint offset, float3 l, float3 v, float3 h, float3 lightColor)
 {
-    if (isTransmittance)
-        return lightColor;
-
-    VoxelData voxelData = gBuffer[offset];
-    ABSDF ABSDF = voxelData.ABSDF;
-    float3 specular = ABSDF.specular;
-    float3 diffuse = ABSDF.diffuse;
-    NDF NDF = ABSDF.NDF;
-
-#if CHECK_VISIBILITY
-    float visibility = voxelData.calcInternalVisibility(l);
-#else
-    float visibility = 1.f;
-#endif
-    if (visibility == 0)
-        return 0;
-
-    float3 h = normalize(l + v);
-    float3 diffuseColor = lightColor * weightedDiffuseCos(NDF, l, v, h, diffuse);
-    float3 specularColor = lightColor * weightedCookTorrenceCos(NDF, l, v, h, specular);
-    float3 result = 0;
-    switch (drawMode)
-    {
-    case ABSDFDrawMode::Default:
-        result = diffuseColor + specularColor;
-        break;
-    case ABSDFDrawMode::Diffuse:
-        result = diffuseColor;
-        break;
-    case ABSDFDrawMode::Specular:
-        result = specularColor;
-        break;
-    default:
-        break;
-    }
-    return visibility * result;
+    PrimitiveBSDF BSDF = gBuffer[offset];
+    return lightColor * BSDF.eval(l, v, h);
 }
 
-float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGenerator sg)
+float3 shadingDirect(HitResult hit, uint offset, float3 v, inout ISampleGenerator sg)
 {
-    VoxelData data = gBuffer[offset];
-    float3 mainNormal = data.ABSDF.NDF.getMainNormal(v);
+    PrimitiveBSDF BSDF = gBuffer[offset];
+    float3 mainNormal = BSDF.surface.getMainNormal(v);
     float3 posW = gridMin + hit.cell * voxelSize;
     uint lightCount = min(gScene.lightCount, MAX_LIGHT_COUNT - 1);
     float totalIlluminance = 0;
 
-    float3 l;
+    float3 l, h;
     float3 lightColor = 0;
     float maxDistance = 0;
     float pdf = 0;
-    bool isTransmittance = false;
 
     float3[MAX_LIGHT_COUNT] lightColors;
     float[MAX_LIGHT_COUNT] illuminances;
@@ -359,7 +315,10 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             lightColors[i] = light.intensity;
             break;
         }
-        illuminances[i] = (lightColors[i].x + lightColors[i].y + lightColors[i].z);
+        if (dot(mainNormal, ls[i]) < 0)
+            illuminances[i] = 0;
+        else
+            illuminances[i] = (lightColors[i].x + lightColors[i].y + lightColors[i].z);
         totalIlluminance += illuminances[i];
     }
 #if !NO_ENV_MAP
@@ -373,10 +332,10 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
         return 0;
 
     // 在若干个光源和环境光间选择一个
-    float r = (float)Next(sg) * totalIlluminance;
+    float r = Next(sg) * totalIlluminance;
     for (uint i = 0; i < lightCount; i++)
     {
-        if(illuminances[i] > 0)
+        if (illuminances[i] > 0)
         {
             r -= illuminances[i];
             if (r <= 0 || i == lightCount - 1)
@@ -404,15 +363,14 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             pdf *= envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l);
             break;
         case SampleStrategy::BSDF:
-            l = samplePrimitive(data, v, sg, isTransmittance);
-            if (!isTransmittance)
-                pdf *= calcPrimitivePdf(data, v, l);
-            break; 
+            BSDF.sample(v, l, h, sg);
+            pdf *= BSDF.evalPdf(l, v, h);
+            break;
         case SampleStrategy::Mix:
-            float bsdfWeight = calcPrimitiveWeight(data);
-            if ((float)Next(sg) <= bsdfWeight)
+            float bsdfWeight = BSDF.surface.calcBRDFWeight();
+            if (Next(sg) <= bsdfWeight)
             {
-                l = samplePrimitive(data, v, sg, isTransmittance);
+                BSDF.sample(v, l, h, sg);
             }
             else
             {
@@ -422,9 +380,9 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
                 if (dot(mainNormal, l) < 0)
                     l = -l;
             }
-            
-            if (!isTransmittance)
-                pdf *= bsdfWeight * calcPrimitivePdf(data, v, l) + (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
+
+            if (all(h == 0))
+                pdf *= bsdfWeight * BSDF.evalPdf(l, v, h) + (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
             else
                 pdf *= bsdfWeight; // delta lobe的pdf本质上是无穷大，不能和其他pdf加权平均
             break;
@@ -436,27 +394,28 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
     float visibility = calcLightVisibility(hit, l, mainNormal, -1);
 
     if (visibility > 0)
-        return visibility * shading(offset, v, l, lightColor, isTransmittance) / pdf;
+        return visibility * shading(offset, l, v, h, lightColor) / pdf;
     return 0;
 }
 
-float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGenerator sg)
+float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout ISampleGenerator sg)
 {
     // 非递归版本，先计算所有命中点，再倒回来统计
     HitResult[MAX_BOUNCE + 1] hits;
-    float3[MAX_BOUNCE + 1] sampleDirections; // 第i个采样方向即第i个体素指向第i+1个体素的方向
-    float[MAX_BOUNCE + 1] pdfs;              // 第i个pdf即第i+1个体素对第i个体素的贡献权重
-    bool[MAX_BOUNCE + 1] isTransmittances;  
+    float3[MAX_BOUNCE + 1] ls; // 第i个采样方向即第i个体素指向第i+1个体素的方向
+    float3[MAX_BOUNCE + 1] hs;
+    float[MAX_BOUNCE + 1] pdfs; // 第i个pdf即第i+1个体素对第i个体素的贡献权重
     uint hitCount = bounce + 1;
     hits[0] = hit;
     for (int i = 0; i < bounce; i++)
     {
         uint offset = vBuffer[hits[i].cellInt];
-        float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
-        sampleDirections[i] = samplePrimitive(gBuffer[offset], currentV, sg, isTransmittances[i]);
+        PrimitiveBSDF BSDF = gBuffer[offset];
+        float3 currentV = i == 0 ? v : -ls[i - 1];
+        BSDF.sample(currentV, ls[i], hs[i], sg);
 
-        hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
-        pdfs[i] = isTransmittances[i] ? 1 : calcPrimitivePdf(gBuffer[offset], currentV, sampleDirections[i]);
+        hits[i + 1] = rayMarching(hits[i].cell, ls[i], -1, true);
+        pdfs[i] = BSDF.evalPdf(ls[i], currentV, hs[i]);
         if (!hits[i + 1].hit || pdfs[i] < minPdf)
         {
             hitCount = i + 1;
@@ -471,7 +430,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         reflectLights[i] = 0;
         HitResult currentHit = hits[i];
         uint currentOffset = vBuffer[currentHit.cellInt];
-        float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
+        float3 currentV = i == 0 ? v : -ls[i - 1];
 
         reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg);
         if (i < hitCount - 1 && pdfs[i] > 0)
@@ -479,7 +438,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
             HitResult nextHit = hits[i + 1];
             uint nextOffset = vBuffer[nextHit.cellInt];
             float3 incidentLight = reflectLights[i + 1];
-            reflectLights[i] += shading(currentOffset, currentV, sampleDirections[i], incidentLight, isTransmittances[i]) / pdfs[i];
+            reflectLights[i] += shading(currentOffset, currentV, ls[i], hs[i], incidentLight) / pdfs[i];
         }
     }
     return reflectLights[0];
@@ -495,7 +454,7 @@ float3 screenCoordToCell(float2 screenCoord, float NDCDepth)
 }
 float2 randomJitter()
 {
-    UniformSampleGenerator sg = UniformSampleGenerator(0, frameIndex);
+    ISampleGenerator sg = UniformSampleGenerator(0, frameIndex);
     float2 jitter = Next2(sg) - 0.5f;
     jitter /= pixelCount;
     return jitter;
@@ -528,7 +487,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     if (inOut.x < 0)
         return psOut;
 
-    UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
+    ISampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
     from = from + inOut.x * delta;
     HitResult hit = rayMarching(from, direction, -1, true);
     if (all(pixel == selectedPixel))
@@ -551,8 +510,6 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         switch (drawMode)
         {
         case ABSDFDrawMode::Default:
-        case ABSDFDrawMode::Diffuse:
-        case ABSDFDrawMode::Specular:
             color = shadingGlobal(hit, -direction, maxBounce, sg);
             break;
         default:

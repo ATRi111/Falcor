@@ -25,24 +25,6 @@ struct VoxelData
         totalProjAreaFunc.init();
     }
 
-    float calcCoverage(float3 direction)
-    {
-        float primitiveProjArea = primitiveProjAreaFunc.calc(direction);
-        if (primitiveProjArea <= 0)
-            return 1;
-        float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
-        return saturate(polygonsProjArea / primitiveProjArea);
-    }
-
-    float calcInternalVisibility(float3 direction) // 内部可见度
-    {
-        float totalProjArea = totalProjAreaFunc.calc(direction);
-        if (totalProjArea <= 0)
-            return 1;
-        float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
-        return saturate(polygonsProjArea / totalProjArea);
-    }
-
     bool IsSolid() { return ABSDF.area > 0; }
 };
 

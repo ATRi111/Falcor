@@ -52,48 +52,15 @@ inline float weightedGGX(NDF NDF, float3 h)
 
             float NdotH = dot(n, h);
             if (NdotH < 0)
+            {
                 n = -n;
+                NdotH = -NdotH;
+            }
             float rough = NDF.roughness[i];
             sum += ggx(NdotH, rough * rough) * w;
         }
     }
     return sum;
-}
-
-inline float calcPrimitiveWeight(VoxelData data)
-{
-    float rough = data.ABSDF.NDF.getAverageRoughness();
-    float glossy = (1 - rough) * calcSpecularWeight(data.ABSDF.specular);
-    return lerp(0.8, 0.2, glossy);
-}
-
-inline float calcPrimitivePdf(VoxelData data, float3 v, float3 l,bool isTransmittance)
-{
-    if (isTransmittance)
-        return 1 - coverage; 
-    float specularWeight = calcSpecularWeight(data.ABSDF.specular);
-    return  // 这里不乘coverage，计算反射光颜色时也不乘coverage(本来就相互抵消)，避免pdf过小
-}
-inline float3 samplePrimitive(VoxelData data, float3 v, inout UniformSampleGenerator sg, out bool isTransmittance, out float pdf)
-{
-    float coverage = data.calcCoverage(v);
-#if !CHECK_COVERAGE
-    coverage = 1;
-#endif
-    if (coverage == 1 || (float)Next(sg) <= coverage) //coverage的时间里只采样BSDF Lobe
-    {
-        uint lobeIndex;
-        ABSDF ABSDF = data.ABSDF;
-        NDF NDF = ABSDF.NDF;
-        float uLobe = (float)Next(sg);
-        float specularWeight = calcSpecularWeight(ABSDF.specular);
-        float3 l = sampleSurface(NDF, v, specularWeight, Next2(sg), (float)Next(sg), uLobe);
-        isTransmittance = false;
-        pdf = coverage * calcSurfacePdf(data.ABSDF.NDF, l, v, specularWeight);
-        return l;
-    }
-    isTransmittance = true;
-    return -v;  //1-coverage的时间里只采样Delta Lobe
 }
 
 inline void buildTBN(out float3 t, out float3 b, float3 n)
@@ -119,7 +86,7 @@ float calcSpecularWeight(float3 specular)
 
 struct FrostbiteCosBRDF
 {
-    float3 diffuse; //Lambert反射率
+    float3 diffuse; // Lambert反射率
     float rough;
 
     [mutating]
@@ -197,7 +164,7 @@ struct CookTorrenceCosBRDF
     }
 };
 
-//从此结构体开始接收和返回世界空间方向
+// 从此结构体开始接收和返回世界空间方向
 struct LobeBRDF
 {
     FrostbiteCosBRDF frostBite;
@@ -215,7 +182,13 @@ struct LobeBRDF
         cookTorrence.init(specular, rough);
         specularWeight = calcSpecularWeight(specular);
     }
-    
+
+    float calcBRDFWeight()
+    {
+        float glossy = (1 - frostBite.rough) * calcSpecularWeight(cookTorrence.specular);
+        return lerp(0.8, 0.2, glossy);
+    }
+
     float3 eval(float3 l, float3 v, float3 h)
     {
         l = worldToLocal(l, t, b, n);
@@ -249,7 +222,6 @@ struct SurfaceBRDF
 {
     LobeBRDF[LOBE_COUNT] lobes;
     float[LOBE_COUNT] weights;
-
     [mutating]
     void init(ABSDF ABSDF)
     {
@@ -274,15 +246,24 @@ struct SurfaceBRDF
         return LOBE_COUNT - 1;
     }
 
+    float calcBRDFWeight()
+    {
+        float sum = 0;
+        for (uint i = 0; i < LOBE_COUNT; i++)
+        {
+            if (weights[i] > 0)
+                sum += weights[i] * lobes[i].calcBRDFWeight();
+        }
+        return sum;
+    }
+
     float3 eval(float3 l, float3 v, float3 h)
     {
         float3 sum = 0;
         for (uint i = 0; i < LOBE_COUNT; i++)
         {
-            if(weights[i] > 0)
-            {
+            if (weights[i] > 0)
                 sum += weights[i] * lobes[i].eval(l, v, h);
-            }
         }
         return sum;
     }
@@ -300,37 +281,123 @@ struct SurfaceBRDF
         for (uint i = 0; i < LOBE_COUNT; i++)
         {
             if (weights[i] > 0)
-            {
                 pdf += weights[i] * lobes[i].evalPdf(l, v, h);
-            }
         }
         return pdf;
     }
+
+    // 返回与所给方向夹角不超过90°且权重最大的法线
+    float3 getMainNormal(float3 direction)
+    {
+        float3 n = 0;
+        float maxWeight = 0;
+        for (int i = 0; i < LOBE_COUNT; i++)
+        {
+            if (weights[i] > maxWeight)
+            {
+                n = lobes[i].n;
+                float cosTerm = dot(n, direction);
+                if (cosTerm < 0)
+                    n = -n;
+                maxWeight = weights[i];
+            }
+        }
+        return n;
+    }
 };
 
-inline float calcSurfacePdf(NDF NDF, float3 l, float3 v, float specularWeight)
+struct DeltaBTDF
 {
-    float3 h = normalizeSafe(l + v);
-    if (length(h) == 0)
-        return 0;
-    float pdf = 0;
-    float VdotH = dot(v, h);
-    for (uint i = 0; i < LOBE_COUNT; i++)
+    float3 eval(float3 l, float3 v, float3 h) { return 1; }
+
+    void sample(float3 v, out float3 l, out float3 h, inout ISampleGenerator sg)
     {
-        float w = NDF.weightedNormals[i].w;
-        if (w > 0)
+        l = -v;
+        h = 0;
+    }
+
+    float evalPdf(float3 l, float3 v, float3 h)
+    {
+        return 1; // 实质上是无穷大
+    }
+}
+
+// 单看BSDF，并不体现对称性；要将BSDF和图元形状合起来看才能体现对称性
+struct PrimitiveBSDF
+{
+    SurfaceBRDF surface;
+    DeltaBTDF delta;
+    SphericalFunc primitiveProjAreaFunc;
+    SphericalFunc polygonsProjAreaFunc; // 所有多边形的可见投影面积
+    SphericalFunc totalProjAreaFunc;    // 所有多边形的总投影面积
+    bool solid;
+
+    [mutating]
+    void init(VoxelData data)
+    {
+        solid = data.IsSolid();
+        if (solid)
         {
-            float3 n = NDF.weightedNormals[i].xyz;
-            if (dot(n, v) < 0)
-                n = -n;
-            float NdotL = dot(n, l);
-            if (NdotL <= 0)
-                continue;
-            float NdotH = dot(n, h);
-            float rough = NDF.roughness[i];
-            pdf += w * calcLobePdf(NdotL, NdotH, VdotH, rough * rough, specularWeight); // 单样本多重重要性采样
+            primitiveProjAreaFunc = data.primitiveProjAreaFunc;
+            polygonsProjAreaFunc = data.polygonsProjAreaFunc;
+            totalProjAreaFunc = data.totalProjAreaFunc;
+            surface.init(data.ABSDF);
         }
     }
-    return pdf;
-}
+
+    float calcCoverage(float3 direction)
+    {
+        float primitiveProjArea = primitiveProjAreaFunc.calc(direction);
+        if (primitiveProjArea <= 0)
+            return 1;
+        float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
+        return saturate(polygonsProjArea / primitiveProjArea);
+    }
+
+    // 自遮挡导致入射光减少
+    float calcInternalVisibility(float3 direction)
+    {
+#if !CHECK_VISIBILITY
+        return 1.f;
+#endif
+        float totalProjArea = totalProjAreaFunc.calc(direction);
+        if (totalProjArea <= 0)
+            return 1;
+        float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
+        return saturate(polygonsProjArea / totalProjArea);
+    }
+
+    void sample(float3 v, out float3 l, out float3 h, inout ISampleGenerator sg)
+    {
+        float coverage = calcCoverage(v);
+        float uTransmmitance = Next(sg);
+
+        if (uTransmmitance <= coverage)
+            surface.sample(v, l, h, sg);
+        else
+            delta.sample(v, l, h, sg);
+    }
+
+    float3 eval(float3 l, float3 v, float3 h)
+    {
+        float coverage = calcCoverage(v);
+#if !CHECK_COVERAGE
+        coverage = 1;
+#endif
+        if (all(h == 0))
+            return (1 - coverage) * delta.eval(l, v, h);
+        return coverage * surface.eval(l, v, h) * calcInternalVisibility(l);
+    }
+
+    float evalPdf(float3 l, float3 v, float3 h)
+    {
+        float coverage = calcCoverage(v);
+#if !CHECK_COVERAGE
+        coverage = 1;
+#endif
+        if (all(h == 0))
+            return (1 - coverage) * delta.evalPdf(l, v, h);
+        return coverage * surface.evalPdf(l, v, h);
+    }
+};
 

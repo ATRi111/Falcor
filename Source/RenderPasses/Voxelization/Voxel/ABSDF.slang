@@ -51,81 +51,6 @@ struct NDF
             }
         }
     }
-
-#if !defined(HOST_CODE)
-    float3 getAverageNormal(float3 direction)
-    {
-        float3 sum = 0;
-        for (int i = 0; i < LOBE_COUNT; i++)
-        {
-            float w = weightedNormals[i].w;
-            if (w > 0)
-            {
-                float3 n = weightedNormals[i].xyz;
-                float cosTerm = dot(n, direction);
-                sum += sign(cosTerm) * n * w; // 夹角大于90°的法线，系数小于0，负负得正
-            }
-        }
-        return normalize(sum);
-    }
-
-    // 返回与所给方向夹角不超过90°且权重最大的法线
-    float3 getMainNormal(float3 direction)
-    {
-        float3 n = 0;
-        float maxWeight = 0;
-        for (int i = 0; i < LOBE_COUNT; i++)
-        {
-            float w = weightedNormals[i].w;
-            if (w > maxWeight)
-            {
-                n = weightedNormals[i].xyz;
-                float cosTerm = dot(n, direction);
-                if (cosTerm < 0)
-                    n = -n;
-                maxWeight = w;
-            }
-        }
-        return n;
-    }
-
-    float getAverageRoughness()
-    {
-        float sumRoughness = 0;
-        float sumWeight = 0;
-        for (int i = 0; i < LOBE_COUNT; i++)
-        {
-            float w = weightedNormals[i].w;
-            if (w > 0)
-            {
-                sumRoughness += roughness[i] * w;
-                sumWeight += w;
-            }
-        }
-        if (sumWeight > 0)
-            return sumRoughness / sumWeight;
-        return 0;
-    }
-
-    float weightedDot(float3 l, float3 v) // v不影响漫反射强度,但影响受光面的判断
-    {
-        float sum = 0;
-        for (int i = 0; i < LOBE_COUNT; i++)
-        {
-            float w = weightedNormals[i].w;
-            if (w > 0)
-            {
-                float3 n = weightedNormals[i].xyz;
-                float cosTerm = dot(n, v);
-                if (cosTerm < 0)
-                    n = -n;
-                cosTerm = dot(n, l);
-                sum += max(cosTerm, 0) * w;
-            }
-        }
-        return sum;
-    }
-#endif
 };
 
 struct ABSDFInput
@@ -184,16 +109,12 @@ struct ABSDF
 enum class ABSDFDrawMode : uint32_t
 {
     Default,
-    Diffuse,
-    Specular,
-    Roughness,
     Normal,
     EllipsoidCenter,
     EllipsoidProjArea,
     PrimitiveProjArea,
     PolygonsProjArea,
     TotalProjArea,
-    TotalArea,
     Coverage,
     InternalVisibility,
 };
@@ -201,16 +122,12 @@ FALCOR_ENUM_INFO(
     ABSDFDrawMode,
     {
         { ABSDFDrawMode::Default, "Default" },
-        { ABSDFDrawMode::Diffuse, "Diffuse" },
-        { ABSDFDrawMode::Specular, "Specular" },
-        { ABSDFDrawMode::Roughness, "Roughness" },
         { ABSDFDrawMode::Normal, "Normal" },
         { ABSDFDrawMode::EllipsoidCenter, "EllipsoidCenter" },
         { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
         { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
         { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
         { ABSDFDrawMode::TotalProjArea, "TotalProjArea" },
-        { ABSDFDrawMode::TotalArea, "TotalArea" },
         { ABSDFDrawMode::Coverage, "Coverage" },
         { ABSDFDrawMode::InternalVisibility, "InternalVisibility" },
     }
