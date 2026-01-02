@@ -125,30 +125,6 @@ struct NDF
         }
         return sum;
     }
-
-    uint getRandomLobe(float uLobe)
-    {
-        for (uint i = 0; i < LOBE_COUNT; i++)
-        {
-            if (weightedNormals[i].w <= 0)
-                continue;
-            uLobe -= weightedNormals[i].w;
-            if (uLobe <= 0)
-                return i;
-        }
-        return LOBE_COUNT - 1;
-    }
-
-    uint getMainLobe()
-    {
-        uint maxIndex = 0;
-        for (uint i = 1; i < LOBE_COUNT; i++)
-        {
-            if (weightedNormals[i].w > weightedNormals[maxIndex].w)
-                maxIndex = i;
-        }
-        return maxIndex;
-    }
 #endif
 };
 
