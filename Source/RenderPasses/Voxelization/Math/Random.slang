@@ -1,15 +1,15 @@
 #pragma once
-import Utils.Sampling.UniformSampleGenerator;
+__exported import Utils.Sampling.SampleGeneratorInterface;
 
-inline double Next(inout UniformSampleGenerator sg)
+inline float Next(inout ISampleGenerator sg)
 {
     return sg.next() / 4294967296.0;
 }
-inline float2 Next2(inout UniformSampleGenerator sg)
+inline float2 Next2(inout ISampleGenerator sg)
 {
-    return float2((float)Next(sg), (float)Next(sg));
+    return float2(Next(sg), Next(sg));
 }
-inline float3 Next3(inout UniformSampleGenerator sg)
+inline float3 Next3(inout ISampleGenerator sg)
 {
-    return float3((float)Next(sg), (float)Next(sg), (float)Next(sg));
+    return float3(Next(sg), Next(sg), Next(sg));
 }

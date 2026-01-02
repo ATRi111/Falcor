@@ -31,13 +31,13 @@ float3 calcColor(float2 localCoord, int offset, float3 v)
 {
     NDF NDF = gBuffer[offset].ABSDF.NDF;
     float area = gBuffer[offset].ABSDF.area;
-    // float3 n = NDF.getMainNormal(v);
-    float3x3 rotMatrix = rotateMatrix(v, float3(0, 0, 1));
+    float3 t, b;
+    buildTBN(v, t, b);
 
     float z = sqrt(1 - localCoord.x * localCoord.x - localCoord.y * localCoord.y);
     //中心对称，显示背面没有意义
     float3 direction = float3(localCoord.x, localCoord.y, z);
-    direction = mul(rotMatrix, direction);
+    direction = localToWorld(direction, t, b, v);
     float pdf = weightedGGX(NDF, direction) / area;
     float rough = 0.5f; //参考值
     float refPdf = 1.0 / (Pi * rough * rough);

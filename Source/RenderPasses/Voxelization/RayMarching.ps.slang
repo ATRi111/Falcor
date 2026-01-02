@@ -10,6 +10,7 @@ import Scene.Lights.EnvMap;
 import Rendering.Lights.EnvMapSampler;
 
 #define MAX_BOUNCE 10
+#define MAX_LIGHT_COUNT 10
 
 ParameterBlock<EnvMapSampler> envMapSampler;
 Texture3D<int> vBuffer;
@@ -219,11 +220,7 @@ float calcTrasmissionVisibility(HitResult hit, float3 direction)
 float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal, float maxDistance)
 {
     float3 from = hit.cell + shadowBias * mainNormal;
-#if DEBUG
     hit = rayMarching(from, direction, maxDistance, true);
-#else
-    hit = rayMarching(from, direction, maxDistance, false);
-#endif
     return hit.hit ? 0.f : 1.f;
 }
 
@@ -271,9 +268,9 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
     return valueToColor(result);
 }
 
-float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
+float3 shading(uint offset, float3 v, float3 l, float3 lightColor, bool isTransmittance)
 {
-    if (isTransmition(l, v))
+    if (isTransmittance)
         return lightColor;
 
     VoxelData voxelData = gBuffer[offset];
@@ -311,114 +308,136 @@ float3 shading(uint offset, float3 v, float3 l, float3 lightColor)
     return visibility * result;
 }
 
-float3 shadingDirect(HitResult hit, uint offset, float3 v, float3 mainNormal, LightData light)
-{
-    float3 posW = gridMin + hit.cell * voxelSize;
-    float3 l;
-    float3 lightColor = 0;
-    float maxDistance = -1;
-
-    switch (light.type)
-    {
-    case LightType::Point:
-        l = normalize(light.posW - posW);
-        maxDistance = length((light.posW - posW) / voxelSize);
-        break;
-    case LightType::Directional:
-        l = -light.dirW;
-        break;
-    }
-
-    float visibility = calcLightVisibility(hit, l, mainNormal, maxDistance);
-
-    if (visibility == 0)
-        return 0;
-
-    switch (light.type)
-    {
-    case LightType::Point:
-        float3 toL = light.posW - posW;
-        float sqrDistance = max(dot(toL, toL), 1e-4f);
-
-        float spot = 1.0f;
-        if (light.openingAngle < PI)
-        {
-            float cosTerm = dot(light.dirW, -l);
-            float cosOuter = light.cosOpeningAngle;
-            float innerAng = max(light.openingAngle - light.penumbraAngle, 0.0f);
-            float cosInner = cos(innerAng);
-
-            float t = saturate((cosTerm - cosOuter) / max(cosInner - cosOuter, 1e-6f));
-            spot = t * t * (3.0f - 2.0f * t);
-
-            if (light.penumbraAngle <= 0.0f)
-                spot = (cosTerm >= cosOuter) ? 1.0f : 0.0f;
-        }
-        lightColor = light.intensity * spot / sqrDistance;
-        break;
-    case LightType::Directional:
-        lightColor = light.intensity;
-        break;
-    }
-
-    float3 color = shading(offset, v, l, lightColor);
-    return visibility * color;
-}
-
 float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGenerator sg)
 {
     VoxelData data = gBuffer[offset];
     float3 mainNormal = data.ABSDF.NDF.getMainNormal(v);
-    float3 directColor = 0;
-    for (uint i = 0; i < gScene.lightCount; i++)
-    {
-        directColor += shadingDirect(hit, offset, v, mainNormal, gScene.lights[i]);
-    }
-#if !NO_ENV_MAP
+    float3 posW = gridMin + hit.cell * voxelSize;
+    uint lightCount = min(gScene.lightCount, MAX_LIGHT_COUNT - 1);
+    float totalIlluminance = 0;
+
     float3 l;
     float3 lightColor = 0;
+    float maxDistance = 0;
     float pdf = 0;
-    switch (sampleStrategy)
+    bool isTransmittance = false;
+
+    float3[MAX_LIGHT_COUNT] lightColors;
+    float[MAX_LIGHT_COUNT] illuminances;
+    float3[MAX_LIGHT_COUNT] ls;
+    float[MAX_LIGHT_COUNT] maxDistances;
+
+    for (uint i = 0; i < lightCount; i++)
     {
-    case SampleStrategy::EnviromentMap:
-        EnvMapSample envSample;
-        envMapSampler.sample(Next2(sg), envSample);
-        l = envSample.dir;
-        if (dot(mainNormal, l) < 0)
-            l = -l;
-        pdf = envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l);
-        break;
-    case SampleStrategy::BSDF:
-        l = samplePrimitive(data, v, sg);
-        pdf = calcPrimitivePdf(data, v, l);
-        break;
-    case SampleStrategy::Mix:
-        float bsdfWeight = calcPrimitiveWeight(data);
-        if ((float)Next(sg) <= bsdfWeight)
+        LightData light = gScene.getLight(i);
+        switch (light.type)
         {
-            l = samplePrimitive(data, v, sg);
+        case LightType::Point:
+            float3 toL = light.posW - posW;
+            ls[i] = normalize(toL);
+            maxDistances[i] = length(toL / voxelSize);
+            float sqrDistance = max(dot(toL, toL), 1e-4f);
+
+            float spot = 1.0f;
+            if (light.openingAngle < PI)
+            {
+                float cosTerm = dot(light.dirW, -ls[i]);
+                float cosOuter = light.cosOpeningAngle;
+                float innerAng = max(light.openingAngle - light.penumbraAngle, 0.0f);
+                float cosInner = cos(innerAng);
+
+                float t = saturate((cosTerm - cosOuter) / max(cosInner - cosOuter, 1e-6f));
+                spot = t * t * (3.0f - 2.0f * t);
+
+                if (light.penumbraAngle <= 0.0f)
+                    spot = (cosTerm >= cosOuter) ? 1.0f : 0.0f;
+            }
+            lightColors[i] = light.intensity * spot / sqrDistance;
+            break;
+        case LightType::Directional:
+            ls[i] = -light.dirW;
+            lightColors[i] = light.intensity;
+            break;
         }
-        else
+        illuminances[i] = (lightColors[i].x + lightColors[i].y + lightColors[i].z);
+        totalIlluminance += illuminances[i];
+    }
+#if !NO_ENV_MAP
+    illuminances[lightCount] = 10; // TODO:计算环境贴图光照度
+    maxDistances[lightCount] = -1; // 无穷远处
+    totalIlluminance += illuminances[lightCount];
+    lightCount++;
+#endif
+
+    if (totalIlluminance == 0)
+        return 0;
+
+    // 在若干个光源和环境光间选择一个
+    float r = (float)Next(sg) * totalIlluminance;
+    for (uint i = 0; i < lightCount; i++)
+    {
+        if(illuminances[i] > 0)
         {
+            r -= illuminances[i];
+            if (r <= 0 || i == lightCount - 1)
+            {
+                lightColor = lightColors[i];
+                l = ls[i];
+                maxDistance = maxDistances[i];
+                pdf = illuminances[i] / totalIlluminance;
+                break;
+            }
+        }
+    }
+
+#if !NO_ENV_MAP
+    if (maxDistance < 0)
+    {
+        switch (sampleStrategy)
+        {
+        case SampleStrategy::EnviromentMap:
             EnvMapSample envSample;
             envMapSampler.sample(Next2(sg), envSample);
             l = envSample.dir;
             if (dot(mainNormal, l) < 0)
                 l = -l;
+            pdf *= envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l);
+            break;
+        case SampleStrategy::BSDF:
+            l = samplePrimitive(data, v, sg, isTransmittance);
+            if (!isTransmittance)
+                pdf *= calcPrimitivePdf(data, v, l);
+            break; 
+        case SampleStrategy::Mix:
+            float bsdfWeight = calcPrimitiveWeight(data);
+            if ((float)Next(sg) <= bsdfWeight)
+            {
+                l = samplePrimitive(data, v, sg, isTransmittance);
+            }
+            else
+            {
+                EnvMapSample envSample;
+                envMapSampler.sample(Next2(sg), envSample);
+                l = envSample.dir;
+                if (dot(mainNormal, l) < 0)
+                    l = -l;
+            }
+            
+            if (!isTransmittance)
+                pdf *= bsdfWeight * calcPrimitivePdf(data, v, l) + (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
+            else
+                pdf *= bsdfWeight; // delta lobe的pdf本质上是无穷大，不能和其他pdf加权平均
+            break;
         }
-        pdf = bsdfWeight * calcPrimitivePdf(data, v, l) + (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
-        break;
-    }
-
-    pdf = max(pdf, minPdf);
-    float visibility = calcLightVisibility(hit, l, mainNormal, -1);
-    if (visibility > 0)
-    {
-        float3 lightColor = visibility * envMapSampler.eval(l);
-        directColor += shading(offset, v, l, lightColor) / pdf;
+        lightColor = envMapSampler.eval(l);
     }
 #endif
-    return directColor;
+    pdf = max(pdf, minPdf);
+    float visibility = calcLightVisibility(hit, l, mainNormal, -1);
+
+    if (visibility > 0)
+        return visibility * shading(offset, v, l, lightColor, isTransmittance) / pdf;
+    return 0;
 }
 
 float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGenerator sg)
@@ -427,16 +446,17 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     HitResult[MAX_BOUNCE + 1] hits;
     float3[MAX_BOUNCE + 1] sampleDirections; // 第i个采样方向即第i个体素指向第i+1个体素的方向
     float[MAX_BOUNCE + 1] pdfs;              // 第i个pdf即第i+1个体素对第i个体素的贡献权重
+    bool[MAX_BOUNCE + 1] isTransmittances;  
     uint hitCount = bounce + 1;
     hits[0] = hit;
     for (int i = 0; i < bounce; i++)
     {
         uint offset = vBuffer[hits[i].cellInt];
         float3 currentV = i == 0 ? v : -sampleDirections[i - 1];
-        sampleDirections[i] = samplePrimitive(gBuffer[offset], currentV, sg);
+        sampleDirections[i] = samplePrimitive(gBuffer[offset], currentV, sg, isTransmittances[i]);
 
         hits[i + 1] = rayMarching(hits[i].cell, sampleDirections[i], -1, true);
-        pdfs[i] = calcPrimitivePdf(gBuffer[offset], currentV, sampleDirections[i]);
+        pdfs[i] = isTransmittances[i] ? 1 : calcPrimitivePdf(gBuffer[offset], currentV, sampleDirections[i]);
         if (!hits[i + 1].hit || pdfs[i] < minPdf)
         {
             hitCount = i + 1;
@@ -459,7 +479,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
             HitResult nextHit = hits[i + 1];
             uint nextOffset = vBuffer[nextHit.cellInt];
             float3 incidentLight = reflectLights[i + 1];
-            reflectLights[i] += shading(currentOffset, currentV, sampleDirections[i], incidentLight) / pdfs[i];
+            reflectLights[i] += shading(currentOffset, currentV, sampleDirections[i], incidentLight, isTransmittances[i]) / pdfs[i];
         }
     }
     return reflectLights[0];
