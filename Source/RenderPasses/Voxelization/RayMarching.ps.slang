@@ -10,7 +10,7 @@ import Scene.Lights.EnvMap;
 import Rendering.Lights.EnvMapSampler;
 
 #define MAX_BOUNCE 10
-#define MAX_LIGHT_COUNT 10
+#define MAX_LIGHT_COUNT 4
 
 ParameterBlock<EnvMapSampler> envMapSampler;
 Texture3D<int> vBuffer;
@@ -412,6 +412,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     float3[MAX_BOUNCE + 1] ls; // 第i个采样方向即第i个体素指向第i+1个体素的方向
     float3[MAX_BOUNCE + 1] hs;
     float[MAX_BOUNCE + 1] pdfs; // 第i个pdf即第i+1个体素对第i个体素的贡献权重
+    bounce = min(bounce, MAX_BOUNCE);
     uint hitCount = bounce + 1;
     hits[0] = hit;
     for (int i = 0; i < bounce; i++)

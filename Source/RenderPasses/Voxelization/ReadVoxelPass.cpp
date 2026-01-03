@@ -96,6 +96,8 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     VoxelData* voxelDataBuffer = new VoxelData[gridData.solidVoxelCount];
     tryRead(f, offset, gridData.solidVoxelCount * sizeof(VoxelData), voxelDataBuffer, fileSize);
     mpVoxelDataBuffer->setBlob(voxelDataBuffer, 0, gridData.solidVoxelCount * sizeof(VoxelData));
+    mpDevice->wait();
+
     // VoxelData将拆分成PrimitiveBSDF和Ellipsoid
     ref<Buffer> pGBuffer = renderData.getResource(kGBuffer)->asBuffer();
     ref<Buffer> pPBuffer = renderData.getResource(kPBuffer)->asBuffer();
@@ -107,6 +109,8 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
 
     auto cb = var["CB"];
     cb["voxelCount"] = (uint)gridData.solidVoxelCount;
+    mPreparePass->execute(pRenderContext, uint3((uint)gridData.solidVoxelCount, 1, 1));
+    mpDevice->wait();
     mComplete = true;
 }
 
