@@ -1,9 +1,10 @@
 #include "ReadVoxelPass.h"
+#include "Shading.slang"
 #include "RenderGraph/RenderPassStandardFlags.h"
 
 namespace
 {
-const std::string kVoxelizationProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/Voxelization.cs.slang";
+const std::string kPrepareProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/PrepareShadingData.cs.slang";
 
 }; // namespace
 
@@ -25,17 +26,22 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .texture2D(0, 0, 1, 1);
 
     reflector.addOutput(kVBuffer, kVBuffer)
-        .bindFlags(ResourceBindFlags::ShaderResource)
+        .bindFlags(ResourceBindFlags::None)
         .format(ResourceFormat::R32Uint)
         .texture3D(gridData.voxelCount.x, gridData.voxelCount.y, gridData.voxelCount.z, 1);
 
     reflector.addOutput(kGBuffer, kGBuffer)
-        .bindFlags(ResourceBindFlags::ShaderResource)
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
         .format(ResourceFormat::Unknown)
-        .rawBuffer(gridData.solidVoxelCount * sizeof(VoxelData));
+        .rawBuffer(gridData.solidVoxelCount * sizeof(PrimitiveBSDF));
+
+    reflector.addOutput(kPBuffer, kPBuffer)
+        .bindFlags(ResourceBindFlags::UnorderedAccess)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.solidVoxelCount * sizeof(Ellipsoid));
 
     reflector.addOutput(kBlockMap, kBlockMap)
-        .bindFlags(ResourceBindFlags::ShaderResource)
+        .bindFlags(ResourceBindFlags::None)
         .format(ResourceFormat::RGBA32Uint)
         .texture2D(gridData.blockCount().x, gridData.blockCount().y);
 
@@ -55,6 +61,18 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         mOptionsChanged = false;
     }
 
+    if (!mPreparePass)
+    {
+        ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kPrepareProgramFile).csEntry("main");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        mPreparePass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
     size_t voxelCount = gridData.totalVoxelCount();
 
     std::ifstream f;
@@ -69,16 +87,26 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     tryRead(f, offset, gridData.totalVoxelCount() * sizeof(uint), vBuffer, fileSize);
     pVBuffer->setSubresourceBlob(0, vBuffer, gridData.totalVoxelCount() * sizeof(uint));
 
-    ref<Buffer> pGBuffer = renderData.getResource(kGBuffer)->asBuffer();
-    VoxelData* gBuffer = new VoxelData[gridData.solidVoxelCount];
-    tryRead(f, offset, gridData.solidVoxelCount * sizeof(VoxelData), gBuffer, fileSize);
-    pGBuffer->setBlob(gBuffer, 0, gridData.solidVoxelCount * sizeof(VoxelData));
-
     ref<Texture> pBlockMap = renderData.getTexture(kBlockMap);
     uint4* blockMap = new uint4[gridData.totalBlockCount()];
     tryRead(f, offset, gridData.totalBlockCount() * sizeof(uint4), blockMap, fileSize);
     pBlockMap->setSubresourceBlob(0, blockMap, gridData.totalBlockCount() * sizeof(uint4));
 
+    mpVoxelDataBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
+    VoxelData* voxelDataBuffer = new VoxelData[gridData.solidVoxelCount];
+    tryRead(f, offset, gridData.solidVoxelCount * sizeof(VoxelData), voxelDataBuffer, fileSize);
+    mpVoxelDataBuffer->setBlob(voxelDataBuffer, 0, gridData.solidVoxelCount * sizeof(VoxelData));
+    // VoxelData将拆分成PrimitiveBSDF和Ellipsoid
+    ref<Buffer> pGBuffer = renderData.getResource(kGBuffer)->asBuffer();
+    ref<Buffer> pPBuffer = renderData.getResource(kPBuffer)->asBuffer();
+
+    ShaderVar var = mPreparePass->getRootVar();
+    var["voxelDataBuffer"] = mpVoxelDataBuffer;
+    var[kGBuffer] = pGBuffer;
+    var[kPBuffer] = pPBuffer;
+
+    auto cb = var["CB"];
+    cb["voxelCount"] = (uint)gridData.solidVoxelCount;
     mComplete = true;
 }
 

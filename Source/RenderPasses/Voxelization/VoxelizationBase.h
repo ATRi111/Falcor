@@ -154,7 +154,7 @@ private:
 
 public:
     uint maxPolygonCount = 8000;
-    PolygonBufferGroup(ref<Device> device, GridData& gridData) : mpDevice(device), gridData(gridData) {}
+    PolygonBufferGroup(ref<Device> device, GridData& gridData) : gridData(gridData), mpDevice(device) {}
 
     uint getVoxelOffset(uint index) const
     {

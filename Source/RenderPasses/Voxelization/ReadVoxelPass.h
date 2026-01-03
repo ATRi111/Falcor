@@ -25,8 +25,11 @@ public:
 private:
     bool tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize);
     GridData& gridData;
+
+    ref<ComputePass> mPreparePass;
     ref<Device> mpDevice;
     ref<Scene> mpScene;
+    ref<Buffer> mpVoxelDataBuffer;
     std::vector<std::filesystem::path> filePaths;
 
     uint selectedFile;

@@ -1,5 +1,5 @@
 #pragma once
-__exported import Utils.Sampling.SampleGeneratorInterface;
+import Utils.Sampling.SampleGeneratorInterface;
 
 inline float Next<T : ISampleGenerator>(inout T sg)
 {

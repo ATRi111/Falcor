@@ -20,6 +20,7 @@ def render_graph_Pass():
     g.addEdge("VoxelizationPass.dummy","ReadVoxelPass.dummy")
     g.addEdge("ReadVoxelPass.vBuffer","RayMarchingPass.vBuffer")
     g.addEdge("ReadVoxelPass.gBuffer","RayMarchingPass.gBuffer")
+    g.addEdge("ReadVoxelPass.pBuffer","RayMarchingPass.pBuffer")
     g.addEdge("ReadVoxelPass.blockMap","RayMarchingPass.blockMap")
 
     g.addEdge("RayMarchingPass.color","RenderToViewportPass.input")

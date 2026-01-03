@@ -1,4 +1,5 @@
 #include "RayMarchingPass.h"
+#include "Shading.slang"
 #include "Math/SphericalHarmonics.slang"
 #include "RenderGraph/RenderPassStandardFlags.h"
 
@@ -53,7 +54,12 @@ RenderPassReflection RayMarchingPass::reflect(const CompileData& compileData)
     reflector.addInput(kGBuffer, kGBuffer)
         .bindFlags(ResourceBindFlags::ShaderResource)
         .format(ResourceFormat::Unknown)
-        .rawBuffer(gridData.solidVoxelCount * sizeof(VoxelData));
+        .rawBuffer(gridData.solidVoxelCount * sizeof(PrimitiveBSDF));
+
+    reflector.addInput(kPBuffer, kPBuffer)
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.solidVoxelCount * sizeof(Ellipsoid));
 
     reflector.addInput(kBlockMap, kBlockMap)
         .bindFlags(ResourceBindFlags::ShaderResource)

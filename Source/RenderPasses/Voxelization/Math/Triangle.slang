@@ -4,6 +4,23 @@
 
 BEGIN_NAMESPACE_FALCOR
 
+#if !defined(HOST_CODE)
+inline void buildTBN(out float3 t, out float3 b, float3 n)
+{
+    float3 up = (abs(n.z) < 0.999f) ? float3(0, 0, 1) : float3(1, 0, 0);
+    t = normalize(cross(up, n));
+    b = cross(n, t);
+}
+inline float3 localToWorld(float3 localDir, float3 t, float3 b, float3 n)
+{
+    return localDir.x * t + localDir.y * b + localDir.z * n;
+}
+inline float3 worldToLocal(float3 worldDir, float3 t, float3 b, float3 n)
+{
+    return float3(dot(worldDir, t), dot(worldDir, b), dot(worldDir, n));
+}
+#endif
+
 inline float3 calcShadingNormal(float3x3 TBN, float3 normalMapColor)
 {
     float3 normal = normalMapColor * 2.f - 1.f;

@@ -8,7 +8,7 @@ const std::string kAnalyzePolygonProgramFile = "E:/Project/Falcor/Source/RenderP
 }; // namespace
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
-    : RenderPass(pDevice), polygonGroup(pDevice), gridData(VoxelizationBase::GlobalGridData)
+    : RenderPass(pDevice), polygonGroup(pDevice, VoxelizationBase::GlobalGridData), gridData(VoxelizationBase::GlobalGridData)
 {
     mSceneNameIndex = 4;
     mSceneName = "Chandelier";

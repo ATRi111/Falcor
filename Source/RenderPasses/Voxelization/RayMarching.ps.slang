@@ -60,7 +60,7 @@ bool isSolidVoxel(int3 cellInt, out int offset)
     offset = vBuffer[cellInt];
     if (offset < 0)
         return false;
-    return gBuffer[offset].solid;
+    return gBuffer[offset].area > 0;
 }
 
 bool isSolidBlock(int3 blockInt)
@@ -131,7 +131,7 @@ HitResult rayMarching_DDA(float3 from, float3 direction, float maxDistance, bool
             HitResult hit = { true, cellInt, cellInt + 0.5f };
             return hit;
 #else
-            Ellipsoid ellipsoid = gBuffer[offset].ellipsoid;
+            Ellipsoid ellipsoid = pBuffer[offset];
             HitResult hit = checkPrimitive(ellipsoid, cell, direction, cellInt);
             if (hit.hit)
                 return hit;
@@ -178,7 +178,7 @@ HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, b
                     HitResult hit = { true, cellInt, cellInt + 0.5f };
                     return hit;
 #else
-                    Ellipsoid ellipsoid = gBuffer[offset].ellipsoid;
+                    Ellipsoid ellipsoid = pBuffer[offset];
                     HitResult hit = checkPrimitive(ellipsoid, cell, direction, cellInt);
                     if (hit.hit)
                         return hit;

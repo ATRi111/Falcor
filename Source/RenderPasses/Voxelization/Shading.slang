@@ -1,5 +1,7 @@
 #pragma once
 #include "VoxelizationShared.slang"
+
+#if !defined(HOST_CODE)
 #include "Math/Random.slang"
 import Utils.Math.MathHelpers;
 
@@ -63,32 +65,19 @@ inline float weightedGGX(NDF NDF, float3 h)
     return sum;
 }
 
-inline void buildTBN(out float3 t, out float3 b, float3 n)
-{
-    float3 up = (abs(n.z) < 0.999f) ? float3(0, 0, 1) : float3(1, 0, 0);
-    t = normalize(cross(up, n));
-    b = cross(n, t);
-}
-inline float3 localToWorld(float3 localDir, float3 t, float3 b, float3 n)
-{
-    return localDir.x * t + localDir.y * b + localDir.z * n;
-}
-inline float3 worldToLocal(float3 worldDir, float3 t, float3 b, float3 n)
-{
-    return float3(dot(worldDir, t), dot(worldDir, b), dot(worldDir, n));
-}
-
 float calcSpecularWeight(float3 specular)
 {
     float specularWeight = (20 * (specular.x + specular.y + specular.z) / 3 + 1) / 21.0;
     return saturate(specularWeight);
 }
+#endif
 
 struct FrostbiteCosBRDF
 {
     float3 diffuse; // Lambert反射率
     float rough;
 
+#if !defined(HOST_CODE)
     [mutating]
     void init(float3 diffuse, float rough)
     {
@@ -124,6 +113,7 @@ struct FrostbiteCosBRDF
             return 0;
         return InvPi * l.z;
     }
+#endif
 };
 
 struct CookTorrenceCosBRDF
@@ -131,6 +121,7 @@ struct CookTorrenceCosBRDF
     float3 specular; // Fresnel反射率
     float alpha;
 
+#if !defined(HOST_CODE)
     [mutating]
     void init(float3 specular, float rough)
     {
@@ -162,6 +153,7 @@ struct CookTorrenceCosBRDF
             return 0;
         return ggx(h.z, alpha) * h.z / (4.0 * max(1e-6, dot(v, h)));
     }
+#endif
 };
 
 // 从此结构体开始接收和返回世界空间方向
@@ -173,6 +165,7 @@ struct LobeBRDF
     float3 t, b, n;
     float specularWeight;
 
+#if !defined(HOST_CODE)
     [mutating]
     void init(float3 n, float3 diffuse, float3 specular, float rough)
     {
@@ -216,12 +209,15 @@ struct LobeBRDF
         h = worldToLocal(h, t, b, n);
         return (1 - specularWeight) * frostBite.evalPdf(l, v, h) + specularWeight * cookTorrence.evalPdf(l, v, h);
     }
+#endif
 };
 
 struct SurfaceBRDF
 {
-    LobeBRDF[LOBE_COUNT] lobes;
-    float[LOBE_COUNT] weights;
+    LobeBRDF lobes[LOBE_COUNT];
+    float weights[LOBE_COUNT];
+
+#if !defined(HOST_CODE)
     [mutating]
     void init(ABSDF ABSDF)
     {
@@ -304,10 +300,12 @@ struct SurfaceBRDF
         }
         return n;
     }
+#endif
 };
 
 struct DeltaBTDF
 {
+#if !defined(HOST_CODE)
     float3 eval(float3 l, float3 v, float3 h) { return 1; }
 
     void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
@@ -320,23 +318,27 @@ struct DeltaBTDF
     {
         return 1; // 实质上是无穷大
     }
+#endif
 };
 
 // 单看BSDF，并不体现对称性；要将BSDF和图元形状合起来看才能体现对称性
 struct PrimitiveBSDF
 {
     SurfaceBRDF surface;
+#if !defined(HOST_CODE)
     DeltaBTDF delta;
+#endif
     SphericalFunc primitiveProjAreaFunc;
     SphericalFunc polygonsProjAreaFunc; // 所有多边形的可见投影面积
     SphericalFunc totalProjAreaFunc;    // 所有多边形的总投影面积
-    bool solid;
+    float area;
 
+#if !defined(HOST_CODE)
     [mutating]
     void init(VoxelData data)
     {
-        solid = data.IsSolid();
-        if (solid)
+        area = data.ABSDF.area;
+        if (area > 0)
         {
             primitiveProjAreaFunc = data.primitiveProjAreaFunc;
             polygonsProjAreaFunc = data.polygonsProjAreaFunc;
@@ -399,5 +401,6 @@ struct PrimitiveBSDF
             return (1 - coverage) * delta.evalPdf(l, v, h);
         return coverage * surface.evalPdf(l, v, h);
     }
+#endif
 };
 
