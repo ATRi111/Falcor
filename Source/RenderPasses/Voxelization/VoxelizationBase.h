@@ -50,6 +50,7 @@ using BufferlList = std::vector<BufferDesc>;
 
 inline std::string kGBuffer = "gBuffer";
 inline std::string kVBuffer = "vBuffer";
+inline std::string kPBuffer = "pBuffer";
 inline std::string kPolygonBuffer = "polygonBuffer";
 inline std::string kPolygonRangeBuffer = "polygonRangeBuffer";
 inline std::string kBlockMap = "blockMap";
@@ -115,13 +116,14 @@ struct MeshHeader
 class PolygonBufferGroup
 {
 private:
+    GridData& gridData;
     ref<Device> mpDevice;
     std::vector<ref<Buffer>> mBuffers;
-    std::vector<uint> voxelCount;   //各缓冲区中的体素个数
+    std::vector<uint> voxelCount; // 各缓冲区中的体素个数
     std::vector<uint> gBufferOffsets;
-    std::vector<uint> polygonCount; //各缓冲区中的多边形个数
+    std::vector<uint> polygonCount; // 各缓冲区中的多边形个数
 
-    std::vector<Polygon> currentPolygons;    //正在处理的Polygon
+    std::vector<Polygon> currentPolygons; // 正在处理的Polygon
     uint currentVoxelCount = 0;
     uint currentPolygonCount = 0;
 
@@ -136,9 +138,7 @@ private:
             gBufferOffsets.push_back(voxelCount.back() + gBufferOffsets.back());
 
         ref<Buffer> buffer = mpDevice->createStructuredBuffer(
-            sizeof(Polygon),
-            currentPolygonCount,
-            ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+            sizeof(Polygon), currentPolygonCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
         );
 
         buffer->setBlob(currentPolygons.data(), 0, size_t(currentPolygonCount) * sizeof(Polygon));
@@ -154,7 +154,7 @@ private:
 
 public:
     uint maxPolygonCount = 8000;
-    PolygonBufferGroup(ref<Device> device) : mpDevice(device) {}
+    PolygonBufferGroup(ref<Device> device, GridData& gridData) : mpDevice(device), gridData(gridData) {}
 
     uint getVoxelOffset(uint index) const
     {
@@ -197,6 +197,8 @@ public:
         FALCOR_ASSERT(polygonRangeBuffer.size() == polygonArrays.size());
         reset();
         currentPolygons.reserve(maxPolygonCount);
+        gridData.maxPolygonCount = 0;
+        gridData.totalPolygonCount = 0;
 
         for (size_t v = 0; v < polygonArrays.size(); ++v)
         {
@@ -213,9 +215,12 @@ public:
             polygonRangeBuffer[v].count = n;
             polygonRangeBuffer[v].localHead = currentPolygonCount;
 
+            gridData.maxPolygonCount = max(gridData.maxPolygonCount, n);
+            gridData.totalPolygonCount += n;
+
             currentPolygons.insert(currentPolygons.end(), polys.begin(), polys.end());
             currentPolygonCount += n;
-            currentVoxelCount ++;
+            currentVoxelCount++;
         }
 
         flushCurrent();

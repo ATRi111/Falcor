@@ -14,6 +14,8 @@ struct GridData
     float3 voxelSize;
     uint3 voxelCount;
     size_t solidVoxelCount;
+    uint maxPolygonCount;
+    uint totalPolygonCount;
 
     size_t totalVoxelCount() { return (size_t)voxelCount.x * (size_t)voxelCount.y * (size_t)voxelCount.z; }
     uint2 blockCount()

@@ -1,11 +1,12 @@
-#include "Math/Polygon.slang"
 #include "Math/LebedevQuadrature.slang"
+#include "Math/Polygon.slang"
 #include "Voxel/VoxelGrid.slang"
 #include "VoxelizationShared.slang"
+import Utils.Sampling.UniformSampleGenerator;
 
-StructuredBuffer<Polygon> polygonBuffer;    //局部缓冲区
+StructuredBuffer<Polygon> polygonBuffer; // 局部缓冲区
 StructuredBuffer<PolygonRange> polygonRangeBuffer;
-RWStructuredBuffer<VoxelData> gBuffer; 
+RWStructuredBuffer<VoxelData> gBuffer;
 RWStructuredBuffer<uint> blockMap; // 逻辑上是Texture2D<uint4>
 
 cbuffer CB
@@ -16,11 +17,18 @@ cbuffer CB
     uint2 blockCount;
 }
 
-void Estimate(Ellipsoid e, PolygonRange range,inout UniformSampleGenerator sg, inout SphericalFunc polygonFunc, inout SphericalFunc primitiveFunc, inout SphericalFunc totalFunc)
+void Estimate(
+    Ellipsoid e,
+    PolygonRange range,
+    inout UniformSampleGenerator sg,
+    inout SphericalFunc polygonFunc,
+    inout SphericalFunc primitiveFunc,
+    inout SphericalFunc totalFunc
+)
 {
     float3 cellMin = range.cellInt;
     float3 cellCenter = cellMin + 0.5f;
-    for (uint i = 0; i < LEBEDEV_DIRECTION_COUNT; i+= 2)
+    for (uint i = 0; i < LEBEDEV_DIRECTION_COUNT; i += 2)
     {
         LebedevSample sample = LebedevSamples[i];
         float3 direction = sample.direction;
@@ -48,7 +56,7 @@ void Estimate(Ellipsoid e, PolygonRange range,inout UniformSampleGenerator sg, i
         primitiveFunc.accumulate(weight * primitiveProjArea, direction);
 
         float totalProjArea = range.calcTotalProjArea(polygonBuffer, direction);
-        //TODO:计算可见投影面积
+        // TODO:计算可见投影面积
         polygonFunc.accumulate(weight * totalProjArea, direction);
         totalFunc.accumulate(weight * totalProjArea, direction);
     }

@@ -130,6 +130,8 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     widget.text("Block Count: " + ToString((int3)data.blockCount3D()));
     widget.text("Grid Min: " + ToString(data.gridMin));
     widget.text("Solid Voxel Count: " + ToString(data.solidVoxelCount));
+    widget.text("Max Polygon Count: " + ToString(data.maxPolygonCount));
+    widget.text("Total Polygon Count: " + ToString(data.totalPolygonCount));
 }
 
 void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

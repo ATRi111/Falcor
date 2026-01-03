@@ -110,7 +110,7 @@ struct FrostbiteCosBRDF
         return wiScatter * woScatter * energyFactor * diffuse / Pi * l.z;
     }
 
-    void sample(float3 v, out float3 l, out float3 h, inout ISampleGenerator sg)
+    void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
         float2 d = sample_disk_concentric(Next2(sg));
         float z = safeSqrt(1.f - dot(d, d));
@@ -146,7 +146,7 @@ struct CookTorrenceCosBRDF
         return specColor;
     }
 
-    void sample(float3 v, out float3 l, out float3 h, inout ISampleGenerator sg)
+    void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
         float2 uDir = Next2(sg);
         float phi = 2.0 * Pi * uDir.x;
@@ -197,7 +197,7 @@ struct LobeBRDF
         return frostBite.eval(l, v, h) + cookTorrence.eval(l, v, h);
     }
 
-    void sample(float3 v, out float3 l, out float3 h, inout ISampleGenerator sg)
+    void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
         v = worldToLocal(v, t, b, n);
         float uEnergy = Next(sg);
@@ -229,7 +229,7 @@ struct SurfaceBRDF
         for (uint i = 0; i < LOBE_COUNT; i++)
         {
             lobes[i].init(NDF.weightedNormals[i].xyz, ABSDF.diffuse, ABSDF.specular, NDF.roughness[i]);
-            weights[i] = NDF.weightedNormals[i].w;
+            weights[i] = NDF.weightedNormals[i].w; // 权重总和为1
         }
     }
 
@@ -268,7 +268,7 @@ struct SurfaceBRDF
         return sum;
     }
 
-    void sample(float3 v, out float3 l, out float3 h, inout ISampleGenerator sg)
+    void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
         float uLobe = Next(sg);
         uint index = getRandomLobe(uLobe);
@@ -310,7 +310,7 @@ struct DeltaBTDF
 {
     float3 eval(float3 l, float3 v, float3 h) { return 1; }
 
-    void sample(float3 v, out float3 l, out float3 h, inout ISampleGenerator sg)
+    void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
         l = -v;
         h = 0;
@@ -320,7 +320,7 @@ struct DeltaBTDF
     {
         return 1; // 实质上是无穷大
     }
-}
+};
 
 // 单看BSDF，并不体现对称性；要将BSDF和图元形状合起来看才能体现对称性
 struct PrimitiveBSDF
@@ -367,7 +367,7 @@ struct PrimitiveBSDF
         return saturate(polygonsProjArea / totalProjArea);
     }
 
-    void sample(float3 v, out float3 l, out float3 h, inout ISampleGenerator sg)
+    void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
         float coverage = calcCoverage(v);
         float uTransmmitance = Next(sg);

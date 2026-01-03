@@ -265,7 +265,7 @@ float3 shading(uint offset, float3 l, float3 v, float3 h, float3 lightColor)
     return lightColor * BSDF.eval(l, v, h);
 }
 
-float3 shadingDirect(HitResult hit, uint offset, float3 v, inout ISampleGenerator sg)
+float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGenerator sg)
 {
     PrimitiveBSDF BSDF = gBuffer[offset];
     float3 mainNormal = BSDF.surface.getMainNormal(v);
@@ -313,13 +313,16 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout ISampleGenerato
         case LightType::Directional:
             ls[i] = -light.dirW;
             lightColors[i] = light.intensity;
+            maxDistances[i] = -1;
             break;
         }
         if (dot(mainNormal, ls[i]) < 0)
             illuminances[i] = 0;
         else
+        {
             illuminances[i] = (lightColors[i].x + lightColors[i].y + lightColors[i].z);
-        totalIlluminance += illuminances[i];
+            totalIlluminance += illuminances[i];
+        }
     }
 #if !NO_ENV_MAP
     illuminances[lightCount] = 10; // TODO:计算环境贴图光照度
@@ -328,6 +331,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout ISampleGenerato
     lightCount++;
 #endif
 
+    bool isEnv = false;
     if (totalIlluminance == 0)
         return 0;
 
@@ -344,13 +348,15 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout ISampleGenerato
                 l = ls[i];
                 maxDistance = maxDistances[i];
                 pdf = illuminances[i] / totalIlluminance;
+#if !NO_ENV_MAP
+                isEnv = (i == lightCount - 1);
+#endif
                 break;
             }
         }
     }
 
-#if !NO_ENV_MAP
-    if (maxDistance < 0)
+    if (isEnv)
     {
         switch (sampleStrategy)
         {
@@ -382,23 +388,24 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout ISampleGenerato
             }
 
             if (all(h == 0))
-                pdf *= bsdfWeight * BSDF.evalPdf(l, v, h) + (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
+                pdf *= bsdfWeight * BSDF.evalPdf(l, v, h); // delta lobe的pdf本质上是无穷大，不能和其他pdf加权平均
             else
-                pdf *= bsdfWeight; // delta lobe的pdf本质上是无穷大，不能和其他pdf加权平均
+                pdf *= bsdfWeight * BSDF.evalPdf(l, v, h) + (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
             break;
         }
         lightColor = envMapSampler.eval(l);
     }
-#endif
+
+    h = normalizeSafe(l + v);
     pdf = max(pdf, minPdf);
-    float visibility = calcLightVisibility(hit, l, mainNormal, -1);
+    float visibility = calcLightVisibility(hit, l, mainNormal, maxDistance);
 
     if (visibility > 0)
         return visibility * shading(offset, l, v, h, lightColor) / pdf;
     return 0;
 }
 
-float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout ISampleGenerator sg)
+float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGenerator sg)
 {
     // 非递归版本，先计算所有命中点，再倒回来统计
     HitResult[MAX_BOUNCE + 1] hits;
@@ -438,7 +445,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout ISampleGenerato
             HitResult nextHit = hits[i + 1];
             uint nextOffset = vBuffer[nextHit.cellInt];
             float3 incidentLight = reflectLights[i + 1];
-            reflectLights[i] += shading(currentOffset, currentV, ls[i], hs[i], incidentLight) / pdfs[i];
+            reflectLights[i] += shading(currentOffset, ls[i], currentV, hs[i], incidentLight) / pdfs[i];
         }
     }
     return reflectLights[0];
@@ -454,7 +461,7 @@ float3 screenCoordToCell(float2 screenCoord, float NDCDepth)
 }
 float2 randomJitter()
 {
-    ISampleGenerator sg = UniformSampleGenerator(0, frameIndex);
+    UniformSampleGenerator sg = UniformSampleGenerator(0, frameIndex);
     float2 jitter = Next2(sg) - 0.5f;
     jitter /= pixelCount;
     return jitter;
@@ -487,7 +494,7 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     if (inOut.x < 0)
         return psOut;
 
-    ISampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
+    UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
     from = from + inOut.x * delta;
     HitResult hit = rayMarching(from, direction, -1, true);
     if (all(pixel == selectedPixel))

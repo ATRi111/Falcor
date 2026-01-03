@@ -11,7 +11,6 @@ BEGIN_NAMESPACE_FALCOR
 
 // 忽略罕见的7/8/9边形情况
 #define MAX_VERTEX_COUNT 6
-#define MAX_POLYGON_COUNT 16
 
 struct Polygon
 {
@@ -55,10 +54,7 @@ struct Polygon
         return sqrt(dot(s, s)) / 2;
     }
 
-    float calcProjArea(float3 direction)
-    {
-        return calcArea() * abs(dot(direction, normal));
-    }
+    float calcProjArea(float3 direction) { return calcArea() * abs(dot(direction, normal)); }
 #if defined(HOST_CODE)
     float3 calcCentroid(float& totalArea) const
 #else
@@ -102,31 +98,6 @@ struct Polygon
             vertices[count] = point;
             count++;
         }
-    }
-
-    bool inside(float3 p, uint i)
-    {
-        float3 v1 = vertices[(i + 1) % count] - vertices[i];
-        float3 v2 = p - vertices[i];
-        float s = dot(normalize(cross(v1, v2)), normal); // 删掉normalize反而导致更多体素多边形投影面积失真
-        return s >= 1e-6f;                               // 如果改成0，会有大量的点投影面积偏大
-    }
-
-    float intersectRay(float3 rayOrigin, float3 rayDir)
-    {
-        float denom = dot(rayDir, normal);
-        // if (abs(denom) < epsilon)
-        //     return false;
-        float t = dot(vertices[0] - rayOrigin, normal) / denom;
-        if (t < 0)
-            return -1;
-        float3 p = rayOrigin + t * rayDir;
-        for (uint i = 0; i < count; ++i)
-        {
-            if (!inside(p, i))
-                return -1;
-        }
-        return t;
     }
 };
 
