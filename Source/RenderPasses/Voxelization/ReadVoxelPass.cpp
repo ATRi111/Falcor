@@ -87,16 +87,16 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     tryRead(f, offset, gridData.totalVoxelCount() * sizeof(uint), vBuffer, fileSize);
     pVBuffer->setSubresourceBlob(0, vBuffer, gridData.totalVoxelCount() * sizeof(uint));
 
-    ref<Texture> pBlockMap = renderData.getTexture(kBlockMap);
-    uint4* blockMap = new uint4[gridData.totalBlockCount()];
-    tryRead(f, offset, gridData.totalBlockCount() * sizeof(uint4), blockMap, fileSize);
-    pBlockMap->setSubresourceBlob(0, blockMap, gridData.totalBlockCount() * sizeof(uint4));
-
     mpVoxelDataBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
     VoxelData* voxelDataBuffer = new VoxelData[gridData.solidVoxelCount];
     tryRead(f, offset, gridData.solidVoxelCount * sizeof(VoxelData), voxelDataBuffer, fileSize);
     mpVoxelDataBuffer->setBlob(voxelDataBuffer, 0, gridData.solidVoxelCount * sizeof(VoxelData));
     mpDevice->wait();
+
+    ref<Texture> pBlockMap = renderData.getTexture(kBlockMap);
+    uint4* blockMap = new uint4[gridData.totalBlockCount()];
+    tryRead(f, offset, gridData.totalBlockCount() * sizeof(uint4), blockMap, fileSize);
+    pBlockMap->setSubresourceBlob(0, blockMap, gridData.totalBlockCount() * sizeof(uint4));
 
     // VoxelData将拆分成PrimitiveBSDF和Ellipsoid
     ref<Buffer> pGBuffer = renderData.getResource(kGBuffer)->asBuffer();

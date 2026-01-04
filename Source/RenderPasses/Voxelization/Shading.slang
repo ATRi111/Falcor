@@ -303,9 +303,9 @@ struct SurfaceBRDF
 #endif
 };
 
+ #if !defined(HOST_CODE)
 struct DeltaBTDF
 {
-#if !defined(HOST_CODE)
     float3 eval(float3 l, float3 v, float3 h) { return 1; }
 
     void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
@@ -318,15 +318,15 @@ struct DeltaBTDF
     {
         return 1; // 实质上是无穷大
     }
-#endif
 };
+#endif
 
 // 单看BSDF，并不体现对称性；要将BSDF和图元形状合起来看才能体现对称性
 struct PrimitiveBSDF
 {
     SurfaceBRDF surface;
 #if !defined(HOST_CODE)
-    DeltaBTDF delta;
+    DeltaBTDF delta; // GPU上，没有成员变量的结构体不占空间(人为添加无意义的成员变量也会被优化掉)
 #endif
     SphericalFunc primitiveProjAreaFunc;
     SphericalFunc polygonsProjAreaFunc; // 所有多边形的可见投影面积
