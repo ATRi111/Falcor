@@ -276,7 +276,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
     float3 l, h;
     float3 lightColor = 0;
     float maxDistance = 0;
-    float pdf = 0;
+    float pdf = 1;
 
     float3[MAX_LIGHT_COUNT] lightColors;
     float[MAX_LIGHT_COUNT] illuminances;
@@ -366,6 +366,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             l = envSample.dir;
             if (dot(mainNormal, l) < 0)
                 l = -l;
+            h = normalizeSafe(l + v);
             pdf *= envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l);
             break;
         case SampleStrategy::BSDF:
@@ -385,6 +386,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
                 l = envSample.dir;
                 if (dot(mainNormal, l) < 0)
                     l = -l;
+                h = normalizeSafe(l + v);
             }
 
             if (all(h == 0))
@@ -395,8 +397,11 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
         }
         lightColor = envMapSampler.eval(l);
     }
+    else
+    {
+        h = normalizeSafe(l + v);
+    }
 
-    h = normalizeSafe(l + v);
     pdf = max(pdf, minPdf);
     float visibility = calcLightVisibility(hit, l, mainNormal, maxDistance);
 

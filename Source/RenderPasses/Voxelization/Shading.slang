@@ -156,7 +156,7 @@ struct CookTorrenceCosBRDF
 #endif
 };
 
-// 从此结构体开始接收和返回世界空间方向
+// 从此结构体开始接收和返回世界空间方向，法线分布是中心对称的，只存了上半球面的Lobe
 struct LobeBRDF
 {
     FrostbiteCosBRDF frostBite;
@@ -184,29 +184,53 @@ struct LobeBRDF
 
     float3 eval(float3 l, float3 v, float3 h)
     {
+        bool negative = dot(v, n) < 0;
         l = worldToLocal(l, t, b, n);
         v = worldToLocal(v, t, b, n);
         h = worldToLocal(h, t, b, n);
+        if (negative)
+        {
+            l = -l;
+            v = -v;
+            h = -h;
+        }
         return frostBite.eval(l, v, h) + cookTorrence.eval(l, v, h);
     }
 
     void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
+        bool negative = dot(v, n) < 0;
         v = worldToLocal(v, t, b, n);
+        if (negative)
+            v = -v;
+
         float uEnergy = Next(sg);
         if (uEnergy <= specularWeight)
             cookTorrence.sample(v, l, h, sg);
         else
             frostBite.sample(v, l, h, sg);
+
         l = localToWorld(l, t, b, n);
         h = localToWorld(h, t, b, n);
+        if (negative)
+        {
+            l = -l;
+            h = -h;
+        }
     }
 
     float evalPdf(float3 l, float3 v, float3 h)
     {
+        bool negative = dot(v, n) < 0;
         l = worldToLocal(l, t, b, n);
         v = worldToLocal(v, t, b, n);
         h = worldToLocal(h, t, b, n);
+        if (negative)
+        {
+            l = -l;
+            v = -v;
+            h = -h;
+        }
         return (1 - specularWeight) * frostBite.evalPdf(l, v, h) + specularWeight * cookTorrence.evalPdf(l, v, h);
     }
 #endif
@@ -216,39 +240,43 @@ struct SurfaceBRDF
 {
     LobeBRDF lobes[LOBE_COUNT];
     float weights[LOBE_COUNT];
+    uint lobeCount;
 
 #if !defined(HOST_CODE)
     [mutating]
     void init(ABSDF ABSDF)
     {
+        lobeCount = 0;
         NDF NDF = ABSDF.NDF;
         for (uint i = 0; i < LOBE_COUNT; i++)
         {
-            lobes[i].init(NDF.weightedNormals[i].xyz, ABSDF.diffuse, ABSDF.specular, NDF.roughness[i]);
-            weights[i] = NDF.weightedNormals[i].w; // 权重总和为1
+            float w = NDF.weightedNormals[i].w;
+            if (w > 0)
+            {
+                lobes[lobeCount].init(NDF.weightedNormals[i].xyz, ABSDF.diffuse, ABSDF.specular, NDF.roughness[i]);
+                weights[lobeCount] = NDF.weightedNormals[i].w; // 权重总和为1
+                lobeCount++;
+            }
         }
     }
 
     uint getRandomLobe(float uLobe)
     {
-        for (uint i = 0; i < LOBE_COUNT; i++)
+        for (uint i = 0; i < lobeCount; i++)
         {
-            if (weights[i] <= 0)
-                continue;
             uLobe -= weights[i];
             if (uLobe <= 0)
                 return i;
         }
-        return LOBE_COUNT - 1;
+        return lobeCount - 1;
     }
 
     float calcBRDFWeight()
     {
         float sum = 0;
-        for (uint i = 0; i < LOBE_COUNT; i++)
+        for (uint i = 0; i < lobeCount; i++)
         {
-            if (weights[i] > 0)
-                sum += weights[i] * lobes[i].calcBRDFWeight();
+            sum += weights[i] * lobes[i].calcBRDFWeight();
         }
         return sum;
     }
@@ -256,10 +284,9 @@ struct SurfaceBRDF
     float3 eval(float3 l, float3 v, float3 h)
     {
         float3 sum = 0;
-        for (uint i = 0; i < LOBE_COUNT; i++)
+        for (uint i = 0; i < lobeCount; i++)
         {
-            if (weights[i] > 0)
-                sum += weights[i] * lobes[i].eval(l, v, h);
+            sum += weights[i] * lobes[i].eval(l, v, h);
         }
         return sum;
     }
@@ -303,7 +330,7 @@ struct SurfaceBRDF
 #endif
 };
 
- #if !defined(HOST_CODE)
+#if !defined(HOST_CODE)
 struct DeltaBTDF
 {
     float3 eval(float3 l, float3 v, float3 h) { return 1; }
@@ -372,9 +399,10 @@ struct PrimitiveBSDF
     void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
         float coverage = calcCoverage(v);
-        float uTransmmitance = Next(sg);
-
-        if (uTransmmitance <= coverage)
+#if !CHECK_COVERAGE
+        coverage = 1;
+#endif
+        if (coverage == 1 || Next(sg) <= coverage)
             surface.sample(v, l, h, sg);
         else
             delta.sample(v, l, h, sg);

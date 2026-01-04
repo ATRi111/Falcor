@@ -130,6 +130,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
         var[kVBuffer] = renderData.getTexture(kVBuffer);
         var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
+        var[kPBuffer] = renderData.getResource(kPBuffer)->asBuffer();
         var[kBlockMap] = renderData.getTexture(kBlockMap);
         var["selectedVoxel"] = mSelectedVoxel;
 
