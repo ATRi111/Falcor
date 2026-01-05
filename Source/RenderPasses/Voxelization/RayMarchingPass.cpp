@@ -16,6 +16,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mpDevice = pDevice;
     mShadowBias1000 = 0.1f;
     mMinPdf100 = 0.1f;
+    mTrasmittanceThreshold100 = 1.f;
     mDebug = false;
     mCheckEllipsoid = true;
     mCheckVisibility = true;
@@ -150,6 +151,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["maxBounce"] = mMaxBounce;
         cb["frameIndex"] = mFrameIndex;
         cb["minPdf"] = mMinPdf100 / 100;
+        cb["trasmittanceThreshold"] = mTrasmittanceThreshold100 / 100;
         cb["selectedPixel"] = mSelectedPixel;
         cb["renderBackGround"] = mRenderBackGround;
         cb["clearColor"] = float4(mClearColor, 0);
@@ -192,7 +194,9 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.slider("Shadow Bias(x1000)", mShadowBias1000, 0.0f, 1.0f))
         mOptionsChanged = true;
-    if (widget.slider("Min Pdf(x100)", mMinPdf100, 0.0f, 0.1f))
+    if (widget.slider("Min Pdf(x100)", mMinPdf100, 0.0f, 0.2f))
+        mOptionsChanged = true;
+    if (widget.slider("T Threshold(x100)", mTrasmittanceThreshold100, 0.0f, 10.0f))
         mOptionsChanged = true;
     if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
         mOptionsChanged = true;

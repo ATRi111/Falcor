@@ -38,6 +38,7 @@ cbuffer CB
     uint maxBounce;
     uint frameIndex;
     float minPdf;
+    float trasmittanceThreshold;
     bool renderBackGround;
     float4 clearColor;
     uint2 selectedPixel;
@@ -352,6 +353,7 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
 float3 shading(uint offset, float3 l, float3 v, float3 h, float3 lightColor)
 {
     PrimitiveBSDF BSDF = gBuffer[offset];
+    BSDF.updateCoverage(v, trasmittanceThreshold);
     return lightColor * BSDF.eval(l, v, h);
 }
 
@@ -460,11 +462,13 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             pdf *= envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l);
             break;
         case SampleStrategy::BSDF:
+            BSDF.updateCoverage(v, trasmittanceThreshold);
             BSDF.sample(v, l, h, sg);
             pdf *= BSDF.evalPdf(l, v, h);
             break;
         case SampleStrategy::Mix:
             float bsdfWeight = BSDF.surface.calcBRDFWeight();
+            BSDF.updateCoverage(v, trasmittanceThreshold);
             if (Next(sg) <= bsdfWeight)
             {
                 BSDF.sample(v, l, h, sg);
@@ -515,6 +519,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         uint offset = vBuffer[hits[i].cellInt];
         PrimitiveBSDF BSDF = gBuffer[offset];
         float3 currentV = i == 0 ? v : -ls[i - 1];
+        BSDF.updateCoverage(currentV, trasmittanceThreshold);
         BSDF.sample(currentV, ls[i], hs[i], sg);
 
         hits[i + 1] = rayMarching(hits[i].cell, ls[i], -1, true);

@@ -21,11 +21,9 @@ inline float3 worldToLocal(float3 worldDir, float3 t, float3 b, float3 n)
 }
 #endif
 
-inline float3 calcShadingNormal(float3x3 TBN, float3 normalMapColor)
+inline float3 calcShadingNormal(float3x3 TBN, float3 normal)
 {
-    float3 normal = normalMapColor * 2.f - 1.f;
-    normal = normalize(mul(TBN, normal));
-    return normal;
+    return normalize(mul(TBN, normal));
 }
 
 struct Triangle

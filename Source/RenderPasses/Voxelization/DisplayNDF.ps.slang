@@ -3,7 +3,7 @@
 #include "Voxel/VoxelGrid.slang"
 #include "VoxelizationShared.slang"
 
-StructuredBuffer<VoxelData> gBuffer;
+StructuredBuffer<PrimitiveBSDF> gBuffer;
 StructuredBuffer<float4> selectedVoxel; //前三个分量表示相机指向体素的方向
 
 cbuffer CB
@@ -29,8 +29,7 @@ float3 pdfToColor(float pdf, float refPdf)
 
 float3 calcColor(float2 localCoord, int offset, float3 v)
 {
-    NDF NDF = gBuffer[offset].ABSDF.NDF;
-    float area = gBuffer[offset].ABSDF.area;
+    SurfaceBRDF BRDF = gBuffer[offset].surface;
     float3 t, b;
     buildTBN(v, t, b);
 
@@ -38,7 +37,7 @@ float3 calcColor(float2 localCoord, int offset, float3 v)
     //中心对称，显示背面没有意义
     float3 direction = float3(localCoord.x, localCoord.y, z);
     direction = localToWorld(direction, t, b, v);
-    float pdf = weightedGGX(NDF, direction) / area;
+    float pdf = BRDF.calcNormalDistribution(direction);
     float rough = 0.5f; //参考值
     float refPdf = 1.0 / (Pi * rough * rough);
     return pdfToColor(pdf, refPdf);

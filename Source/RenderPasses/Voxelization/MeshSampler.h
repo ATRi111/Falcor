@@ -88,7 +88,7 @@ public:
         }
         else
         {
-            normal = currentNormal ? currentNormal->SampleArea(uvs.data(), polygon.count).xyz() : float3(0.5f, 0.5f, 1.f);
+            normal = currentNormal ? currentNormal->SampleArea(uvs.data(), polygon.count).xyz() : float3(0, 0, 1);
             normal = calcShadingNormal(tri.TBN, normal);
         }
         if (normal.y < 0)

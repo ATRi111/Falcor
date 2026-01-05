@@ -17,7 +17,7 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     mCompleteTimes = 0;
     pVBuffer_CPU = nullptr;
 
-    mSampleFrequency = 256;
+    mSampleFrequency = 4096;
     mVoxelResolution = 512;
 
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
@@ -106,7 +106,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         }
     }
 
-    static const uint sampleFrequencies[] = {0, 1, 2, 4, 8, 16, 32, 64, 128, 256};
+    static const uint sampleFrequencies[] = {0, 16, 64, 256, 1024, 4096, 8192};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(sampleFrequencies) / sizeof(uint); i++)

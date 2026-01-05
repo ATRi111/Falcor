@@ -42,30 +42,6 @@ float Lambda(float NdotX, float alpha)
     return temp / 2;
 }
 
-// 可视化法线分布时，要渲染的点在球面上的方向充当h即可
-inline float weightedGGX(NDF NDF, float3 h)
-{
-    float sum = 0;
-    for (int i = 0; i < LOBE_COUNT; i++)
-    {
-        float w = NDF.weightedNormals[i].w;
-        if (w > 0)
-        {
-            float3 n = NDF.weightedNormals[i].xyz;
-
-            float NdotH = dot(n, h);
-            if (NdotH < 0)
-            {
-                n = -n;
-                NdotH = -NdotH;
-            }
-            float rough = NDF.roughness[i];
-            sum += ggx(NdotH, rough * rough) * w;
-        }
-    }
-    return sum;
-}
-
 float calcSpecularWeight(float3 specular)
 {
     float specularWeight = (20 * (specular.x + specular.y + specular.z) / 3 + 1) / 21.0;
@@ -282,6 +258,25 @@ struct SurfaceBRDF
         return sum;
     }
 
+    // 可视化法线分布时，要渲染的点在球面上的方向充当h即可
+    inline float calcNormalDistribution(float3 h)
+    {
+        float sum = 0;
+        for (int i = 0; i < lobeCount; i++)
+        {
+            float3 n = lobes[i].n;
+            float NdotH = dot(n, h);
+            if (NdotH < 0)
+            {
+                n = -n;
+                NdotH = -NdotH;
+            }
+            float alpha = lobes[i].cookTorrence.alpha;
+            sum += weights[i] * ggx(NdotH, alpha);
+        }
+        return sum;
+    }
+
     float3 eval(float3 l, float3 v, float3 h)
     {
         float3 sum = 0;
@@ -360,6 +355,8 @@ struct PrimitiveBSDF
     SphericalFunc totalProjAreaFunc;    // 所有多边形的总投影面积
     float area;
 
+    float coverage; //临时变量
+
 #if !defined(HOST_CODE)
     [mutating]
     void init(VoxelData data)
@@ -380,7 +377,19 @@ struct PrimitiveBSDF
         if (primitiveProjArea <= 0)
             return 1;
         float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
-        return saturate(polygonsProjArea / primitiveProjArea);
+        return polygonsProjArea / primitiveProjArea;
+    }
+    //采样前必须调用此函数
+    [mutating]
+    void updateCoverage(float3 direction, float threshould)
+    {
+#if !CHECK_COVERAGE
+        coverage = 1;
+        return;
+#endif
+        coverage = calcCoverage(direction);
+        if(1 - coverage < threshould)
+            coverage = 1;
     }
 
     // 自遮挡导致入射光减少
@@ -398,10 +407,6 @@ struct PrimitiveBSDF
 
     void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
-        float coverage = calcCoverage(v);
-#if !CHECK_COVERAGE
-        coverage = 1;
-#endif
         if (coverage == 1 || Next(sg) <= coverage)
             surface.sample(v, l, h, sg);
         else
@@ -410,22 +415,14 @@ struct PrimitiveBSDF
 
     float3 eval(float3 l, float3 v, float3 h)
     {
-        float coverage = calcCoverage(v);
-#if !CHECK_COVERAGE
-        coverage = 1;
-#endif
-        if (all(h == 0))
+        if (coverage < 1 && all(h == 0))
             return (1 - coverage) * delta.eval(l, v, h);
         return coverage * surface.eval(l, v, h) * calcInternalVisibility(l);
     }
 
     float evalPdf(float3 l, float3 v, float3 h)
     {
-        float coverage = calcCoverage(v);
-#if !CHECK_COVERAGE
-        coverage = 1;
-#endif
-        if (all(h == 0))
+        if (coverage < 1 && all(h == 0))
             return (1 - coverage) * delta.evalPdf(l, v, h);
         return coverage * surface.evalPdf(l, v, h);
     }
