@@ -20,7 +20,6 @@ cbuffer CB
 void Estimate(
     Ellipsoid e,
     PolygonRange range,
-    inout UniformSampleGenerator sg,
     inout SphericalFunc polygonFunc,
     inout SphericalFunc primitiveFunc,
     inout SphericalFunc totalFunc
@@ -36,7 +35,7 @@ void Estimate(
         uint hitCount = 0;
         for (uint j = 0; j < sampleFrequency; j++)
         {
-            SamplingRay ray = rayToVoxel(Next2(sg), direction, basis, cellCenter);
+            SamplingRay ray = rayToVoxel(Hammersley2D(j, sampleFrequency), direction, basis, cellCenter);
             float3 from = ray.origin;
             float3 to = from + 2 * ray.direction;
             float2 inOut = clip(cellMin, cellMin + 1.f, from, to);
@@ -91,8 +90,7 @@ void calc(uint offset)
     SphericalFunc primF = data.primitiveProjAreaFunc;
     SphericalFunc totalF = data.totalProjAreaFunc;
 
-    UniformSampleGenerator sg = UniformSampleGenerator(uint2(index, 0), 0);
-    Estimate(data.ellipsoid, range, sg, polyF, primF, totalF);
+    Estimate(data.ellipsoid, range, polyF, primF, totalF);
 
     data.polygonsProjAreaFunc = polyF;
     data.primitiveProjAreaFunc = primF;
