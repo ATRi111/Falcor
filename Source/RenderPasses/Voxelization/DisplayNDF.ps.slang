@@ -31,13 +31,13 @@ float3 calcColor(float2 localCoord, int offset, float3 v)
 {
     SurfaceBRDF BRDF = gBuffer[offset].surface;
     float3 t, b;
-    buildTBN(v, t, b);
+    buildTBN(t, b, v);
 
     float z = sqrt(1 - localCoord.x * localCoord.x - localCoord.y * localCoord.y);
     //中心对称，显示背面没有意义
     float3 direction = float3(localCoord.x, localCoord.y, z);
     direction = localToWorld(direction, t, b, v);
-    float pdf = BRDF.calcNormalDistribution(direction);
+    float pdf = BRDF.evalNormalDistribution(direction);
     float rough = 0.5f; //参考值
     float refPdf = 1.0 / (Pi * rough * rough);
     return pdfToColor(pdf, refPdf);

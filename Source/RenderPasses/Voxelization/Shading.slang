@@ -41,12 +41,6 @@ float Lambda(float NdotX, float alpha)
     temp = safeSqrt(temp) / max(1e-6, NdotX) - 1;
     return temp / 2;
 }
-
-float calcSpecularWeight(float3 specular)
-{
-    float specularWeight = (20 * (specular.x + specular.y + specular.z) / 3 + 1) / 21.0;
-    return saturate(specularWeight);
-}
 #endif
 
 struct FrostbiteCosBRDF
@@ -143,6 +137,19 @@ struct LobeBRDF
     float specularWeight;
 
 #if !defined(HOST_CODE)
+    float evalSpecularWeight()
+    {
+        float3 specular = cookTorrence.specular;
+        float specularWeight = (20 * (specular.x + specular.y + specular.z) / 3 + 1) / 21.0;
+        return saturate(specularWeight);
+    }
+
+    float evalBRDFWeight()
+    {
+        float glossy = (1 - frostBite.rough) * evalSpecularWeight();
+        return lerp(0.8, 0.2, glossy);
+    }
+
     [mutating]
     void init(float3 n, float3 diffuse, float3 specular, float rough)
     {
@@ -150,13 +157,7 @@ struct LobeBRDF
         buildTBN(t, b, n);
         frostBite.init(diffuse, rough);
         cookTorrence.init(specular, rough);
-        specularWeight = calcSpecularWeight(specular);
-    }
-
-    float calcBRDFWeight()
-    {
-        float glossy = (1 - frostBite.rough) * calcSpecularWeight(cookTorrence.specular);
-        return lerp(0.8, 0.2, glossy);
+        specularWeight = evalSpecularWeight();
     }
 
     float3 eval(float3 l, float3 v, float3 h)
@@ -253,13 +254,13 @@ struct SurfaceBRDF
         float sum = 0;
         for (uint i = 0; i < lobeCount; i++)
         {
-            sum += weights[i] * lobes[i].calcBRDFWeight();
+            sum += weights[i] * lobes[i].evalBRDFWeight();
         }
         return sum;
     }
 
     // 可视化法线分布时，要渲染的点在球面上的方向充当h即可
-    inline float calcNormalDistribution(float3 h)
+    inline float evalNormalDistribution(float3 h)
     {
         float sum = 0;
         for (int i = 0; i < lobeCount; i++)
@@ -377,7 +378,7 @@ struct PrimitiveBSDF
         if (primitiveProjArea <= 0)
             return 1;
         float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
-        return polygonsProjArea / primitiveProjArea;
+        return saturate(polygonsProjArea / primitiveProjArea);
     }
     //采样前必须调用此函数
     [mutating]
@@ -388,7 +389,7 @@ struct PrimitiveBSDF
         return;
 #endif
         coverage = calcCoverage(direction);
-        if(1 - coverage < threshould)
+        if (1 - coverage < threshould)
             coverage = 1;
     }
 

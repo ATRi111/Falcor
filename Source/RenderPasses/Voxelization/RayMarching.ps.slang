@@ -340,7 +340,8 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
         result = bsdf.primitiveProjAreaFunc.calc(v);
         break;
     case ABSDFDrawMode::Coverage:
-        result = bsdf.polygonsProjAreaFunc.calc(v) / bsdf.primitiveProjAreaFunc.calc(v);
+        result = bsdf.calcCoverage(v);
+        // result += (result - 1) * 5; 
         break;
     case ABSDFDrawMode::InternalVisibility:
         return bsdf.calcInternalVisibility(v);
@@ -357,10 +358,12 @@ float3 shading(uint offset, float3 l, float3 v, float3 h, float3 lightColor)
     return lightColor * BSDF.eval(l, v, h);
 }
 
+//随机采样方向，不确定光源是否可见
 float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGenerator sg)
 {
     PrimitiveBSDF BSDF = gBuffer[offset];
-    float3 mainNormal = BSDF.surface.getMainNormal(v);
+    SurfaceBRDF BRDF = BSDF.surface;
+    float3 mainNormal = BRDF.getMainNormal(v);
     float3 posW = gridMin + hit.cell * voxelSize;
     uint lightCount = min(gScene.lightCount, MAX_LIGHT_COUNT - 1);
     float totalIlluminance = 0;
@@ -447,54 +450,53 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             }
         }
     }
+    float bsdfWeight = 1;
 
+    //采样光源时不考虑delta lobe
     if (isEnv)
     {
+        float localPdf = 0;
         switch (sampleStrategy)
         {
         case SampleStrategy::EnviromentMap:
+            bsdfWeight = 0;
+            break;
+        case SampleStrategy::BSDF:
+            bsdfWeight = 1;
+            break;
+        case SampleStrategy::Mix:
+            bsdfWeight = BRDF.calcBRDFWeight();
+            break;
+        }
+
+        if (Next(sg) <= bsdfWeight)
+        {
+            BRDF.sample(v, l, h, sg);
+        }
+        else
+        {
             EnvMapSample envSample;
             envMapSampler.sample(Next2(sg), envSample);
             l = envSample.dir;
-            if (dot(mainNormal, l) < 0)
-                l = -l;
-            h = normalizeSafe(l + v);
-            pdf *= envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l);
-            break;
-        case SampleStrategy::BSDF:
-            BSDF.updateCoverage(v, trasmittanceThreshold);
-            BSDF.sample(v, l, h, sg);
-            pdf *= BSDF.evalPdf(l, v, h);
-            break;
-        case SampleStrategy::Mix:
-            float bsdfWeight = BSDF.surface.calcBRDFWeight();
-            BSDF.updateCoverage(v, trasmittanceThreshold);
-            if (Next(sg) <= bsdfWeight)
-            {
-                BSDF.sample(v, l, h, sg);
-            }
-            else
-            {
-                EnvMapSample envSample;
-                envMapSampler.sample(Next2(sg), envSample);
-                l = envSample.dir;
-                if (dot(mainNormal, l) < 0)
-                    l = -l;
-                h = normalizeSafe(l + v);
-            }
-
-            if (all(h == 0))
-                pdf *= bsdfWeight * BSDF.evalPdf(l, v, h); // delta lobe的pdf本质上是无穷大，不能和其他pdf加权平均
-            else
-                pdf *= bsdfWeight * BSDF.evalPdf(l, v, h) + (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
-            break;
         }
+        if (dot(mainNormal, l) < 0)
+            l = -l;
+        h = normalizeSafe(l + v);
+        if (bsdfWeight > 0)
+            localPdf += bsdfWeight * (BRDF.evalPdf(l, v, h) + BRDF.evalPdf(-l, v, normalizeSafe(-l + v)));
+        if (bsdfWeight < 1)
+            localPdf += (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
+
+        pdf *= localPdf;
         lightColor = envMapSampler.eval(l);
     }
     else
     {
         h = normalizeSafe(l + v);
     }
+
+    if (all(h == 0))
+        return 0;
 
     pdf = max(pdf, minPdf);
     float visibility = calcLightVisibility(hit, l, mainNormal, maxDistance);
@@ -514,6 +516,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     bounce = min(bounce, MAX_BOUNCE);
     uint hitCount = bounce + 1;
     hits[0] = hit;
+    bool leaveGrid = false;
     for (int i = 0; i < bounce; i++)
     {
         uint offset = vBuffer[hits[i].cellInt];
@@ -524,25 +527,42 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
 
         hits[i + 1] = rayMarching(hits[i].cell, ls[i], -1, true);
         pdfs[i] = BSDF.evalPdf(ls[i], currentV, hs[i]);
-        if (!hits[i + 1].hit || pdfs[i] < minPdf)
+        if (pdfs[i] <= 0)
         {
             hitCount = i + 1;
             break;
         }
         pdfs[i] = max(pdfs[i], minPdf);
+        if (!hits[i + 1].hit)
+        {
+            leaveGrid = true;
+            hitCount = i + 1;
+            break;
+        }
     }
 
     float3 reflectLights[MAX_BOUNCE + 1];
     for (int i = hitCount - 1; i >= 0; i--)
     {
         reflectLights[i] = 0;
+        if (pdfs[i] <= 0)
+            continue;
         HitResult currentHit = hits[i];
         uint currentOffset = vBuffer[currentHit.cellInt];
         float3 currentV = i == 0 ? v : -ls[i - 1];
-
+     
         reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg);
-        if (i < hitCount - 1 && pdfs[i] > 0)
+        if (i == hitCount - 1)
         {
+            if(leaveGrid && all(hs[i] == 0))
+            {
+                float3 incidentLight = envMapSampler.eval(ls[i]);
+                reflectLights[i] += shading(currentOffset, ls[i], currentV, hs[i], incidentLight) / pdfs[i];
+            }
+        }
+        else
+        {
+            reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg);
             HitResult nextHit = hits[i + 1];
             uint nextOffset = vBuffer[nextHit.cellInt];
             float3 incidentLight = reflectLights[i + 1];
