@@ -10,6 +10,7 @@ const static float InvPi = 0.318309886183790671538;
 
 inline float pow5(float x)
 {
+    x = saturate(x);
     float x2 = x * x;
     return x2 * x2 * x;
 }
@@ -301,10 +302,9 @@ struct SurfaceBRDF
     float evalPdf(float3 l, float3 v, float3 h)
     {
         float pdf = 0;
-        for (uint i = 0; i < LOBE_COUNT; i++)
+        for (uint i = 0; i < lobeCount; i++)
         {
-            if (weights[i] > 0)
-                pdf += weights[i] * lobes[i].evalPdf(l, v, h);
+            pdf += weights[i] * lobes[i].evalPdf(l, v, h);
         }
         return pdf;
     }
@@ -314,7 +314,7 @@ struct SurfaceBRDF
     {
         float3 n = 0;
         float maxWeight = 0;
-        for (int i = 0; i < LOBE_COUNT; i++)
+        for (int i = 0; i < lobeCount; i++)
         {
             if (weights[i] > maxWeight)
             {

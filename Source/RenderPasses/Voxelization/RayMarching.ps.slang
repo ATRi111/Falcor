@@ -9,7 +9,7 @@ import Utils.Sampling.UniformSampleGenerator;
 import Scene.Lights.EnvMap;
 import Rendering.Lights.EnvMapSampler;
 
-#define MAX_BOUNCE 10
+#define MAX_BOUNCE 4
 #define MAX_LIGHT_COUNT 4
 
 ParameterBlock<EnvMapSampler> envMapSampler;
@@ -107,7 +107,7 @@ HitResult checkPrimitive(Ellipsoid ellipsoid, float3 cell, float3 direction, int
 }
 
 // 统一用网格坐标表示
-HitResult rayMarching_DDA(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
+HitResult rayMarching_DDA(float3 from, float3 direction, bool ignoreFirst)
 {
     float3 cell = from;
     int3 cellInt = int3(floor(from));
@@ -121,8 +121,6 @@ HitResult rayMarching_DDA(float3 from, float3 direction, float maxDistance, bool
     while (true)
     {
         if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
-            break;
-        if (maxDistance > 0 && length(cell - from) > maxDistance) // 非正数表示不限制距离
             break;
         int offset;
         if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
@@ -142,8 +140,45 @@ HitResult rayMarching_DDA(float3 from, float3 direction, float maxDistance, bool
     HitResult hit = { false, cellInt, cellInt + 0.5f };
     return hit;
 }
+// 统一用网格坐标表示
+HitResult rayMarching_DDA(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
+{
+    float3 cell = from;
+    int3 cellInt = int3(floor(from));
+    float distance = 0;
 
-HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
+    float3 reciprocal_direction = 1.0f / direction;
+    // 可选的前进方向
+    int3 directions = int3(sign(direction));
+    if (ignoreFirst)
+        distance += leave(cell, cellInt, directions, direction, reciprocal_direction);
+
+    while (true)
+    {
+        if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
+            break;
+        if (maxDistance > 0 && distance > maxDistance) // 非正数表示不限制距离
+            break;
+        int offset;
+        if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
+        {
+#if !CHECK_ELLIPSOID
+            HitResult hit = { true, cellInt, cellInt + 0.5f };
+            return hit;
+#else
+            Ellipsoid ellipsoid = pBuffer[offset];
+            HitResult hit = checkPrimitive(ellipsoid, cell, direction, cellInt);
+            if (hit.hit)
+                return hit;
+#endif
+        }
+        distance += leave(cell, cellInt, directions, direction, reciprocal_direction);
+    }
+    HitResult hit = { false, cellInt, cellInt + 0.5f };
+    return hit;
+}
+
+HitResult rayMarching_Mipmap(float3 from, float3 direction, bool ignoreFirst)
 {
     float3 cell = from;
     int3 cellInt = int3(floor(from));
@@ -158,8 +193,6 @@ HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, b
     {
         if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
             break;
-        if (maxDistance > 0 && length(cell - from) > maxDistance) // 非正数表示不限制距离
-            break;
 
         int3 blockInt = cellInt / BLOCK_TO_VOXEL;
         if (isSolidBlock(blockInt))
@@ -168,8 +201,6 @@ HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, b
             while (all(current == blockInt))
             {
                 if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
-                    break;
-                if (maxDistance > 0 && length(cell - from) > maxDistance) // 非正数表示不限制距离
                     break;
                 int offset;
                 if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
@@ -197,6 +228,61 @@ HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, b
     return hit;
 }
 
+HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
+{
+    float3 cell = from;
+    int3 cellInt = int3(floor(from));
+    float distance = 0;
+
+    float3 reciprocal_direction = 1.0f / direction;
+    // 可选的前进方向
+    int3 directions = int3(sign(direction));
+    if (ignoreFirst)
+        distance += leave(cell, cellInt, directions, direction, reciprocal_direction);
+
+    while (true)
+    {
+        if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
+            break;
+        if (distance > maxDistance) // 非正数表示不限制距离
+            break;
+
+        int3 blockInt = cellInt / BLOCK_TO_VOXEL;
+        if (isSolidBlock(blockInt))
+        {
+            int3 current = blockInt;
+            while (all(current == blockInt))
+            {
+                if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
+                    break;
+                if (distance > maxDistance) // 非正数表示不限制距离
+                    break;
+                int offset;
+                if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
+                {
+#if !CHECK_ELLIPSOID
+                    HitResult hit = { true, cellInt, cellInt + 0.5f };
+                    return hit;
+#else
+                    Ellipsoid ellipsoid = pBuffer[offset];
+                    HitResult hit = checkPrimitive(ellipsoid, cell, direction, cellInt);
+                    if (hit.hit)
+                        return hit;
+#endif
+                }
+                distance += leave(cell, cellInt, directions, direction, reciprocal_direction);
+                current = cellInt / BLOCK_TO_VOXEL;
+            }
+        }
+        else
+        {
+            distance += leaveBlock(cell, cellInt, directions, direction, reciprocal_direction);
+        }
+    }
+    HitResult hit = { false, cellInt, cellInt + 0.5f };
+    return hit;
+}
+
 HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
 {
     direction = normalizeSafe(direction);
@@ -206,8 +292,12 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
         return hit;
     }
 #if USE_MIP_MAP
-    return rayMarching_Mipmap(from, direction, maxDistance, ignoreFirst);
+    if (maxDistance > 0)
+        return rayMarching_Mipmap(from, direction, maxDistance, ignoreFirst);
+    return rayMarching_Mipmap(from, direction, ignoreFirst);
 #else
+    if (maxDistance > 0)
+        return rayMarching_DDA(from, direction, maxDistance, ignoreFirst);
     return rayMarching_DDA(from, direction, maxDistance, ignoreFirst);
 #endif
 }

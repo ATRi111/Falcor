@@ -198,7 +198,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.dropdown("Sample Strategy", reinterpret_cast<SampleStrategy&>(mSampleStrategy)))
         mOptionsChanged = true;
-    if (widget.slider("Max Bounce", mMaxBounce, 0u, 10u))
+    if (widget.slider("Max Bounce", mMaxBounce, 0u, 4u))
         mOptionsChanged = true;
     if (widget.checkbox("Display NDF", mDisplayNDF))
         mOptionsChanged = true;

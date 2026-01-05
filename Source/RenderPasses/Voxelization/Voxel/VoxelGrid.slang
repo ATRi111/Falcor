@@ -50,7 +50,7 @@ inline int3 IndexToCell(int index, uint3 size)
 
 #if !defined(HOST_CODE)
 // DDA
-inline void leave(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
+inline float leave(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
 {
     float3 border = cellInt + (directions + 1) / 2;
     float3 t = (border - cell) * reciprocal_direction;
@@ -74,6 +74,7 @@ inline void leave(inout float3 cell, inout int3 cellInt, int3 directions, float3
 
     cell += tMin * direction;
     cellInt += selectedDirection;
+    return tMin;
 }
 
 inline float leaveBlockFace(float c, int cInt, float reciprocal)
@@ -87,7 +88,7 @@ inline float leaveBlockFace(float c, int cInt, float reciprocal)
     return t > 0 ? t : 1e30;
 }
 
-inline void leaveBlock(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
+inline float leaveBlock(inout float3 cell, inout int3 cellInt, int3 directions, float3 direction, float3 reciprocal_direction)
 {
     float tMin = 2 * BLOCK_TO_VOXEL;
     float t = leaveBlockFace(cell.x, cellInt.x, reciprocal_direction.x);
@@ -98,6 +99,7 @@ inline void leaveBlock(inout float3 cell, inout int3 cellInt, int3 directions, f
     tMin = min(t, tMin);
     cell += tMin * direction;
     cellInt = int3(cell + direction * 1e-3);
+    return tMin;
 }
 #endif
 
