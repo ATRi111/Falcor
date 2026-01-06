@@ -66,7 +66,7 @@ public:
 
     void sampleArea(Triangle& tri, Polygon& polygon, int3 cellInt)
     {
-        Tools::Profiler::BeginSample("Sample Texture");
+        Tools::Profiler::BeginSample("Sample Mesh");
         int offset = tryGetOffset(cellInt);
 
         polygonArrays[offset].push_back(polygon);
@@ -97,7 +97,7 @@ public:
         ABSDFInput input = {baseColor, spec, normal, area};
         gBuffer[offset].ABSDF.accumulate(input);
 
-        Tools::Profiler::EndSample("Sample Texture");
+        Tools::Profiler::EndSample("Sample Mesh");
     }
 
     void clip(Triangle& tri)

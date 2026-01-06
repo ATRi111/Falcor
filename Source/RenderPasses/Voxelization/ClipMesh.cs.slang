@@ -1,25 +1,16 @@
 #include "VoxelizationShared.slang"
 #include "Voxel/VoxelGrid.slang"
-#include "Math/Triangle.slang"
-#include "Math/Polygon.slang"
 #include "Math/VoxelizationUtility.slang"
 #include "Scene/VertexAttrib.slangh"
-
 import Scene.SceneTypes;
 import Scene.Scene;
 import Scene.Raster;
 import Utils.Math.MathHelpers;
-import Rendering.Materials.TexLODHelpers;
-import Scene.Material.BasicMaterialData;
 
-#define DISABLE_LOCK 0
-
-RWStructuredBuffer<int> vBuffer;
-RWStructuredBuffer<VoxelData> gBuffer;
+RWStructuredBuffer<Polygon> polygonBuffer;
+RWStructuredBuffer<PolygonRange> polygonRangeBuffer;
 RWStructuredBuffer<uint> polygonCountBuffer;
-RWStructuredBuffer<uint> gBufferLock;
-RWStructuredBuffer<uint> solidVoxelCount;   //2个元素的缓冲区，第二个元素作锁变量使用(1表示上锁，0表示未上锁)
-SamplerState s;
+RWStructuredBuffer<uint> vBuffer;
 
 cbuffer GridData
 {
@@ -27,6 +18,12 @@ cbuffer GridData
     float3 voxelSize;
     uint3 voxelCount;
 };
+
+cbuffer CB
+{
+    uint groupVoxelCount;
+    uint gBufferOffset;
+}
 
 cbuffer MeshData
 {
@@ -38,82 +35,22 @@ cbuffer MeshData
     uint materialID;
 };
 
-int tryGetOffset(int3 cellInt)
+int getOffset(int3 cellInt)
 {
     int index = CellToIndex(cellInt, voxelCount);
-
-    int v = vBuffer[index];
-    if (v >= 0)
-        return v;
-
-    int original;
-    InterlockedCompareExchange(vBuffer[index], -1, -2, original);   //-2表示分配中
-    if (original == -1)
-    {
-        uint offset;
-        InterlockedAdd(solidVoxelCount[0], 1u, offset);
-
-        vBuffer[index] = (int)offset;
-        return (int)offset;
-    }
-
-    while ((v = vBuffer[index]) == -2)
-    {
-        
-    }
-    return v;
+    return vBuffer[index];
 }
 
 void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
 {
-    MaterialSystem ms = gScene.materials;
-    MaterialType type = ms.getMaterialType(materialID);
+    int offset = getOffset(cellInt);
+    if (offset < gBufferOffset || offset >= gBufferOffset + groupVoxelCount)
+        return;
 
-    float2[MAX_VERTEX_COUNT] uvs;
-    for (uint i = 0; i < polygon.count; i++)
-    {
-        float2 uv = tri.lerpUV(polygon.vertices[i]);
-        uvs[i] = uv;
-    }
-    float area = 0;
-    float2 center = 0;
-    for (uint i = 0; i < polygon.count; ++i)
-    {
-        float2 a = uvs[i];
-        float2 b = uvs[(i + 1) % polygon.count];
-        area += a.x * b.y - a.y * b.x;
-        center += uvs[i];
-    }
-    center /= polygon.count;
-    area = 0.5f * abs(area);
-    ITextureSampler lod = ExplicitGradientTextureSampler(sqrt(area), sqrt(area));
-    //ITextureSampler lod = ExplicitLodTextureSampler(0);
-    BasicMaterialData data = ms.getBasicMaterialData(materialID);
-
-    float3 baseColor = ms.sampleTexture(data.texBaseColor, s, center, data.baseColor, lod).rgb;
-    float4 spec = ms.sampleTexture(data.texSpecular, s, center, data.specular, lod); // G - Roughness; B - Metallic
-    float3 normal = ms.sampleTexture(data.texNormalMap, s, center, data.specular, lod).rgb;
-    normal = normal * 2.f - 1.f;
-    normal = calcShadingNormal(tri.TBN, normal);
-    
-    if (normal.y < 0)
-        normal = -normal;
-    ABSDFInput input = { baseColor, spec, normal, polygon.calcArea() };
-
-    int offset = tryGetOffset(cellInt);
-#if !DISABLE_LOCK
-    uint old;
-    do
-    {
-        InterlockedCompareExchange(gBufferLock[offset], 0u, 1u, old);
-    } while (old != 0u);
-#endif
-    gBuffer[offset].ABSDF.accumulate(input);
-    InterlockedAdd(polygonCountBuffer[offset], 1);
-#if !DISABLE_LOCK
-    uint dummy;
-    InterlockedExchange(gBufferLock[offset], 0u, dummy);
-#endif
+    uint writeIndex;
+    InterlockedAdd(polygonCountBuffer[gBufferOffset], 1u, writeIndex);
+    writeIndex += polygonRangeBuffer[offset].localHead;
+    polygonBuffer[writeIndex] = polygon;
 }
 
 void clipTriangle(Triangle tri)
@@ -127,7 +64,9 @@ void clipTriangle(Triangle tri)
 
         polygon.normal = float3(tri.TBN[0][2], tri.TBN[1][2], tri.TBN[2][2]); // 几何法线
         if (polygon.count >= 3)
-            sampleArea(tri, polygon, cellInt);
+        {
+
+        }
     }
 }
 

@@ -161,15 +161,15 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
     var[kBlockMap] = blockMap;
 
-    uint voxelCount = polygonGroup.getVoxelCount(mCompleteTimes);
+    uint groupVoxelCount = polygonGroup.getVoxelCount(mCompleteTimes);
     auto cb = var["CB"];
-    cb["voxelCount"] = voxelCount;
+    cb["groupVoxelCount"] = groupVoxelCount;
     cb["sampleFrequency"] = mSampleFrequency;
     cb["gBufferOffset"] = polygonGroup.getVoxelOffset(mCompleteTimes);
     cb["blockCount"] = gridData.blockCount();
 
     Tools::Profiler::BeginSample("Analyze Polygon");
-    mSamplePolygonPass->execute(pRenderContext, uint3(voxelCount, 1, 1));
+    mSamplePolygonPass->execute(pRenderContext, uint3(groupVoxelCount, 1, 1));
     pRenderContext->submit(true);
     Tools::Profiler::EndSample("Analyze Polygon");
 }

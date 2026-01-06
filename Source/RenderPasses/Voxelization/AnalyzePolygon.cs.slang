@@ -11,9 +11,9 @@ RWStructuredBuffer<uint> blockMap; // 逻辑上是Texture2D<uint4>
 
 cbuffer CB
 {
-    uint voxelCount;
-    uint sampleFrequency;
     uint gBufferOffset;
+    uint groupVoxelCount;
+    uint sampleFrequency;
     uint2 blockCount;
 }
 
@@ -73,7 +73,7 @@ void updateBlockMap(int3 cellInt)
 
 void calc(uint offset)
 {
-    if (offset >= voxelCount)
+    if (offset >= groupVoxelCount)
         return;
 
     uint index = offset + gBufferOffset;

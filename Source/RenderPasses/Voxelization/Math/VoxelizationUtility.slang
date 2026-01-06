@@ -4,6 +4,13 @@
 
 #define MAX_VERTEX_COUNT_PROCESSING 12
 
+inline bool approximatelyEqual(float a, float b, float tolerance = 1e-6) { return abs(a - b) <= tolerance; }
+inline bool approximatelyEqual(float3 a, float3 b, float tolerance = 1e-6)
+{
+    return approximatelyEqual(a.x, b.x, tolerance) && approximatelyEqual(a.y, b.y, tolerance) &&
+           approximatelyEqual(a.z, b.z, tolerance);
+}
+
 inline float3 intersectAxisPlane(float3 S, float3 E, int axis, float bound)
 {
     float s = S[axis];
@@ -21,10 +28,8 @@ inline uint removeAdjacentRepeatPoints(inout float3 v[MAX_VERTEX_COUNT_PROCESSIN
     for (uint i = 0; i < count; ++i)
     {
         uint next = (i + 1) % count;
-
-        if (all(v[i] == v[next]))
+        if (approximatelyEqual(v[i], v[next]))
             continue;
-
         v[writeIndex++] = v[i];
     }
     return writeIndex;
@@ -118,9 +123,7 @@ inline Polygon boxClipTriangle(float3 minPoint, float3 maxPoint, Triangle tri)
     }
 
     if (vCount > 3)
-    {
         vCount = removeAdjacentRepeatPoints(vertices, vCount);
-    }
 
     for (uint i = 0; i < vCount; ++i)
     {

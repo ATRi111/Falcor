@@ -3,7 +3,7 @@
 
 namespace
 {
-const std::string kClipProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/ClipMesh.cs.slang";
+const std::string kSampleMeshProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/SampleMesh.cs.slang";
 
 }; // namespace
 
@@ -23,7 +23,7 @@ VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties
 void VoxelizationPass_GPU::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     VoxelizationPass::setScene(pRenderContext, pScene);
-    mClipPass = nullptr;
+    mSampleMeshPass = nullptr;
 }
 
 void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderData& renderData)
@@ -37,21 +37,21 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     pRenderContext->clearUAV(solidVoxelCount->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(polygonCountBuffer->getUAV().get(), uint4(0));
 
-    if (!mClipPass)
+    if (!mSampleMeshPass)
     {
         ProgramDesc desc;
         desc.addShaderModules(mpScene->getShaderModules());
-        desc.addShaderLibrary(kClipProgramFile).csEntry("main");
+        desc.addShaderLibrary(kSampleMeshProgramFile).csEntry("main");
         desc.addTypeConformances(mpScene->getTypeConformances());
 
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
         defines.add(mpSampleGenerator->getDefines());
 
-        mClipPass = ComputePass::create(mpDevice, desc, defines, true);
+        mSampleMeshPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
-    ShaderVar var = mClipPass->getRootVar();
+    ShaderVar var = mSampleMeshPass->getRootVar();
     var["s"] = mpSampler;
     mpScene->bindShaderData(var["gScene"]);
     var[kGBuffer] = gBuffer;
@@ -70,14 +70,14 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
         MeshDesc meshDesc = mpScene->getMesh(meshID);
         uint triangleCount = meshDesc.getTriangleCount();
 
-        auto cb_mesh = mClipPass->getRootVar()["MeshData"];
+        auto cb_mesh = mSampleMeshPass->getRootVar()["MeshData"];
         cb_mesh["vertexCount"] = meshDesc.vertexCount;
         cb_mesh["vbOffset"] = meshDesc.vbOffset;
         cb_mesh["triangleCount"] = triangleCount;
         cb_mesh["ibOffset"] = meshDesc.ibOffset;
         cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
         cb_mesh["materialID"] = meshDesc.materialID;
-        mClipPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
+        mSampleMeshPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
         pRenderContext->uavBarrier(gBuffer.get());
     }
     Tools::Profiler::BeginSample("Sample Texture");
