@@ -1,4 +1,5 @@
 #include "VoxelizationPass_GPU.h"
+#include "Shading.slang"
 
 namespace
 {
@@ -8,7 +9,9 @@ const std::string kClipProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxe
 
 VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props) : VoxelizationPass(pDevice, props)
 {
-    maxSolidVoxelCount = (uint)ceil(4294967296.0 / sizeof(VoxelData)); // 缓冲区最大容量为4G
+    maxSolidVoxelCount = (uint)floor(4294967296.0 / sizeof(PrimitiveBSDF)); // 缓冲区最大容量为4G
+
+    mSampleFrequency = 256;
 
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
     Sampler::Desc samplerDesc;
@@ -28,8 +31,11 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), maxSolidVoxelCount, ResourceBindFlags::UnorderedAccess);
     vBuffer = mpDevice->createStructuredBuffer(sizeof(int), gridData.totalVoxelCount(), ResourceBindFlags::UnorderedAccess);
     solidVoxelCount = mpDevice->createStructuredBuffer(sizeof(uint), 2, ResourceBindFlags::UnorderedAccess);
-    pRenderContext->clearUAV(solidVoxelCount->getUAV().get(), uint4(0));
+    polygonCountBuffer = mpDevice->createStructuredBuffer(sizeof(uint), maxSolidVoxelCount, ResourceBindFlags::UnorderedAccess);
+    pRenderContext->clearUAV(gBuffer->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(vBuffer->getUAV().get(), uint4(0xFFFFFFFFu));
+    pRenderContext->clearUAV(solidVoxelCount->getUAV().get(), uint4(0));
+    pRenderContext->clearUAV(polygonCountBuffer->getUAV().get(), uint4(0));
 
     if (!mClipPass)
     {
@@ -45,14 +51,12 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
         mClipPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
-    mClipPass->addDefine("DISABLE_LOCK", "1");
     ShaderVar var = mClipPass->getRootVar();
     var["s"] = mpSampler;
     mpScene->bindShaderData(var["scene"]);
     var[kGBuffer] = gBuffer;
     var[kVBuffer] = vBuffer;
-    // TODO
-    //  var[kPolygonBuffer] = polygonGroup;
+    var["polygonCountBuffer"] = polygonCountBuffer;
     var["solidVoxelCount"] = solidVoxelCount;
 
     auto cb_grid = var["GridData"];
@@ -76,19 +80,34 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
         mClipPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
         pRenderContext->uavBarrier(gBuffer.get());
     }
-    mpDevice->wait();
+    pRenderContext->submit(true);
 
-    ref<Buffer> cpuSolidVoxelCount = mpDevice->createStructuredBuffer(sizeof(uint), 2, ResourceBindFlags::None, MemoryType::ReadBack);
-    cpuVBuffer = mpDevice->createBuffer(gridData.totalVoxelCount() * sizeof(int), ResourceBindFlags::None, MemoryType::ReadBack);
-    pRenderContext->copyResource(cpuSolidVoxelCount.get(), solidVoxelCount.get());
-    pRenderContext->copyResource(cpuVBuffer.get(), vBuffer.get());
-    mpDevice->wait();
-    uint* p = reinterpret_cast<uint*>(cpuSolidVoxelCount->map());
-    pVBuffer_CPU = cpuVBuffer->map();
-    gridData.solidVoxelCount = p[0];
+    ref<Buffer> cpuSolidVoxelCount = copyToCpu(mpDevice, pRenderContext, solidVoxelCount);
+    ref<Buffer> cpuVBuffer = copyToCpu(mpDevice, pRenderContext, vBuffer);
+    ref<Buffer> cpuPolygonCountBuffer = copyToCpu(mpDevice, pRenderContext, polygonCountBuffer);
+    pRenderContext->submit(true);
 
-    mpDevice->wait();
+    uint* pSolidVoxelCount = reinterpret_cast<uint*>(cpuSolidVoxelCount->map());
+    void* pVbuffer = cpuVBuffer->map();
+    void* pPolygonCount = cpuPolygonCountBuffer->map();
+
+    gridData.solidVoxelCount = pSolidVoxelCount[0];
+
+    std::vector<uint> polygonCounts;
+    polygonCounts.resize(gridData.solidVoxelCount);
+    memcpy(polygonCounts.data(), pPolygonCount, sizeof(uint) * gridData.solidVoxelCount);
+
+    std::vector<PolygonRange> polygonRanges;
+    polygonRanges.resize(gridData.solidVoxelCount);
+    polygonGroup.reserve(polygonCounts, polygonRanges);
+
+    vBuffer_CPU.resize(gridData.totalVoxelCount());
+    memcpy(vBuffer_CPU.data(), pVbuffer, sizeof(int) * gridData.totalVoxelCount());
+    pVBuffer_CPU = vBuffer_CPU.data();
+
     cpuSolidVoxelCount->unmap();
+    cpuPolygonCountBuffer->unmap();
+    cpuVBuffer->unmap();
 }
 
 void VoxelizationPass_GPU::sample(RenderContext* pRenderContext, const RenderData& renderData)

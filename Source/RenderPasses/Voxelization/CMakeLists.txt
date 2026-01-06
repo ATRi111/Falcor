@@ -31,6 +31,7 @@ target_sources(Voxelization PRIVATE
 
     VoxelizationPass.cpp
     VoxelizationPass.h
+    AnalyzePolygon.cs.slang
 
     VoxelizationPass_CPU.cpp
     VoxelizationPass_CPU.h
@@ -40,17 +41,16 @@ target_sources(Voxelization PRIVATE
     VoxelizationPass_GPU.cpp
     VoxelizationPass_GPU.h
     ClipMesh.cs.slang
-    AnalyzePolygon.cs.slang
+    GeneratePolygon.cs.slang
 
     RayMarchingPass.cpp
     RayMarchingPass.h
+    PrepareShadingData.cs.slang
     RayMarching.ps.slang
     DisplayNDF.ps.slang
-    PrepareShadingData.cs.slang
 
     ReadVoxelPass.cpp
     ReadVoxelPass.h
-
 )
 target_copy_shaders(Voxelization RenderPasses/Voxelization)
 target_source_group(Voxelization "RenderPasses")

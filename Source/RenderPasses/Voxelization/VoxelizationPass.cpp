@@ -57,12 +57,9 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
         }
         else
         {
-            ref<Buffer> cpuGBuffer = mpDevice->createBuffer(gBuffer->getSize(), ResourceBindFlags::None, MemoryType::ReadBack);
-            ref<Buffer> cpuBlockMap =
-                mpDevice->createBuffer(gridData.totalBlockCount() * sizeof(uint4), ResourceBindFlags::None, MemoryType::ReadBack);
-            pRenderContext->copyResource(cpuGBuffer.get(), gBuffer.get());
-            pRenderContext->copyResource(cpuBlockMap.get(), blockMap.get());
-            mpDevice->wait();
+            ref<Buffer> cpuGBuffer = copyToCpu(mpDevice, pRenderContext, gBuffer);
+            ref<Buffer> cpuBlockMap = copyToCpu(mpDevice, pRenderContext, blockMap);
+            pRenderContext->submit(true);
             void* pGBuffer_CPU = cpuGBuffer->map();
             void* pBlockMap_CPU = cpuBlockMap->map();
             write(getFileName(), pGBuffer_CPU, pVBuffer_CPU, pBlockMap_CPU);
@@ -173,7 +170,7 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
 
     Tools::Profiler::BeginSample("Sample Polygons");
     mSamplePolygonPass->execute(pRenderContext, uint3(voxelCount, 1, 1));
-    mpDevice->wait();
+    pRenderContext->submit(true);
     Tools::Profiler::EndSample("Sample Polygons");
 }
 

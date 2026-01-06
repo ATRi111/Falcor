@@ -45,11 +45,6 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
     ref<Buffer> texCoords = mpDevice->createStructuredBuffer(sizeof(float2), vertexCount, ResourceBindFlags::UnorderedAccess);
     ref<Buffer> triangles = mpDevice->createStructuredBuffer(sizeof(uint3), triangleCount, ResourceBindFlags::UnorderedAccess);
 
-    ref<Buffer> cpuPositions = mpDevice->createBuffer(sizeof(float3) * vertexCount, ResourceBindFlags::None, MemoryType::ReadBack);
-    ref<Buffer> cpuNormals = mpDevice->createBuffer(sizeof(float3) * vertexCount, ResourceBindFlags::None, MemoryType::ReadBack);
-    ref<Buffer> cpuTexCoords = mpDevice->createBuffer(sizeof(float2) * vertexCount, ResourceBindFlags::None, MemoryType::ReadBack);
-    ref<Buffer> cpuTriangles = mpDevice->createBuffer(sizeof(uint3) * triangleCount, ResourceBindFlags::None, MemoryType::ReadBack);
-
     std::vector<MeshHeader> meshList;
 
     ShaderVar var = mLoadMeshPass->getRootVar();
@@ -81,11 +76,11 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
         triangleOffset += meshDesc.getTriangleCount();
     }
 
-    pRenderContext->copyResource(cpuPositions.get(), positions.get());
-    pRenderContext->copyResource(cpuNormals.get(), normals.get());
-    pRenderContext->copyResource(cpuTexCoords.get(), texCoords.get());
-    pRenderContext->copyResource(cpuTriangles.get(), triangles.get());
-    mpDevice->wait();
+    ref<Buffer> cpuPositions = copyToCpu(mpDevice, pRenderContext, positions);
+    ref<Buffer> cpuNormals = copyToCpu(mpDevice, pRenderContext, normals);
+    ref<Buffer> cpuTexCoords = copyToCpu(mpDevice, pRenderContext, texCoords);
+    ref<Buffer> cpuTriangles = copyToCpu(mpDevice, pRenderContext, triangles);
+    pRenderContext->submit(true);
 
     float3* pPos = reinterpret_cast<float3*>(cpuPositions->map());
     float3* pNormal = reinterpret_cast<float3*>(cpuNormals->map());
@@ -95,7 +90,7 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
 
     meshSampler.reset();
     meshSampler.sampleAll(header, meshList, pPos, pNormal, pUV, pTri);
-    polygonGroup.generate(meshSampler.polygonArrays, meshSampler.polygonRangeBuffer);
+    polygonGroup.setBlob(meshSampler.polygonArrays, meshSampler.polygonRangeBuffer);
     cpuPositions->unmap();
     cpuNormals->unmap();
     cpuTexCoords->unmap();
@@ -104,12 +99,16 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
     gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
     gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gridData.solidVoxelCount * sizeof(VoxelData));
 
-    polygonRangeBuffer = mpDevice->createStructuredBuffer(sizeof(PolygonRange), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
+    polygonRangeBuffer = mpDevice->createStructuredBuffer(
+        sizeof(PolygonRange),
+        gridData.solidVoxelCount,
+        ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+    );
     polygonRangeBuffer->setBlob(meshSampler.polygonRangeBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonRange));
 
     pVBuffer_CPU = meshSampler.vBuffer.data();
 
-    mpDevice->wait();
+    pRenderContext->submit(true);
 }
 
 void VoxelizationPass_CPU::sample(RenderContext* pRenderContext, const RenderData& renderData)

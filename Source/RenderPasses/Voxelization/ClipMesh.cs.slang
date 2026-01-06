@@ -12,12 +12,14 @@ import Utils.Math.MathHelpers;
 import Rendering.Materials.TexLODHelpers;
 import Scene.Material.BasicMaterialData;
 
+#define DISABLE_LOCK 1
+
 ParameterBlock<Scene> scene;
 RWStructuredBuffer<int> vBuffer;
 RWStructuredBuffer<VoxelData> gBuffer;
-RWStructuredBuffer<PolygonInVoxel> polygonBuffer;
+RWStructuredBuffer<uint> polygonCountBuffer;
 RWStructuredBuffer<uint> gBufferLock;
-RWStructuredBuffer<uint> solidVoxelCount;   //2个元素的缓冲区，第二个元素作锁变量使用
+RWStructuredBuffer<uint> solidVoxelCount;   //2个元素的缓冲区，第二个元素作锁变量使用(1表示上锁，0表示未上锁)
 SamplerState s;
 
 cbuffer GridData
@@ -44,22 +46,19 @@ int tryGetOffset(int3 cellInt)
         return vBuffer[index];
 
 #if !DISABLE_LOCK
-    uint old = 1;
-    while (old != 0)
+    uint old;
+    do
     {
-        InterlockedCompareExchange(solidVoxelCount[1], 1u, 0u, old);
-    }
+        InterlockedCompareExchange(solidVoxelCount[1], 0u, 1u, old);
+    } while (old != 0u);
 #endif
     if (vBuffer[index] == -1)
     {
         // 分配全局唯一的 offset
         uint offset;
         InterlockedAdd(solidVoxelCount[0], 1u, offset); // offset 为加之前的值
-
+        //初始化必须在外部进行,以避免同步问题
         vBuffer[index] = offset;
-        gBuffer[offset].init();
-        polygonBuffer[offset].init();
-        polygonBuffer[offset].cellMin = float3(cellInt);
     }
 #if !DISABLE_LOCK
     uint dummy;
@@ -90,7 +89,8 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
     }
     center /= polygon.count;
     area = 0.5f * abs(area);
-    ITextureSampler lod = ExplicitGradientTextureSampler(sqrt(area), sqrt(area));
+    //ITextureSampler lod = ExplicitGradientTextureSampler(sqrt(area), sqrt(area));
+    ITextureSampler lod = ExplicitLodTextureSampler(0);
     BasicMaterialData data = ms.getBasicMaterialData(materialID);
 
     float3 baseColor = ms.sampleTexture(data.texBaseColor, s, center, data.baseColor, lod).rgb;
@@ -104,14 +104,14 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
 
     int offset = tryGetOffset(cellInt);
 #if !DISABLE_LOCK
-    uint old = 1;
-    while (old != 0)
+    uint old;
+    do
     {
-        InterlockedCompareExchange(gBufferLock[offset], 1u, 0u, old);
-    }
+        InterlockedCompareExchange(gBufferLock[offset], 0u, 1u, old);
+    } while (old != 0u);
 #endif
     gBuffer[offset].ABSDF.accumulate(input);
-    polygonBuffer[offset].add(polygon);
+    InterlockedAdd(polygonCountBuffer[offset], 1);
 #if !DISABLE_LOCK
     uint dummy;
     InterlockedExchange(gBufferLock[offset], 0u, dummy);
