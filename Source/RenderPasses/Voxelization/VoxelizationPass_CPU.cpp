@@ -48,7 +48,7 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
     std::vector<MeshHeader> meshList;
 
     ShaderVar var = mLoadMeshPass->getRootVar();
-    mpScene->bindShaderData(var["scene"]);
+    mpScene->bindShaderData(var["gScene"]);
     var["positions"] = positions;
     var["normals"] = normals;
     var["texCoords"] = texCoords;

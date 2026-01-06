@@ -53,7 +53,7 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
 
     ShaderVar var = mClipPass->getRootVar();
     var["s"] = mpSampler;
-    mpScene->bindShaderData(var["scene"]);
+    mpScene->bindShaderData(var["gScene"]);
     var[kGBuffer] = gBuffer;
     var[kVBuffer] = vBuffer;
     var["polygonCountBuffer"] = polygonCountBuffer;
@@ -80,7 +80,9 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
         mClipPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
         pRenderContext->uavBarrier(gBuffer.get());
     }
+    Tools::Profiler::BeginSample("Sample Texture");
     pRenderContext->submit(true);
+    Tools::Profiler::EndSample("Sample Texture");
 
     ref<Buffer> cpuSolidVoxelCount = copyToCpu(mpDevice, pRenderContext, solidVoxelCount);
     ref<Buffer> cpuVBuffer = copyToCpu(mpDevice, pRenderContext, vBuffer);

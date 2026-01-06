@@ -12,13 +12,12 @@ import Utils.Math.MathHelpers;
 import Rendering.Materials.TexLODHelpers;
 import Scene.Material.BasicMaterialData;
 
-#define DISABLE_LOCK 0
-
+ParameterBlock<Scene> scene;
 RWStructuredBuffer<int> vBuffer;
 RWStructuredBuffer<VoxelData> gBuffer;
-RWStructuredBuffer<uint> polygonCountBuffer;
+RWStructuredBuffer<PolygonInVoxel> polygonBuffer;
 RWStructuredBuffer<uint> gBufferLock;
-RWStructuredBuffer<uint> solidVoxelCount;   //2个元素的缓冲区，第二个元素作锁变量使用(1表示上锁，0表示未上锁)
+RWStructuredBuffer<uint> solidVoxelCount;   //2个元素的缓冲区，第二个元素作锁变量使用
 SamplerState s;
 
 cbuffer GridData
@@ -41,32 +40,37 @@ cbuffer MeshData
 int tryGetOffset(int3 cellInt)
 {
     int index = CellToIndex(cellInt, voxelCount);
+    if (vBuffer[index] != -1)
+        return vBuffer[index];
 
-    int v = vBuffer[index];
-    if (v >= 0)
-        return v;
-
-    int original;
-    InterlockedCompareExchange(vBuffer[index], -1, -2, original);   //-2表示分配中
-    if (original == -1)
+#if !DISABLE_LOCK
+    uint old = 1;
+    while (old != 0)
     {
+        InterlockedCompareExchange(solidVoxelCount[1], 1u, 0u, old);
+    }
+#endif
+    if (vBuffer[index] == -1)
+    {
+        // 分配全局唯一的 offset
         uint offset;
-        InterlockedAdd(solidVoxelCount[0], 1u, offset);
+        InterlockedAdd(solidVoxelCount[0], 1u, offset); // offset 为加之前的值
 
-        vBuffer[index] = (int)offset;
-        return (int)offset;
+        vBuffer[index] = offset;
+        gBuffer[offset].init();
+        polygonBuffer[offset].init();
+        polygonBuffer[offset].cellMin = float3(cellInt);
     }
-
-    while ((v = vBuffer[index]) == -2)
-    {
-        
-    }
-    return v;
+#if !DISABLE_LOCK
+    uint dummy;
+    InterlockedExchange(solidVoxelCount[1], 0u, dummy);
+#endif
+    return vBuffer[index];
 }
 
 void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
 {
-    MaterialSystem ms = gScene.materials;
+    MaterialSystem ms = scene.materials;
     MaterialType type = ms.getMaterialType(materialID);
 
     float2[MAX_VERTEX_COUNT] uvs;
@@ -87,13 +91,11 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
     center /= polygon.count;
     area = 0.5f * abs(area);
     ITextureSampler lod = ExplicitGradientTextureSampler(sqrt(area), sqrt(area));
-    //ITextureSampler lod = ExplicitLodTextureSampler(0);
     BasicMaterialData data = ms.getBasicMaterialData(materialID);
 
     float3 baseColor = ms.sampleTexture(data.texBaseColor, s, center, data.baseColor, lod).rgb;
     float4 spec = ms.sampleTexture(data.texSpecular, s, center, data.specular, lod); // G - Roughness; B - Metallic
     float3 normal = ms.sampleTexture(data.texNormalMap, s, center, data.specular, lod).rgb;
-    normal = normal * 2.f - 1.f;
     normal = calcShadingNormal(tri.TBN, normal);
     
     if (normal.y < 0)
@@ -102,14 +104,14 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
 
     int offset = tryGetOffset(cellInt);
 #if !DISABLE_LOCK
-    uint old;
-    do
+    uint old = 1;
+    while (old != 0)
     {
-        InterlockedCompareExchange(gBufferLock[offset], 0u, 1u, old);
-    } while (old != 0u);
+        InterlockedCompareExchange(gBufferLock[offset], 1u, 0u, old);
+    }
 #endif
     gBuffer[offset].ABSDF.accumulate(input);
-    InterlockedAdd(polygonCountBuffer[offset], 1);
+    polygonBuffer[offset].add(polygon);
 #if !DISABLE_LOCK
     uint dummy;
     InterlockedExchange(gBufferLock[offset], 0u, dummy);
@@ -137,11 +139,11 @@ void voxelizeTriangle(uint triangleId)
         return;
     
     Triangle triangle = {};
-    uint3 vtxIndices = gScene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
+    uint3 vtxIndices = scene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     if (any(vtxIndices >= vertexCount))
         return;
     vtxIndices += vbOffset;
-    StaticVertexData[3] vertices = { gScene.getVertex(vtxIndices.x), gScene.getVertex(vtxIndices.y), gScene.getVertex(vtxIndices.z) };
+    StaticVertexData[3] vertices = { scene.getVertex(vtxIndices.x), scene.getVertex(vtxIndices.y), scene.getVertex(vtxIndices.z) };
     // 世界坐标处理成网格坐标
     for (int i = 0; i < 3; i++)
     {

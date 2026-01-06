@@ -183,11 +183,11 @@ void forwardMapping(float2 originCoord)
     uint2 pixel = uint2((uint)floor(coord.x * outputWidth), (uint)floor(coord.y * outputHeight));
 
 #if ENABLE_LOCK
-    uint old = 1;
-    while (old != 0)
+    uint old;
+    do
     {
-        InterlockedCompareExchange(gTexelLock[pixel], 1u, 0u, old);
-    }
+        InterlockedCompareExchange(gTexelLock[pixel], 0u, 1u, old);
+    } while (old != 0u);
 #endif
     float4 currentNDO = gMappedNDO[pixel];
     if (currentNDO.w == 0 || NDO.z < currentNDO.z)

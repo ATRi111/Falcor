@@ -117,19 +117,21 @@ enum class ABSDFDrawMode : uint32_t
     TotalProjArea,
     Coverage,
     InternalVisibility,
+    TotalArea,
 };
 FALCOR_ENUM_INFO(
     ABSDFDrawMode,
     {
-        { ABSDFDrawMode::Default, "Default" },
-        { ABSDFDrawMode::Normal, "Normal" },
-        { ABSDFDrawMode::EllipsoidCenter, "EllipsoidCenter" },
-        { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
-        { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
-        { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
-        { ABSDFDrawMode::TotalProjArea, "TotalProjArea" },
-        { ABSDFDrawMode::Coverage, "Coverage" },
-        { ABSDFDrawMode::InternalVisibility, "InternalVisibility" },
+    { ABSDFDrawMode::Default, "Default" },
+    { ABSDFDrawMode::Normal, "Normal" },
+    { ABSDFDrawMode::EllipsoidCenter, "EllipsoidCenter" },
+    { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
+    { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
+    { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
+    { ABSDFDrawMode::TotalProjArea, "TotalProjArea" },
+    { ABSDFDrawMode::Coverage, "Coverage" },
+    { ABSDFDrawMode::InternalVisibility, "InternalVisibility" },
+    { ABSDFDrawMode::TotalArea, "TotalArea" },
     }
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);

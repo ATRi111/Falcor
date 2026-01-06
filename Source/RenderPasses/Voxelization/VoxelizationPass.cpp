@@ -168,10 +168,10 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     cb["gBufferOffset"] = polygonGroup.getVoxelOffset(mCompleteTimes);
     cb["blockCount"] = gridData.blockCount();
 
-    Tools::Profiler::BeginSample("Sample Polygons");
+    Tools::Profiler::BeginSample("Analyze Polygon");
     mSamplePolygonPass->execute(pRenderContext, uint3(voxelCount, 1, 1));
     pRenderContext->submit(true);
-    Tools::Profiler::EndSample("Sample Polygons");
+    Tools::Profiler::EndSample("Analyze Polygon");
 }
 
 std::string VoxelizationPass::getFileName() const

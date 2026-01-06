@@ -344,7 +344,11 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
         // result += (result - 1) * 5; 
         break;
     case ABSDFDrawMode::InternalVisibility:
-        return bsdf.calcInternalVisibility(v);
+        result = bsdf.calcInternalVisibility(v);
+        break;
+    case ABSDFDrawMode::TotalArea:
+        result = bsdf.area;
+        break;
     default:
         break;
     }
