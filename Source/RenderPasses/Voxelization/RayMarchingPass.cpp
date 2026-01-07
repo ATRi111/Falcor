@@ -14,7 +14,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mpDevice = pDevice;
-    mShadowBias1000 = 0.1f;
+    mShadowBias100 = 0.1f;
     mMinPdf100 = 0.1f;
     mTrasmittanceThreshold100 = 1.f;
     mDebug = false;
@@ -145,7 +145,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["pixelCount"] = mOutputResolution;
         cb["blockCount"] = gridData.blockCount3D();
         cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
-        cb["shadowBias"] = mShadowBias1000 / 1000 / gridData.voxelSize.x;
+        cb["shadowBias"] = mShadowBias100 / 100 / gridData.voxelSize.x;
         cb["drawMode"] = mDrawMode;
         cb["sampleStrategy"] = mSampleStrategy;
         cb["maxBounce"] = mMaxBounce;
@@ -192,7 +192,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.checkbox("Use Mipmap", mUseMipmap))
         mOptionsChanged = true;
-    if (widget.slider("Shadow Bias(x1000)", mShadowBias1000, 0.0f, 1.0f))
+    if (widget.slider("Shadow Bias(x100)", mShadowBias100, 0.0f, 1.0f))
         mOptionsChanged = true;
     if (widget.slider("Min Pdf(x100)", mMinPdf100, 0.0f, 0.2f))
         mOptionsChanged = true;

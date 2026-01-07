@@ -90,7 +90,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         }
     }
 
-    static const std::string sceneNames[] = {"Arcade", "Tree", "BoxBunny", "Box", "Chandelier"};
+    static const std::string sceneNames[] = { "Arcade", "Tree", "BoxBunny", "Box", "Chandelier","Colosseum" };
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)
@@ -113,7 +113,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
     }
 
-    static const uint polygonPerFrames[] = {1000, 2000, 4000, 8000, 16000, 32000, 64000};
+    static const uint polygonPerFrames[] = { 1000, 2000, 4000, 8000, 16000, 32000, 64000 ,128000,256000 };
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(polygonPerFrames) / sizeof(uint); i++)
