@@ -585,7 +585,6 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         }
         else
         {
-            reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg);
             HitResult nextHit = hits[i + 1];
             uint nextOffset = vBuffer[nextHit.cellInt];
             float3 incidentLight = reflectLights[i + 1];
@@ -639,8 +638,8 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         return psOut;
 
     UniformSampleGenerator sg = UniformSampleGenerator(pixel, frameIndex);
-    from = from + inOut.x * delta;
-    HitResult hit = rayMarching(from, direction, -1, true);
+    from = from + (inOut.x + 1e-6) * delta;
+    HitResult hit = rayMarching(from, direction, -1, false);
     if (all(pixel == selectedPixel))
     {
         if (hit.hit)
