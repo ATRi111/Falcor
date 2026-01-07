@@ -16,17 +16,6 @@ struct PsOut
     float4 color : SV_Target0;
 };
 
-float3 pdfToColor(float pdf, float refPdf)
-{
-    float k = pdf / refPdf;
-    // 蓝->青->绿->黄->红->黑渐变
-    float3 c;
-    c.r = smoothstep(0.4, 1.0, k) - smoothstep(1.0, 5.0, k);
-    c.g = smoothstep(0.0, 0.4, k) - smoothstep(0.6, 1.0, k);
-    c.b = smoothstep(0.4, 0.0, k);
-    return c;
-}
-
 float3 calcColor(float2 localCoord, int offset, float3 v)
 {
     SurfaceBRDF BRDF = gBuffer[offset].surface;

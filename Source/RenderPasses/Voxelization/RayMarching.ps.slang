@@ -316,6 +316,28 @@ float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal, fl
     return hit.hit ? 0.f : 1.f;
 }
 
+float3 coverageTest(HitResult hit, uint offset, float3 direction)
+{
+    float coverage = 0;
+    float times = maxBounce;
+    while (times > 0)
+    {
+        PrimitiveBSDF bsdf = gBuffer[offset];
+        coverage += (1 - coverage) * bsdf.calcCoverage(direction);
+        if (coverage >= 1 - trasmittanceThreshold)
+        {
+            coverage = 1;
+            break;
+        }
+        hit = rayMarching(hit.cell, direction, -1, true);
+        if (!hit.hit)
+            break;
+        offset = vBuffer[hit.cellInt];
+        times--;
+    }
+    return valueToColor(coverage);
+}
+
 float3 debugShading(HitResult hit, uint offset, float3 v)
 {
     PrimitiveBSDF bsdf = gBuffer[offset];
@@ -328,8 +350,16 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
     case ABSDFDrawMode::EllipsoidProjArea:
         result = e.projectArea(v) / PI * 2;
         break;
-    case ABSDFDrawMode::EllipsoidCenter:
-        return e.center;
+    case ABSDFDrawMode::Ellipsoid:
+        float3 localPos = hit.cell - hit.cellInt;
+        float3 d = localPos - e.center;          
+        float3 p = d - v * dot(d, v);
+        float3 Bp = mul(e.B, p);
+        float3 Bn = mul(e.B, v);
+        float denom = max(dot(v, Bn), 1e-8f);                     
+        float val = dot(p, Bp) - (dot(p, Bn) * dot(p, Bn)) / denom;
+        float t = 1.0f - safeSqrt(val);   
+        return pdfToColor(t, 1.0f);
     case ABSDFDrawMode::PolygonsProjArea:
         result = bsdf.polygonsProjAreaFunc.calc(v);
         break;
@@ -338,10 +368,6 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
         break;
     case ABSDFDrawMode::PrimitiveProjArea:
         result = bsdf.primitiveProjAreaFunc.calc(v);
-        break;
-    case ABSDFDrawMode::Coverage:
-        result = bsdf.calcCoverage(v);
-        // result += (result - 1) * 5; 
         break;
     case ABSDFDrawMode::InternalVisibility:
         result = bsdf.calcInternalVisibility(v);
@@ -367,7 +393,6 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
 {
     PrimitiveBSDF BSDF = gBuffer[offset];
     SurfaceBRDF BRDF = BSDF.surface;
-    float3 mainNormal = BRDF.getMainNormal(v);
     float3 posW = gridMin + hit.cell * voxelSize;
     uint lightCount = min(gScene.lightCount, MAX_LIGHT_COUNT - 1);
     float totalIlluminance = 0;
@@ -415,13 +440,8 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             maxDistances[i] = -1;
             break;
         }
-        if (dot(mainNormal, ls[i]) < 0)
-            illuminances[i] = 0;
-        else
-        {
-            illuminances[i] = (lightColors[i].x + lightColors[i].y + lightColors[i].z);
-            totalIlluminance += illuminances[i];
-        }
+        illuminances[i] = (lightColors[i].x + lightColors[i].y + lightColors[i].z);
+        totalIlluminance += illuminances[i];
     }
 #if !NO_ENV_MAP
     illuminances[lightCount] = 10; // TODO:计算环境贴图光照度
@@ -483,13 +503,11 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
             envMapSampler.sample(Next2(sg), envSample);
             l = envSample.dir;
         }
-        if (dot(mainNormal, l) < 0)
-            l = -l;
         h = normalizeSafe(l + v);
         if (bsdfWeight > 0)
-            localPdf += bsdfWeight * (BRDF.evalPdf(l, v, h) + BRDF.evalPdf(-l, v, normalizeSafe(-l + v)));
+            localPdf += bsdfWeight * BRDF.evalPdf(l, v, h);
         if (bsdfWeight < 1)
-            localPdf += (1 - bsdfWeight) * (envMapSampler.evalPdf(l) + envMapSampler.evalPdf(-l));
+            localPdf += (1 - bsdfWeight) * envMapSampler.evalPdf(l);
 
         pdf *= localPdf;
         lightColor = envMapSampler.eval(l);
@@ -503,6 +521,7 @@ float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGe
         return 0;
 
     pdf = max(pdf, minPdf);
+    float3 mainNormal = BRDF.getMainNormal(l);
     float visibility = calcLightVisibility(hit, l, mainNormal, maxDistance);
 
     if (visibility > 0)
@@ -643,6 +662,9 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
         {
         case ABSDFDrawMode::Default:
             color = shadingGlobal(hit, -direction, maxBounce, sg);
+            break;
+        case ABSDFDrawMode::Coverage:
+            color = coverageTest(hit, offset, direction);
             break;
         default:
             color = debugShading(hit, offset, -direction);

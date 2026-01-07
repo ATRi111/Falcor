@@ -6,8 +6,6 @@
 import Utils.Math.MathHelpers;
 #endif
 
-#define MAX_FIT_POINT_COUNT 100
-
 BEGIN_NAMESPACE_FALCOR
 
 struct Ellipse

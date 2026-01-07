@@ -41,6 +41,34 @@ float Lambda(float NdotX, float alpha)
     temp = safeSqrt(temp) / max(1e-6, NdotX) - 1;
     return temp / 2;
 }
+
+inline float3 sampleGGX_VNDF(float3 v, float alpha, float2 u)
+{
+    // 1) stretch view
+    float3 Vh = normalize(float3(alpha * v.x, alpha * v.y, v.z));
+
+    // 2) build orthonormal basis around Vh
+    float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+    float3 T1 = (lensq > 0.0f) ? float3(-Vh.y, Vh.x, 0.0f) * rsqrt(lensq) : float3(1, 0, 0);
+    float3 T2 = cross(Vh, T1);
+
+    // 3) uniform sample on disk (no trig)
+    float2 p = sample_disk_concentric(u);
+    float t1 = p.x;
+    float t2 = p.y;
+
+    // 4) Heitz “visible normals” warp
+    float s = 0.5f * (1.0f + Vh.z);
+    t2 = lerp(safeSqrt(max(0.0f, 1.0f - t1 * t1)), t2, s);
+
+    // 5) reproject to hemisphere
+    float3 Nh = t1 * T1 + t2 * T2
+              + safeSqrt(max(0.0f, 1.0f - t1 * t1 - t2 * t2)) * Vh;
+
+    // 6) unstretch
+    return normalize(float3(alpha * Nh.x, alpha * Nh.y, max(0.0f, Nh.z)));
+}
+
 #endif
 
 struct FrostbiteCosBRDF
@@ -110,11 +138,9 @@ struct CookTorrenceCosBRDF
 
     void sample<T : ISampleGenerator>(float3 v, out float3 l, out float3 h, inout T sg)
     {
-        float2 uDir = Next2(sg);
-        float phi = 2.0 * Pi * uDir.x;
-        float cosTheta = safeSqrt((1.0 - uDir.y) / (1.0 + (alpha * alpha - 1.0) * uDir.y));
-        float sinTheta = safeSqrt(1.0 - cosTheta * cosTheta);
-        h = float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+        float2 u = Next2(sg);
+        h = sampleGGX_VNDF(v, alpha, u);
+        float VdotH = dot(v, h);
         l = reflect(-v, h);
     }
 
@@ -122,7 +148,12 @@ struct CookTorrenceCosBRDF
     {
         if (l.z <= 0 || v.z <= 0)
             return 0;
-        return ggx(h.z, alpha) * h.z / (4.0 * max(1e-6, dot(v, h)));
+        float VdotH = dot(v, h);
+        if (VdotH <= 0)
+            return 0;
+        float D = ggx(h.z, alpha);
+        float G1 = 1.0 / (1.0 + Lambda(v.z, alpha));
+        return D * G1 * h.z / (4.0 * max(1e-6, v.z));
     }
 #endif
 };
@@ -160,6 +191,7 @@ struct LobeBRDF
         specularWeight = evalSpecularWeight();
     }
 
+    //只有l,v在平面两侧时，才会返回0
     float3 eval(float3 l, float3 v, float3 h)
     {
         bool negative = dot(v, n) < 0;
@@ -196,7 +228,7 @@ struct LobeBRDF
             h = -h;
         }
     }
-
+    //只有l,v在平面两侧时，才会返回0
     float evalPdf(float3 l, float3 v, float3 h)
     {
         bool negative = dot(v, n) < 0;

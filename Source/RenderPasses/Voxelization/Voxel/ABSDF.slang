@@ -110,7 +110,7 @@ enum class ABSDFDrawMode : uint32_t
 {
     Default,
     Normal,
-    EllipsoidCenter,
+    Ellipsoid,
     EllipsoidProjArea,
     PrimitiveProjArea,
     PolygonsProjArea,
@@ -124,7 +124,7 @@ FALCOR_ENUM_INFO(
     {
     { ABSDFDrawMode::Default, "Default" },
     { ABSDFDrawMode::Normal, "Normal" },
-    { ABSDFDrawMode::EllipsoidCenter, "EllipsoidCenter" },
+    { ABSDFDrawMode::Ellipsoid, "Ellipsoid" },
     { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
     { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
     { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
@@ -136,11 +136,24 @@ FALCOR_ENUM_INFO(
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);
 
+#if !defined(HOST_CODE)
 inline float3 valueToColor(float value)
 {
     if (value <= 1)
         return float3(value);
     return float3(value, 2 - value, 2 - value);
 }
+
+inline float3 pdfToColor(float pdf, float refPdf)
+{
+    float k = pdf / refPdf;
+    // 蓝(0)->青->绿->黄->红(1)->黑(5)渐变
+    float3 c;
+    c.r = smoothstep(0.4, 1.0, k) - smoothstep(1.0, 5.0, k);
+    c.g = smoothstep(0.0, 0.4, k) - smoothstep(0.6, 1.0, k);
+    c.b = smoothstep(0.4, 0.0, k);
+    return c;
+}
+#endif
 
 END_NAMESPACE_FALCOR
