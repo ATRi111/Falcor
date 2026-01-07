@@ -68,10 +68,6 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
         meshData["triOffset"] = triangleOffset;
         meshData["use16BitIndices"] = meshDesc.use16BitIndices();
         mLoadMeshPass->execute(pRenderContext, uint3(meshDesc.getTriangleCount(), 1, 1));
-        pRenderContext->uavBarrier(positions.get());
-        pRenderContext->uavBarrier(normals.get());
-        pRenderContext->uavBarrier(texCoords.get());
-        pRenderContext->uavBarrier(triangles.get());
 
         triangleOffset += meshDesc.getTriangleCount();
     }

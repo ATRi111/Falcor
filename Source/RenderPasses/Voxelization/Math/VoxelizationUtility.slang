@@ -11,12 +11,13 @@ inline bool approximatelyEqual(float3 a, float3 b, float tolerance = 1e-6)
            approximatelyEqual(a.z, b.z, tolerance);
 }
 
-inline float3 intersectAxisPlane(float3 S, float3 E, int axis, float bound)
+inline float3 intersectAxisPlane(float3 s, float3 e, int axis, float bound)
 {
-    float s = S[axis];
-    float e = E[axis];
-    float t = (bound - s) / (e - s);
-    return lerp(S, E, t);
+    float denom = e[axis] - s[axis];
+    if (denom == 0.0)
+        return s;
+    float t = (bound - s[axis]) / denom;
+    return lerp(s, e, t);
 }
 
 inline uint removeAdjacentRepeatPoints(inout float3 v[MAX_VERTEX_COUNT_PROCESSING], uint count)

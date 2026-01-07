@@ -127,7 +127,7 @@ private:
     ref<Device> mpDevice;
     std::vector<ref<Buffer>> mBuffers;
     std::vector<uint> voxelCount;       // 各组中的体素个数
-    std::vector<uint> gBufferOffsets;   // 每一组处理时，组内第一个体素在gBuffer中的偏移量
+    std::vector<uint> gBufferOffsets;   // 每一组内的第一个体素在gBuffer中的偏移量
     std::vector<uint> polygonCount;     // 各组中的多边形个数
 
     std::vector<Polygon> currentPolygons; // 正在处理的Polygon

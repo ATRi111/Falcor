@@ -41,18 +41,6 @@ int getOffset(int3 cellInt)
     return vBuffer[index];
 }
 
-void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
-{
-    int offset = getOffset(cellInt);
-    if (offset < gBufferOffset || offset >= gBufferOffset + groupVoxelCount)
-        return;
-
-    uint writeIndex;
-    InterlockedAdd(polygonCountBuffer[gBufferOffset], 1u, writeIndex);
-    writeIndex += polygonRangeBuffer[offset].localHead;
-    polygonBuffer[writeIndex] = polygon;
-}
-
 void clipTriangle(Triangle tri)
 {
     AABBInt aabb = tri.calcAABBInt();
@@ -65,7 +53,13 @@ void clipTriangle(Triangle tri)
         polygon.normal = float3(tri.TBN[0][2], tri.TBN[1][2], tri.TBN[2][2]); // 几何法线
         if (polygon.count >= 3)
         {
-
+            int offset = getOffset(cellInt);
+            if (offset < gBufferOffset || offset >= gBufferOffset + groupVoxelCount)
+                continue;
+            uint writeIndex;
+            InterlockedAdd(polygonCountBuffer[offset], 1u, writeIndex);
+            writeIndex += polygonRangeBuffer[offset].localHead;
+            polygonBuffer[writeIndex] = polygon;
         }
     }
 }

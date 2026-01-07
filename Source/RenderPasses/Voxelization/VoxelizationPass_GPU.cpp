@@ -4,6 +4,7 @@
 namespace
 {
 const std::string kSampleMeshProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/SampleMesh.cs.slang";
+const std::string kClipMeshProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/ClipMesh.cs.slang";
 
 }; // namespace
 
@@ -24,6 +25,7 @@ void VoxelizationPass_GPU::setScene(RenderContext* pRenderContext, const ref<Sce
 {
     VoxelizationPass::setScene(pRenderContext, pScene);
     mSampleMeshPass = nullptr;
+    mClipPolygonPass = nullptr;
 }
 
 void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderData& renderData)
@@ -110,9 +112,59 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     cpuSolidVoxelCount->unmap();
     cpuPolygonCountBuffer->unmap();
     cpuVBuffer->unmap();
+    pRenderContext->clearUAV(polygonCountBuffer->getUAV().get(), uint4(0));
+    pRenderContext->submit(true);
 }
 
 void VoxelizationPass_GPU::sample(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    if (!mClipPolygonPass)
+    {
+        ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
+        desc.addShaderLibrary(kClipMeshProgramFile).csEntry("main");
+        desc.addTypeConformances(mpScene->getTypeConformances());
+
+        DefineList defines;
+        defines.add(mpScene->getSceneDefines());
+        mClipPolygonPass = ComputePass::create(mpDevice, desc, defines, true);
+    }
+
+    ShaderVar var = mClipPolygonPass->getRootVar();
+    var[kPolygonRangeBuffer] = polygonRangeBuffer;
+    var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
+    var[vBuffer] = vBuffer;
+
+    uint groupVoxelCount = polygonGroup.getVoxelCount(mCompleteTimes);
+    auto cb = var["CB"];
+    cb["groupVoxelCount"] = groupVoxelCount;
+    cb["gBufferOffset"] = polygonGroup.getVoxelOffset(mCompleteTimes);
+
+    auto cb_grid = var["GridData"];
+    cb_grid["gridMin"] = gridData.gridMin;
+    cb_grid["voxelSize"] = gridData.voxelSize;
+    cb_grid["voxelCount"] = gridData.voxelCount;
+    var["polygonCountBuffer"] = polygonCountBuffer;
+
+    Tools::Profiler::BeginSample("Clip");
+    uint meshCount = mpScene->getMeshCount();
+    for (MeshID meshID{ 0 }; meshID.get() < meshCount; ++meshID)
+    {
+        MeshDesc meshDesc = mpScene->getMesh(meshID);
+        uint triangleCount = meshDesc.getTriangleCount();
+
+        auto cb_mesh = mSampleMeshPass->getRootVar()["MeshData"];
+        cb_mesh["vertexCount"] = meshDesc.vertexCount;
+        cb_mesh["vbOffset"] = meshDesc.vbOffset;
+        cb_mesh["triangleCount"] = triangleCount;
+        cb_mesh["ibOffset"] = meshDesc.ibOffset;
+        cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
+        cb_mesh["materialID"] = meshDesc.materialID;
+        mSampleMeshPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
+    }
+    pRenderContext->uavBarrier(polygonGroup.get(mCompleteTimes).get());
+    pRenderContext->submit(true);
+    Tools::Profiler::EndSample("Clip");
+
     VoxelizationPass::sample(pRenderContext, renderData);
 }

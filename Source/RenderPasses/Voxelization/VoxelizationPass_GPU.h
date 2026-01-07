@@ -24,6 +24,7 @@ public:
 private:
     uint maxSolidVoxelCount;
     ref<ComputePass> mSampleMeshPass;
+    ref<ComputePass> mClipPolygonPass;
 
     ref<SampleGenerator> mpSampleGenerator;
     ref<Sampler> mpSampler;
