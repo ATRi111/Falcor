@@ -28,16 +28,4 @@ struct VoxelData
     bool IsSolid() { return ABSDF.area > 0; }
 };
 
-enum class SampleStrategy : uint32_t
-{
-    EnviromentMap,
-    BSDF,
-    Mix,
-};
-FALCOR_ENUM_INFO(
-    SampleStrategy,
-    { { SampleStrategy::EnviromentMap, "EnviromentMap" }, { SampleStrategy::BSDF, "BSDF" }, { SampleStrategy::Mix, "Mix" } }
-);
-FALCOR_ENUM_REGISTER(SampleStrategy);
-
 END_NAMESPACE_FALCOR

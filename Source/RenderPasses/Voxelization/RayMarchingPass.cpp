@@ -23,7 +23,6 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mCheckCoverage = true;
     mUseMipmap = true;
     mDrawMode = 0;
-    mSampleStrategy = 2;
     mMaxBounce = 3;
     mRenderBackGround = true;
     mClearColor = float3(0);
@@ -118,17 +117,35 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         mpFullScreenPass->addDefine("USE_MIP_MAP", mUseMipmap ? "1" : "0");
         mpFullScreenPass->addDefine("DEBUG", mDebug ? "1" : "0");
 
-        auto var = mpFullScreenPass->getRootVar();
-        mpScene->bindShaderData(var["gScene"]);
         ref<EnvMap> pEnvMap = mpScene->getEnvMap();
-        mpFullScreenPass->addDefine("NO_ENV_MAP", pEnvMap ? "0" : "1");
+        mpFullScreenPass->addDefine("USE_ENV_MAP", pEnvMap ? "1" : "0");
+        mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
         if (pEnvMap)
         {
             if (!mpEnvMapSampler || mpEnvMapSampler->getEnvMap() != pEnvMap)
                 mpEnvMapSampler = std::make_unique<EnvMapSampler>(mpDevice, pEnvMap);
-            mpEnvMapSampler->bindShaderData(var["envMapSampler"]);
         }
+        if (mpScene->getRenderSettings().useEmissiveLights)
+        {
+            mpScene->getILightCollection(pRenderContext);
+        }
+        if (mpScene->useEmissiveLights())
+        {
+            if (!mpEmissiveSampler)
+                mpEmissiveSampler = std::make_unique<EmissivePowerSampler>(pRenderContext, mpScene->getILightCollection(pRenderContext));
 
+            mpEmissiveSampler->update(pRenderContext, mpScene->getILightCollection(pRenderContext));
+            auto defines = mpEmissiveSampler->getDefines();
+            mpFullScreenPass->getProgram()->addDefines(defines);
+        }
+        //必须在addDefine之后获取var
+        auto var = mpFullScreenPass->getRootVar();
+        mpScene->bindShaderData(var["gScene"]);
+        if (pEnvMap)
+            mpEnvMapSampler->bindShaderData(var["gEnvMapSampler"]);
+        if (mpScene->useEmissiveLights())
+            mpEmissiveSampler->bindShaderData(var["gEmissiveSampler"]);
+        
         var[kVBuffer] = renderData.getTexture(kVBuffer);
         var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
         var[kPBuffer] = renderData.getResource(kPBuffer)->asBuffer();
@@ -147,7 +164,6 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
         cb["shadowBias"] = mShadowBias100 / 100 / gridData.voxelSize.x;
         cb["drawMode"] = mDrawMode;
-        cb["sampleStrategy"] = mSampleStrategy;
         cb["maxBounce"] = mMaxBounce;
         cb["frameIndex"] = mFrameIndex;
         cb["minPdf"] = mMinPdf100 / 100;
@@ -200,8 +216,6 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.dropdown("Draw Mode", reinterpret_cast<ABSDFDrawMode&>(mDrawMode)))
         mOptionsChanged = true;
-    if (widget.dropdown("Sample Strategy", reinterpret_cast<SampleStrategy&>(mSampleStrategy)))
-        mOptionsChanged = true;
     if (widget.slider("Max Bounce", mMaxBounce, 0u, 4u))
         mOptionsChanged = true;
     if (widget.checkbox("Display NDF", mDisplayNDF))
@@ -238,6 +252,7 @@ void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& 
     mpScene = pScene;
     mpFullScreenPass = nullptr;
     mpDisplayNDFPass = nullptr;
+    mpEmissiveSampler = nullptr;
 }
 
 bool RayMarchingPass::onMouseEvent(const MouseEvent& mouseEvent)

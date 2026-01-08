@@ -28,10 +28,6 @@
 
 # Create materials
 
-#light = StandardMaterial('Light')
-#light.emissiveColor = float3(17, 12, 4)
-#light.emissiveFactor = 5
-
 floor = StandardMaterial('Floor')
 floor.baseColor = float4(0.725, 0.71, 0.68, 1.0)
 floor.roughness = 0.5
@@ -59,6 +55,10 @@ largeBox.roughness = 0.5
 smallBox = StandardMaterial('Small Box')
 smallBox.baseColor = float4(0.725, 0.71, 0.68, 1.0)
 smallBox.roughness = 0.5
+
+light = StandardMaterial('Light')
+light.emissiveColor = float3(17, 12, 4)
+light.emissiveFactor = 5
 
 # Create geometry
 
@@ -102,10 +102,10 @@ sceneBuilder.addMeshInstance(
     sceneBuilder.addTriangleMesh(cubeMesh, smallBox)
 )
 
-#sceneBuilder.addMeshInstance(
-#    sceneBuilder.addNode('Light', Transform(scaling=0.13, translation=float3(0, 0.549, 0), rotationEulerDeg=float3(180, 0, 0))),
-#    sceneBuilder.addTriangleMesh(quadMesh, light)
-#)
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode('Light', Transform(scaling=0.13, translation=float3(0, 0.549, 0), rotationEulerDeg=float3(180, 0, 0))),
+    sceneBuilder.addTriangleMesh(quadMesh, light)
+)
 
 # Create camera
 
@@ -116,7 +116,7 @@ camera.up = float3(0, 1, 0)
 camera.focalLength = 35.0
 sceneBuilder.addCamera(camera)
 
-pointLight = PointLight('Point light')
-pointLight.intensity = float3(0.2, 0.2, 0.2)
-pointLight.position = float3(0, 0.4, 0.05)
-sceneBuilder.addLight(pointLight)
+#pointLight = PointLight('Point light')
+#pointLight.intensity = float3(0.2, 0.2, 0.2)
+#pointLight.position = float3(0, 0.4, 0.05)
+#sceneBuilder.addLight(pointLight)

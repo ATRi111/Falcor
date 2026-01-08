@@ -28,6 +28,7 @@ target_sources(Voxelization PRIVATE
 
     VoxelizationShared.slang
     Shading.slang
+    MixLightSampler.slang
 
     VoxelizationPass.cpp
     VoxelizationPass.h

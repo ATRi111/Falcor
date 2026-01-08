@@ -1,18 +1,12 @@
 #include "Voxel/VoxelGrid.slang"
 #include "Math/VoxelizationUtility.slang"
-#include "Shading.slang"
 #include "VoxelizationShared.slang"
-import Scene.SceneTypes;
-import Scene.Scene;
+#include "MixLightSampler.slang"
 import Rendering.Materials.StandardMaterial;
 import Utils.Sampling.UniformSampleGenerator;
-import Scene.Lights.EnvMap;
-import Rendering.Lights.EnvMapSampler;
 
 #define MAX_BOUNCE 4
-#define MAX_LIGHT_COUNT 4
 
-ParameterBlock<EnvMapSampler> envMapSampler;
 Texture3D<int> vBuffer;
 StructuredBuffer<PrimitiveBSDF> gBuffer;
 StructuredBuffer<Ellipsoid> pBuffer;
@@ -392,140 +386,19 @@ float3 shading(uint offset, float3 l, float3 v, float3 h, float3 lightColor)
 float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGenerator sg)
 {
     PrimitiveBSDF BSDF = gBuffer[offset];
-    SurfaceBRDF BRDF = BSDF.surface;
     float3 posW = gridMin + hit.cell * voxelSize;
-    uint lightCount = min(gScene.lightCount, MAX_LIGHT_COUNT - 1);
-    float totalIlluminance = 0;
+    LightSample ls = {};
+    bool valid = sampleLight(posW, v, BSDF, sg, ls);
 
-    float3 l, h;
-    float3 lightColor = 0;
-    float maxDistance = 0;
-    float pdf = 1;
-
-    float3[MAX_LIGHT_COUNT] lightColors;
-    float[MAX_LIGHT_COUNT] illuminances;
-    float3[MAX_LIGHT_COUNT] ls;
-    float[MAX_LIGHT_COUNT] maxDistances;
-
-    for (uint i = 0; i < lightCount; i++)
-    {
-        LightData light = gScene.getLight(i);
-        switch (light.type)
-        {
-        case LightType::Point:
-            float3 toL = light.posW - posW;
-            ls[i] = normalize(toL);
-            maxDistances[i] = length(toL / voxelSize);
-            float sqrDistance = max(dot(toL, toL), 1e-4f);
-
-            float spot = 1.0f;
-            if (light.openingAngle < PI)
-            {
-                float cosTerm = dot(light.dirW, -ls[i]);
-                float cosOuter = light.cosOpeningAngle;
-                float innerAng = max(light.openingAngle - light.penumbraAngle, 0.0f);
-                float cosInner = cos(innerAng);
-
-                float t = saturate((cosTerm - cosOuter) / max(cosInner - cosOuter, 1e-6f));
-                spot = t * t * (3.0f - 2.0f * t);
-
-                if (light.penumbraAngle <= 0.0f)
-                    spot = (cosTerm >= cosOuter) ? 1.0f : 0.0f;
-            }
-            lightColors[i] = light.intensity * spot / sqrDistance;
-            break;
-        case LightType::Directional:
-            ls[i] = -light.dirW;
-            lightColors[i] = light.intensity;
-            maxDistances[i] = -1;
-            break;
-        }
-        illuminances[i] = (lightColors[i].x + lightColors[i].y + lightColors[i].z);
-        totalIlluminance += illuminances[i];
-    }
-#if !NO_ENV_MAP
-    illuminances[lightCount] = 10; // TODO:计算环境贴图光照度
-    maxDistances[lightCount] = -1; // 无穷远处
-    totalIlluminance += illuminances[lightCount];
-    lightCount++;
-#endif
-
-    bool isEnv = false;
-    if (totalIlluminance == 0)
+    if (!valid || ls.pdf <= 0 || all(ls.h == 0))
         return 0;
 
-    // 在若干个光源和环境光间选择一个
-    float r = Next(sg) * totalIlluminance;
-    for (uint i = 0; i < lightCount; i++)
-    {
-        if (illuminances[i] > 0)
-        {
-            r -= illuminances[i];
-            if (r <= 0 || i == lightCount - 1)
-            {
-                lightColor = lightColors[i];
-                l = ls[i];
-                maxDistance = maxDistances[i];
-                pdf = illuminances[i] / totalIlluminance;
-#if !NO_ENV_MAP
-                isEnv = (i == lightCount - 1);
-#endif
-                break;
-            }
-        }
-    }
-    float bsdfWeight = 1;
-
-    //采样光源时不考虑delta lobe
-    if (isEnv)
-    {
-        float localPdf = 0;
-        switch (sampleStrategy)
-        {
-        case SampleStrategy::EnviromentMap:
-            bsdfWeight = 0;
-            break;
-        case SampleStrategy::BSDF:
-            bsdfWeight = 1;
-            break;
-        case SampleStrategy::Mix:
-            bsdfWeight = BRDF.calcBRDFWeight();
-            break;
-        }
-
-        if (Next(sg) <= bsdfWeight)
-        {
-            BRDF.sample(v, l, h, sg);
-        }
-        else
-        {
-            EnvMapSample envSample;
-            envMapSampler.sample(Next2(sg), envSample);
-            l = envSample.dir;
-        }
-        h = normalizeSafe(l + v);
-        if (bsdfWeight > 0)
-            localPdf += bsdfWeight * BRDF.evalPdf(l, v, h);
-        if (bsdfWeight < 1)
-            localPdf += (1 - bsdfWeight) * envMapSampler.evalPdf(l);
-
-        pdf *= localPdf;
-        lightColor = envMapSampler.eval(l);
-    }
-    else
-    {
-        h = normalizeSafe(l + v);
-    }
-
-    if (all(h == 0))
-        return 0;
-
-    pdf = max(pdf, minPdf);
-    float3 mainNormal = BRDF.getMainNormal(l);
-    float visibility = calcLightVisibility(hit, l, mainNormal, maxDistance);
+    ls.pdf = max(ls.pdf, minPdf);
+    float3 mainNormal = BSDF.surface.getMainNormal(ls.l);
+    float visibility = calcLightVisibility(hit, ls.l, mainNormal, ls.distance / voxelSize.x);
 
     if (visibility > 0)
-        return visibility * shading(offset, l, v, h, lightColor) / pdf;
+        return visibility * shading(offset, ls.l, v, ls.h, ls.lightColor) / ls.pdf;
     return 0;
 }
 
@@ -579,7 +452,7 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         {
             if(leaveGrid && all(hs[i] == 0))
             {
-                float3 incidentLight = envMapSampler.eval(ls[i]);
+                float3 incidentLight = gEnvMapSampler.eval(ls[i]);
                 reflectLights[i] += shading(currentOffset, ls[i], currentV, hs[i], incidentLight) / pdfs[i];
             }
         }
