@@ -8,6 +8,134 @@ import Utils.Math.MathHelpers;
 
 BEGIN_NAMESPACE_FALCOR
 
+#if !defined(HOST_CODE)
+
+float3x3 identity3()
+{
+    return float3x3(
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1
+    );
+}
+
+float3x3 diag3(float3 d)
+{
+    return float3x3(
+        d.x, 0, 0,
+        0, d.y, 0,
+        0, 0, d.z
+    );
+}
+
+void swapf(inout float a, inout float b)
+{
+    float t = a; a = b; b = t;
+}
+
+void swapCols(inout float3x3 M, int a, int b)
+{
+    // swap column a and b (remember: indexing is [row][col])
+    for (int r = 0; r < 3; ++r)
+    {
+        float t = M[r][a];
+        M[r][a] = M[r][b];
+        M[r][b] = t;
+    }
+}
+
+// One Jacobi rotation to annihilate A[p][q] (A is symmetric)
+void jacobiRotateSym3(inout float3x3 A, inout float3x3 V, int p, int q)
+{
+    float apq = A[p][q];
+    if (abs(apq) < 1e-10f) return;
+
+    float app = A[p][p];
+    float aqq = A[q][q];
+
+    // Stable t/c/s computation.
+    // tau = (aqq - app) / (2*apq)
+    float tau = (aqq - app) / (2.0f * apq);
+
+    // handle tau == 0 correctly (t should be 1)
+    float t;
+    if (tau >= 0.0f)
+        t = 1.0f / (tau + sqrt(1.0f + tau * tau));
+    else
+        t = -1.0f / (-tau + sqrt(1.0f + tau * tau));
+
+    float c = rsqrt(1.0f + t * t);
+    float s = t * c;
+
+    // Update A's off-diagonal entries in rows/cols p,q
+    for (int k = 0; k < 3; ++k)
+    {
+        if (k == p || k == q) continue;
+
+        float akp = A[k][p];
+        float akq = A[k][q];
+
+        float newAkp = c * akp - s * akq;
+        float newAkq = s * akp + c * akq;
+
+        // Keep symmetry
+        A[k][p] = newAkp; A[p][k] = newAkp;
+        A[k][q] = newAkq; A[q][k] = newAkq;
+    }
+
+    // Update diagonal terms (and zero the target)
+    float newApp = c * c * app - 2.0f * s * c * apq + s * s * aqq;
+    float newAqq = s * s * app + 2.0f * s * c * apq + c * c * aqq;
+
+    A[p][p] = newApp;
+    A[q][q] = newAqq;
+    A[p][q] = 0.0f;
+    A[q][p] = 0.0f;
+
+    // Update eigenvector matrix: V = V * J  (rotate columns p,q)
+    // Since we store eigenvectors in columns, right-multiplication is correct.
+    for (int i = 0; i < 3; ++i)
+    {
+        float vip = V[i][p];
+        float viq = V[i][q];
+
+        float newVip = c * vip - s * viq;
+        float newViq = s * vip + c * viq;
+
+        V[i][p] = newVip;
+        V[i][q] = newViq;
+    }
+}
+
+// Eigen decomposition for symmetric 3x3.
+// Returns R (columns are eigenvectors), eval (eigenvalues).
+void eigenSym3_Jacobi(float3x3 A, out float3x3 R, out float3 eval)
+{
+    // Force symmetry just in case
+    A = 0.5f * (A + transpose(A));
+
+    R = identity3();
+
+    // Fixed sweeps: enough for 3x3 in practice
+    for (int sweep = 0; sweep < 8; ++sweep)
+    {
+        jacobiRotateSym3(A, R, 0, 1);
+        jacobiRotateSym3(A, R, 0, 2);
+        jacobiRotateSym3(A, R, 1, 2);
+    }
+
+    eval = float3(A[0][0], A[1][1], A[2][2]);
+
+    // Sort descending by eigenvalue (cov should be >=0)
+    if (eval.x < eval.y) { swapf(eval.x, eval.y); swapCols(R, 0, 1); }
+    if (eval.x < eval.z) { swapf(eval.x, eval.z); swapCols(R, 0, 2); }
+    if (eval.y < eval.z) { swapf(eval.y, eval.z); swapCols(R, 1, 2); }
+
+    // Optional: re-orthonormalize a bit (usually not needed for 3x3)
+    // You can skip for performance.
+}
+#endif
+
 struct Ellipse
 {
     float2x2 M; // 默认中心位于原点,y^TMy <=1
@@ -106,27 +234,99 @@ struct Ellipsoid
 
         cov = cov * (1.0f / totalArea);
 
-        cov = (transpose(cov) + cov) * 0.5f;
-        // 避免出现奇异矩阵
+        //cov = (transpose(cov) + cov) * 0.5f;
+        //// 避免出现奇异矩阵
+        //float tr = cov[0][0] + cov[1][1] + cov[2][2];
+        //float lam = 1e-6f * max(tr, 1e-6f);
+        //cov[0][0] += lam;
+        //cov[1][1] += lam;
+        //cov[2][2] += lam;
+
+        //float3x3 inv = inverse(cov);
+        //float maxDot = 1e-12f;
+        //for (size_t pi = 0; pi < range.count; ++pi)
+        //{
+        //    Polygon poly = polygons[pi + range.localHead];
+        //    for (uint i = 0; i < poly.count; ++i)
+        //    {
+        //        float3 v = poly.vertices[i] - center;
+        //        float temp = dot(v, mul(inv, v));
+        //        maxDot = max(maxDot, temp);
+        //    }
+        //}
+        //B = inv * (1.0f / maxDot);
+        //center -= range.cellInt;
+
+        float3 center0 = center;
+
+        // cov 已经对称化过的话可以略；否则做一次
+        cov = 0.5f * (cov + transpose(cov));
+
+        // 更推荐：用“与体素尺度相关”的正则，而不是 1e-6*trace 的固定写法
+        // 但先沿用你原逻辑，至少保证可逆
         float tr = cov[0][0] + cov[1][1] + cov[2][2];
         float lam = 1e-6f * max(tr, 1e-6f);
         cov[0][0] += lam;
         cov[1][1] += lam;
         cov[2][2] += lam;
 
-        float3x3 inv = inverse(cov);
-        float maxDot = 1e-12f;
+        // 1) PCA：拿主轴方向
+        float3x3 R;
+        float3 eval;
+        eigenSym3_Jacobi(cov, R, eval);
+
+        // 2) 扫所有顶点：在主轴坐标系里求 min/max
+        float3 qMin = float3(1e30f, 1e30f, 1e30f);
+        float3 qMax = float3(-1e30f, -1e30f, -1e30f);
+
         for (size_t pi = 0; pi < range.count; ++pi)
         {
             Polygon poly = polygons[pi + range.localHead];
             for (uint i = 0; i < poly.count; ++i)
             {
-                float3 v = poly.vertices[i] - center;
-                float temp = dot(v, mul(inv, v));
-                maxDot = max(maxDot, temp);
+                float3 p = poly.vertices[i] - center0;
+                float3 q = mul(transpose(R), p); // project to PCA axes
+
+                qMin = min(qMin, q);
+                qMax = max(qMax, q);
             }
         }
-        B = inv * (1.0f / maxDot);
+
+        // 3) 用 OBB 的中心/半长来设置椭球中心与半轴（先不做整体缩放）
+        float3 shift = 0.5f * (qMin + qMax);
+        float3 half = 0.5f * (qMax - qMin);
+
+        // 建议把椭球中心移到投影区间中心（这一步非常关键，会明显“变紧”）
+        center = center0 + mul(R, shift);
+
+        // 4) 防退化：给最小半轴（尤其薄片的“厚度”）
+        // 这个参数非常影响“挡光率稀释”：越大越容易漏光；越小数值越紧但可能抖。
+        float minHalf = 1e-3f; // 如果体素边长=1，从 1e-3~5e-3 试起
+        half = max(half, float3(minHalf, minHalf, minHalf));
+
+        // 5) 再扫一遍算 maxS，做一次整体缩放保证所有点都在椭球内
+        float3 invHalf2 = 1.0f / (half * half);
+        float maxS = 1e-12f;
+
+        for (size_t pi = 0; pi < range.count; ++pi)
+        {
+            Polygon poly = polygons[pi + range.localHead];
+            for (uint i = 0; i < poly.count; ++i)
+            {
+                float3 p = poly.vertices[i] - center;
+                float3 q = mul(transpose(R), p);
+
+                float s = q.x * q.x * invHalf2.x + q.y * q.y * invHalf2.y + q.z * q.z * invHalf2.z;
+                maxS = max(maxS, s);
+            }
+        }
+
+        // 6) 构造 B：x^T B x <= 1
+        float3 invR2 = invHalf2 / maxS; // 等价于把半轴乘 sqrt(maxS)
+        B = mul(R, mul(diag3(invR2), transpose(R)));
+        B = 0.5f * (B + transpose(B)); // 数值上强制对称
+
+        // 7) 保持你原来的“center 相对体素左下角偏移”的约定
         center -= range.cellInt;
     }
 #endif
