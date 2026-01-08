@@ -125,25 +125,27 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
             if (!mpEnvMapSampler || mpEnvMapSampler->getEnvMap() != pEnvMap)
                 mpEnvMapSampler = std::make_unique<EnvMapSampler>(mpDevice, pEnvMap);
         }
-        if (mpScene->getRenderSettings().useEmissiveLights)
-        {
-            mpScene->getILightCollection(pRenderContext);
-        }
-        if (mpScene->useEmissiveLights())
+        if (mDebug)
         {
             if (!mpEmissiveSampler)
-                mpEmissiveSampler = std::make_unique<EmissivePowerSampler>(pRenderContext, mpScene->getILightCollection(pRenderContext));
+            {
+                ref<ILightCollection> pLightCollection = mpScene->getILightCollection(pRenderContext);
+                mpEmissiveSampler = std::make_unique<EmissivePowerSampler>(pRenderContext, pLightCollection);
+                auto defines = mpEmissiveSampler->getDefines();
+                for (auto& define : defines)
+                {
+                    mpFullScreenPass->addDefine(define.first, define.second);
+                }
+            }
 
-            mpEmissiveSampler->update(pRenderContext, mpScene->getILightCollection(pRenderContext));
-            auto defines = mpEmissiveSampler->getDefines();
-            mpFullScreenPass->getProgram()->addDefines(defines);
+            //mpEmissiveSampler->update(pRenderContext, mpScene->getILightCollection(pRenderContext));
         }
         //必须在addDefine之后获取var
         auto var = mpFullScreenPass->getRootVar();
         mpScene->bindShaderData(var["gScene"]);
         if (pEnvMap)
             mpEnvMapSampler->bindShaderData(var["gEnvMapSampler"]);
-        if (mpScene->useEmissiveLights())
+        if (mDebug && mpScene->useEmissiveLights())
             mpEmissiveSampler->bindShaderData(var["gEmissiveSampler"]);
         
         var[kVBuffer] = renderData.getTexture(kVBuffer);
