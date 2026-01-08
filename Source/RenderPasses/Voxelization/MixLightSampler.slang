@@ -3,14 +3,15 @@ import Scene.SceneTypes;
 import Scene.Scene;
 import Scene.Lights.EnvMap;
 import Rendering.Lights.EnvMapSampler;
-import Rendering.Lights.EmissivePowerSampler;
+import Rendering.Lights.EmissiveLightSamplerHelpers;
 import Rendering.Lights.EmissiveLightSamplerInterface;
 import Utils.Sampling.SampleGeneratorInterface;
 
 #define LIGHT_TYPES 3
 #define MAX_LIGHT_COUNT 4
 
-ParameterBlock<EmissivePowerSampler> gEmissiveSampler;
+const static float MinLightDistance = 1e-6;
+
 ParameterBlock<EnvMapSampler> gEnvMapSampler;
 
 struct LightSample
@@ -18,7 +19,7 @@ struct LightSample
     float3 l;
     float3 h;
     float distance;
-    float3 lightColor;  //对于点光源和有向光，表示光照度；对于其他光源，表示亮度 
+    float3 lightColor; // 对于点光源和有向光，表示光照度；对于其他光源，表示亮度
     float pdf;
 };
 
@@ -33,7 +34,7 @@ bool inline sampleGeneralLight<S : ISampleGenerator>(float3 posW, float3 v, Prim
     float3[MAX_LIGHT_COUNT] lightColors;
     float[MAX_LIGHT_COUNT] illuminances;
     float3[MAX_LIGHT_COUNT] dirs;
-    float[MAX_LIGHT_COUNT] maxDistances;
+    float[MAX_LIGHT_COUNT] distances;
 
     for (uint i = 0; i < lightCount; i++)
     {
@@ -43,7 +44,7 @@ bool inline sampleGeneralLight<S : ISampleGenerator>(float3 posW, float3 v, Prim
         case LightType::Point:
             float3 toL = light.posW - posW;
             dirs[i] = normalize(toL);
-            maxDistances[i] = length(toL);
+            distances[i] = length(toL);
             float sqrDistance = max(dot(toL, toL), 1e-4f);
 
             float spot = 1.0f;
@@ -65,7 +66,7 @@ bool inline sampleGeneralLight<S : ISampleGenerator>(float3 posW, float3 v, Prim
         case LightType::Directional:
             dirs[i] = -light.dirW;
             lightColors[i] = light.intensity;
-            maxDistances[i] = -1;
+            distances[i] = -1;
             break;
         }
         illuminances[i] = (lightColors[i].x + lightColors[i].y + lightColors[i].z);
@@ -94,7 +95,7 @@ bool inline sampleGeneralLight<S : ISampleGenerator>(float3 posW, float3 v, Prim
     ls.lightColor = lightColors[selected];
     ls.l = dirs[selected];
     ls.h = normalizeSafe(ls.l + v);
-    ls.distance = maxDistances[selected];
+    ls.distance = distances[selected];
     ls.pdf = illuminances[selected] / totalIlluminance;
     return true;
 }
@@ -102,20 +103,32 @@ bool inline sampleGeneralLight<S : ISampleGenerator>(float3 posW, float3 v, Prim
 bool inline sampleEmmisive<S : ISampleGenerator>(float3 posW, float3 v, PrimitiveBSDF BSDF, inout S sg, inout LightSample ls)
 {
     TriangleLightSample tls;
-    bool valid = gEmissiveSampler.sampleLight(posW, float3(0, 0, 1), true, sg, tls);
-    if (!valid)
+
+    if (gScene.lightCollection.getActiveTriangleCount() == 0)
         return false;
+
+    float uLight = Next(sg);
+    uint triangleCount = gScene.lightCollection.getActiveTriangleCount();
+    uint idx = min((uint)(uLight * triangleCount), triangleCount - 1);
+    uint triangleIndex = gScene.lightCollection.activeTriangles[idx];
+    float triangleSelectionPdf = 1.f / (float)triangleCount;
+
+    // Sample the triangle uniformly.
+    float2 u = sampleNext2D(sg);
+    if (!sampleTriangle(posW, triangleIndex, u, tls))
+        return false;
+
     ls.l = tls.dir;
     ls.h = normalizeSafe(ls.l + v);
-    ls.distance = tls.distance;
+    ls.distance = max(tls.distance, MinLightDistance);
     ls.lightColor = tls.Le;
-    ls.pdf = tls.pdf;
+    ls.pdf = tls.pdf * triangleSelectionPdf;
     return true;
 }
 
 bool inline sampleEnvMap<S : ISampleGenerator>(float3 posW, float3 v, PrimitiveBSDF BSDF, inout S sg, inout LightSample ls)
 {
-    SurfaceBRDF BRDF = BSDF.surface;   //采样光源时不考虑delta lobe
+    SurfaceBRDF BRDF = BSDF.surface; // 采样光源时不考虑delta lobe
     float bsdfWeight = BRDF.calcBRDFWeight();
     ls.pdf = 0;
 
@@ -136,6 +149,7 @@ bool inline sampleEnvMap<S : ISampleGenerator>(float3 posW, float3 v, PrimitiveB
         ls.pdf += (1 - bsdfWeight) * gEnvMapSampler.evalPdf(ls.l);
 
     ls.lightColor = gEnvMapSampler.eval(ls.l);
+    ls.distance = -1;
     return true;
 }
 

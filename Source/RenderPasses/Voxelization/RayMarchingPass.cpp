@@ -119,35 +119,19 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
         ref<EnvMap> pEnvMap = mpScene->getEnvMap();
         mpFullScreenPass->addDefine("USE_ENV_MAP", pEnvMap ? "1" : "0");
-        mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
         if (pEnvMap)
         {
             if (!mpEnvMapSampler || mpEnvMapSampler->getEnvMap() != pEnvMap)
                 mpEnvMapSampler = std::make_unique<EnvMapSampler>(mpDevice, pEnvMap);
         }
-        if (mDebug)
-        {
-            if (!mpEmissiveSampler)
-            {
-                ref<ILightCollection> pLightCollection = mpScene->getILightCollection(pRenderContext);
-                mpEmissiveSampler = std::make_unique<EmissivePowerSampler>(pRenderContext, pLightCollection);
-                auto defines = mpEmissiveSampler->getDefines();
-                for (auto& define : defines)
-                {
-                    mpFullScreenPass->addDefine(define.first, define.second);
-                }
-            }
 
-            //mpEmissiveSampler->update(pRenderContext, mpScene->getILightCollection(pRenderContext));
-        }
-        //必须在addDefine之后获取var
+        mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
+        // 必须在addDefine之后获取var
         auto var = mpFullScreenPass->getRootVar();
         mpScene->bindShaderData(var["gScene"]);
         if (pEnvMap)
             mpEnvMapSampler->bindShaderData(var["gEnvMapSampler"]);
-        if (mDebug && mpScene->useEmissiveLights())
-            mpEmissiveSampler->bindShaderData(var["gEmissiveSampler"]);
-        
+
         var[kVBuffer] = renderData.getTexture(kVBuffer);
         var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
         var[kPBuffer] = renderData.getResource(kPBuffer)->asBuffer();
@@ -254,7 +238,6 @@ void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& 
     mpScene = pScene;
     mpFullScreenPass = nullptr;
     mpDisplayNDFPass = nullptr;
-    mpEmissiveSampler = nullptr;
 }
 
 bool RayMarchingPass::onMouseEvent(const MouseEvent& mouseEvent)

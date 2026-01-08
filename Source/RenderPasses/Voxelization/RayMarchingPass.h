@@ -2,7 +2,6 @@
 #include "VoxelizationBase.h"
 #include <Rendering/Lights/EnvMapSampler.h>
 #include <Core/Pass/FullScreenPass.h>
-#include "Rendering/Lights/EmissivePowerSampler.h"
 
 using namespace Falcor;
 
@@ -28,7 +27,6 @@ private:
     ref<Sampler> mpPointSampler;
     ref<Buffer> mSelectedVoxel;
     std::unique_ptr<EnvMapSampler> mpEnvMapSampler;
-    std::unique_ptr<EmissiveLightSampler> mpEmissiveSampler;
 
     GridData& gridData;
     uint mDrawMode;

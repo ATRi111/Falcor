@@ -60,6 +60,7 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
         mOptionsChanged = false;
     }
+    mpScene->getILightCollection(pRenderContext);
 
     if (!mPreparePass)
     {

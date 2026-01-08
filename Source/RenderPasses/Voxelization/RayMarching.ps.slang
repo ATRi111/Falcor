@@ -300,14 +300,17 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
 float calcTrasmissionVisibility(HitResult hit, float3 direction)
 {
     hit = rayMarching(hit.cell, direction, -1, true);
-    return hit.hit ? 0.f : 1.f;
+    return hit.hit ? 0 : 1;
 }
 
-float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal, float maxDistance)
+float calcLightVisibility(HitResult hit, float3 direction, float3 mainNormal, float distance)
 {
+    float ignoreDistance = 2; // 忽略光源附近的体素
+    if (distance >= 0 && distance <= ignoreDistance)
+        return 1;
     float3 from = hit.cell + shadowBias * mainNormal;
-    hit = rayMarching(from, direction, maxDistance, true);
-    return hit.hit ? 0.f : 1.f;
+    hit = rayMarching(from, direction, distance - ignoreDistance, true);
+    return hit.hit ? 0 : 1;
 }
 
 float3 coverageTest(HitResult hit, uint offset, float3 direction)
@@ -346,13 +349,13 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
         break;
     case ABSDFDrawMode::Ellipsoid:
         float3 localPos = hit.cell - hit.cellInt;
-        float3 d = localPos - e.center;          
+        float3 d = localPos - e.center;
         float3 p = d - v * dot(d, v);
         float3 Bp = mul(e.B, p);
         float3 Bn = mul(e.B, v);
-        float denom = max(dot(v, Bn), 1e-8f);                     
+        float denom = max(dot(v, Bn), 1e-8f);
         float val = dot(p, Bp) - (dot(p, Bn) * dot(p, Bn)) / denom;
-        float t = 1.0f - safeSqrt(val);   
+        float t = 1.0f - safeSqrt(val);
         return pdfToColor(t, 1.0f);
     case ABSDFDrawMode::PolygonsProjArea:
         result = bsdf.polygonsProjAreaFunc.calc(v);
@@ -382,7 +385,7 @@ float3 shading(uint offset, float3 l, float3 v, float3 h, float3 lightColor)
     return lightColor * BSDF.eval(l, v, h);
 }
 
-//随机采样方向，不确定光源是否可见
+// 随机采样方向，不确定光源是否可见
 float3 shadingDirect(HitResult hit, uint offset, float3 v, inout UniformSampleGenerator sg)
 {
     PrimitiveBSDF BSDF = gBuffer[offset];
@@ -446,11 +449,11 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         HitResult currentHit = hits[i];
         uint currentOffset = vBuffer[currentHit.cellInt];
         float3 currentV = i == 0 ? v : -ls[i - 1];
-     
+
         reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg);
         if (i == hitCount - 1)
         {
-            if(leaveGrid && all(hs[i] == 0))
+            if (leaveGrid && all(hs[i] == 0))
             {
                 float3 incidentLight = gEnvMapSampler.eval(ls[i]);
                 reflectLights[i] += shading(currentOffset, ls[i], currentV, hs[i], incidentLight) / pdfs[i];
