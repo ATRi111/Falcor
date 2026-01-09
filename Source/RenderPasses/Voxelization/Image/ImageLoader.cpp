@@ -22,6 +22,15 @@ ImageLoader::ImageLoader()
     }
 
     {
+        std::string folder = "E:/Project/Falcor/Scene/SpeedTree/Azalea/Textures/";
+        idToPath_Azalea[0] = folder + "T_Pink_Flower";
+        idToPath_Azalea[1] = folder + "T_Azalea_Leaves_2";
+        idToPath_Azalea[2] = folder + "T_Azalea_Leaves_1";
+        idToPath_Azalea[3] = folder + "T_Cap_01";
+        idToPath_Azalea[4] = folder + "T_FlowerStem_05";
+    }
+
+    {
         std::string folder = "E:/Project/Falcor/Scene/Box/Textures/";
         idToPath_Box[0] = folder + "Floor";
         idToPath_Box[1] = folder + "LeftWall";
@@ -103,6 +112,8 @@ void ImageLoader::setSceneName(std::string sceneName)
 {
     if (sceneName == "Arcade")
         pIdToPath = &idToPath_Arcade;
+    else if (sceneName == "Azalea")
+        pIdToPath = &idToPath_Azalea;
     else if (sceneName == "Box")
         pIdToPath = &idToPath_Box;
     else if (sceneName == "BoxBunny")
