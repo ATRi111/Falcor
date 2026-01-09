@@ -132,6 +132,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
                 mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
                 VoxelizationBase::LightChanged = false;
                 mpDevice->wait();
+                return;
             }
         }
         else

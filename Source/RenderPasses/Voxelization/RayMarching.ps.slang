@@ -487,7 +487,7 @@ float2 randomJitter()
 }
 float4 renderBackground(float3 direction)
 {
-#if !NO_ENV_MAP
+#if USE_ENV_MAP
     if (renderBackGround)
     {
         float3 color = gScene.envMap.eval(direction);
