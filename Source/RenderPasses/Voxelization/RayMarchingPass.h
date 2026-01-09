@@ -39,6 +39,7 @@ private:
     bool mCheckVisibility;
     bool mCheckCoverage;
     bool mUseMipmap;
+    bool mUseEmissiveLight;
     bool mDebug;
     bool mRenderBackGround;
     float3 mClearColor;

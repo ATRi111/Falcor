@@ -532,18 +532,18 @@ PsOut main(float2 texCoord: TEXCOORD, float4 pos: SV_POSITION)
     if (hit.hit)
     {
         float3 color = 0;
-#if USE_EMISSIVE_LIGHTS
-        float3 posW = gridMin + hit.cell * voxelSize;
-        if (checkHitEmissive(posW, voxelSize.x ,color))
-        {
-            psOut.color = float4(color, 1);
-            return psOut; // 命中自发光面片时中止后续计算
-        }
-#endif
         uint offset = vBuffer[hit.cellInt];
         switch (drawMode)
         {
         case ABSDFDrawMode::Default:
+#if USE_EMISSIVE_LIGHTS
+            float3 posW = gridMin + hit.cell * voxelSize;
+            if (checkHitEmissive(posW, voxelSize.x, color))
+            {
+                psOut.color = float4(color, 1);
+                return psOut; // 命中自发光面片时中止后续计算
+            }
+#endif
             color = shadingGlobal(hit, -direction, maxBounce, sg);
             break;
         case ABSDFDrawMode::Coverage:

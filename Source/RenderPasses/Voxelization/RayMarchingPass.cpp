@@ -17,6 +17,7 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     mShadowBias100 = 0.1f;
     mMinPdf100 = 0.1f;
     mTrasmittanceThreshold100 = 1.f;
+    mUseEmissiveLight = false;
     mDebug = false;
     mCheckEllipsoid = true;
     mCheckVisibility = true;
@@ -124,7 +125,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
             if (!mpEnvMapSampler || mpEnvMapSampler->getEnvMap() != pEnvMap)
                 mpEnvMapSampler = std::make_unique<EnvMapSampler>(mpDevice, pEnvMap);
         }
-        if (mDebug)
+        if (mUseEmissiveLight)
         {
             if (VoxelizationBase::LightChanged)
             {
@@ -198,13 +199,15 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 
 void RayMarchingPass::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
-    mDebug = false;
+    mUseEmissiveLight = false;
     VoxelizationBase::LightChanged = true;
 }
 
 void RayMarchingPass::renderUI(Gui::Widgets& widget)
 {
     if (widget.checkbox("Debug", mDebug))
+        mOptionsChanged = true;
+    if (widget.checkbox("Use Emissive Light", mUseEmissiveLight))
         mOptionsChanged = true;
     if (widget.checkbox("Check Ellipsoid", mCheckEllipsoid))
         mOptionsChanged = true;
@@ -260,6 +263,7 @@ void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& 
     mpFullScreenPass = nullptr;
     mpDisplayNDFPass = nullptr;
     mDebug = false;
+    mUseEmissiveLight = false;
 }
 
 bool RayMarchingPass::onMouseEvent(const MouseEvent& mouseEvent)
