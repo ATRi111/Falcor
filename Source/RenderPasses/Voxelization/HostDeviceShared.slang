@@ -113,4 +113,13 @@ inline float safePow(float x, float power)
 {
     return pow(max(0, x), power);
 }
+
 #endif
+
+inline float3 safeNormalize(float3 n)
+{
+    float len = length(n);
+    if (len > 0)
+        return n / len;
+    return float3(0);
+}

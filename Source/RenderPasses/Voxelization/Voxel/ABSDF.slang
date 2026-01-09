@@ -40,7 +40,8 @@ struct NDF
 #else
                 float3 n = weightedNormals[i].xyz;
 #endif
-                n = normalize(n);
+
+                n = safeNormalize(n);
                 roughness[i] /= weightedNormals[i].w;
                 weightedNormals[i] = float4(n, w / area);
             }
@@ -122,16 +123,16 @@ enum class ABSDFDrawMode : uint32_t
 FALCOR_ENUM_INFO(
     ABSDFDrawMode,
     {
-    { ABSDFDrawMode::Default, "Default" },
-    { ABSDFDrawMode::Normal, "Normal" },
-    { ABSDFDrawMode::Ellipsoid, "Ellipsoid" },
-    { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
-    { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
-    { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
-    { ABSDFDrawMode::TotalProjArea, "TotalProjArea" },
-    { ABSDFDrawMode::Coverage, "Coverage" },
-    { ABSDFDrawMode::InternalVisibility, "InternalVisibility" },
-    { ABSDFDrawMode::TotalArea, "TotalArea" },
+        { ABSDFDrawMode::Default, "Default" },
+        { ABSDFDrawMode::Normal, "Normal" },
+        { ABSDFDrawMode::Ellipsoid, "Ellipsoid" },
+        { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
+        { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
+        { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
+        { ABSDFDrawMode::TotalProjArea, "TotalProjArea" },
+        { ABSDFDrawMode::Coverage, "Coverage" },
+        { ABSDFDrawMode::InternalVisibility, "InternalVisibility" },
+        { ABSDFDrawMode::TotalArea, "TotalArea" },
     }
 );
 FALCOR_ENUM_REGISTER(ABSDFDrawMode);

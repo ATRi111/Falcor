@@ -23,7 +23,7 @@ inline float3 worldToLocal(float3 worldDir, float3 t, float3 b, float3 n)
 
 inline float3 calcShadingNormal(float3x3 TBN, float3 normal)
 {
-    return normalize(mul(TBN, normal));
+    return safeNormalize(mul(TBN, normal));
 }
 
 inline float3 calcBarycentricCoordinates(float3 vertices[3], float3 p)
@@ -64,14 +64,22 @@ inline float3 closestPointOnTriangle(float3 p, float3 a, float3 b, float3 c, out
     float d2 = dot(ac, ap);
 
     // Vertex region A
-    if (d1 <= 0.0f && d2 <= 0.0f) { bary = float3(1, 0, 0); return a; }
+    if (d1 <= 0.0f && d2 <= 0.0f)
+    {
+        bary = float3(1, 0, 0);
+        return a;
+    }
 
     float3 bp = p - b;
     float d3 = dot(ab, bp);
     float d4 = dot(ac, bp);
 
     // Vertex region B
-    if (d3 >= 0.0f && d4 <= d3) { bary = float3(0, 1, 0); return b; }
+    if (d3 >= 0.0f && d4 <= d3)
+    {
+        bary = float3(0, 1, 0);
+        return b;
+    }
 
     float vc = d1 * d4 - d3 * d2;
     // Edge region AB
@@ -87,7 +95,11 @@ inline float3 closestPointOnTriangle(float3 p, float3 a, float3 b, float3 c, out
     float d6 = dot(ac, cp);
 
     // Vertex region C
-    if (d6 >= 0.0f && d5 <= d6) { bary = float3(0, 0, 1); return c; }
+    if (d6 >= 0.0f && d5 <= d6)
+    {
+        bary = float3(0, 0, 1);
+        return c;
+    }
 
     float vb = d5 * d2 - d1 * d6;
     // Edge region AC
@@ -153,10 +165,7 @@ struct Triangle
         return (s0 >= 0) && (s1 >= 0) && (s2 >= 0);
     }
 
-    float3 barycentricCoordinates(float3 p)
-    {
-        return calcBarycentricCoordinates(vertices, p);
-    }
+    float3 barycentricCoordinates(float3 p) { return calcBarycentricCoordinates(vertices, p); }
 
     float2 lerpUV(float3 p)
     {

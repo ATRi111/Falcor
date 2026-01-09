@@ -62,8 +62,7 @@ inline float3 sampleGGX_VNDF(float3 v, float alpha, float2 u)
     t2 = lerp(safeSqrt(max(0.0f, 1.0f - t1 * t1)), t2, s);
 
     // 5) reproject to hemisphere
-    float3 Nh = t1 * T1 + t2 * T2
-              + safeSqrt(max(0.0f, 1.0f - t1 * t1 - t2 * t2)) * Vh;
+    float3 Nh = t1 * T1 + t2 * T2 + safeSqrt(max(0.0f, 1.0f - t1 * t1 - t2 * t2)) * Vh;
 
     // 6) unstretch
     return normalize(float3(alpha * Nh.x, alpha * Nh.y, max(0.0f, Nh.z)));
@@ -191,7 +190,7 @@ struct LobeBRDF
         specularWeight = evalSpecularWeight();
     }
 
-    //只有l,v在平面两侧时，才会返回0
+    // 只有l,v在平面两侧时，才会返回0
     float3 eval(float3 l, float3 v, float3 h)
     {
         bool negative = dot(v, n) < 0;
@@ -228,7 +227,7 @@ struct LobeBRDF
             h = -h;
         }
     }
-    //只有l,v在平面两侧时，才会返回0
+    // 只有l,v在平面两侧时，才会返回0
     float evalPdf(float3 l, float3 v, float3 h)
     {
         bool negative = dot(v, n) < 0;
@@ -261,9 +260,10 @@ struct SurfaceBRDF
         for (uint i = 0; i < LOBE_COUNT; i++)
         {
             float w = NDF.weightedNormals[i].w;
-            if (w > 0)
+            float3 n = NDF.weightedNormals[i].xyz;
+            if (w > 0 && dot(n, n) > 0)
             {
-                lobes[lobeCount].init(NDF.weightedNormals[i].xyz, ABSDF.diffuse, ABSDF.specular, NDF.roughness[i]);
+                lobes[lobeCount].init(n, ABSDF.diffuse, ABSDF.specular, NDF.roughness[i]);
                 weights[lobeCount] = NDF.weightedNormals[i].w; // 权重总和为1
                 lobeCount++;
             }
@@ -388,7 +388,7 @@ struct PrimitiveBSDF
     SphericalFunc totalProjAreaFunc;    // 所有多边形的总投影面积
     float area;
 
-    float coverage; //临时变量
+    float coverage; // 临时变量
 
 #if !defined(HOST_CODE)
     [mutating]
@@ -412,7 +412,7 @@ struct PrimitiveBSDF
         float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
         return saturate(polygonsProjArea / primitiveProjArea);
     }
-    //采样前必须调用此函数
+    // 采样前必须调用此函数
     [mutating]
     void updateCoverage(float3 direction, float threshould)
     {

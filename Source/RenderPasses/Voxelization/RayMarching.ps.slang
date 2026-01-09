@@ -444,8 +444,6 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     for (int i = hitCount - 1; i >= 0; i--)
     {
         reflectLights[i] = 0;
-        if (pdfs[i] <= 0)
-            continue;
         HitResult currentHit = hits[i];
         uint currentOffset = vBuffer[currentHit.cellInt];
         float3 currentV = i == 0 ? v : -ls[i - 1];
@@ -461,6 +459,8 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         }
         else
         {
+            if (pdfs[i] <= 0)
+                continue;
             HitResult nextHit = hits[i + 1];
             uint nextOffset = vBuffer[nextHit.cellInt];
             float3 incidentLight = reflectLights[i + 1];
