@@ -10,6 +10,38 @@ BEGIN_NAMESPACE_FALCOR
 
 #if !defined(HOST_CODE)
 
+struct Sphere
+{
+    float3 c;
+    float r;
+};
+
+void sphereInitFromTwoPoints(float3 a, float3 b, out Sphere s)
+{
+    s.c = 0.5f * (a + b);
+    s.r = length(b - s.c);
+    s.r = max(s.r, 1e-8f);
+}
+
+// Ritter expansion step: enlarge sphere to include p (if needed)
+void sphereExpandRitter(inout Sphere s, float3 p)
+{
+    float3 d = p - s.c;
+    float dist2 = dot(d, d);
+    float r2 = s.r * s.r;
+
+    if (dist2 > r2)
+    {
+        float dist = sqrt(dist2);
+        float newR = 0.5f * (s.r + dist);
+
+        // Move center toward p
+        float k = (newR - s.r) / max(dist, 1e-12f);
+        s.c += d * k;
+        s.r = newR;
+    }
+}
+
 float3x3 identity3()
 {
     return float3x3(
@@ -169,7 +201,6 @@ struct Ellipsoid
     [mutating]
     void fit(StructuredBuffer<Polygon> polygons, PolygonRange range)
     {
-        float3 sum = float3(0);
         float totalArea = 0.0f;
 
         center = range.calcCentroid(polygons, totalArea);
@@ -180,8 +211,9 @@ struct Ellipsoid
             return;
         }
 
-        float3x3 cov = zeros(); // xx,xy,xz,yx,yy,yz,zx,zy,zz
+        float3x3 cov = zeros();
 
+        // --- area-weighted second moment (your original code) ---
         for (size_t pi = 0; pi < range.count; ++pi)
         {
             Polygon poly = polygons[pi + range.localHead];
@@ -197,16 +229,12 @@ struct Ellipsoid
                 float3 ac = c - a;
                 float3 s = cross(ab, ac);
                 float area = sqrt(dot(s, s)) * 0.5f;
-                if (area <= 0)
-                    continue;
+                if (area <= 0) continue;
 
-                // 在局部坐标系下计算
                 float3 a0 = a - center;
                 float3 b0 = b - center;
                 float3 c0 = c - center;
 
-                // 对三角形 T(a0,b0,c0) 有解析公式：
-                // ∫_T y y^T dA = area / 12 * ( (a0+b0+c0)(a0+b0+c0)^T + a0 a0^T + b0 b0^T + c0 c0^T )
                 float3 S1 = a0 + b0 + c0;
 
                 float ax = a0.x, ay = a0.y, az = a0.z;
@@ -217,7 +245,6 @@ struct Ellipsoid
 
                 float w = area / 12.0f;
 
-                // cov += w * (S1*S1^T + a0*a0^T + b0*b0^T + c0*c0^T)
                 cov[0][0] += w * (sx * sx + ax * ax + bx * bx + cx * cx);
                 cov[0][1] += w * (sx * sy + ax * ay + bx * by + cx * cy);
                 cov[0][2] += w * (sx * sz + ax * az + bx * bz + cx * cz);
@@ -234,50 +261,28 @@ struct Ellipsoid
 
         cov = cov * (1.0f / totalArea);
 
-        //cov = (transpose(cov) + cov) * 0.5f;
-        //// 避免出现奇异矩阵
-        //float tr = cov[0][0] + cov[1][1] + cov[2][2];
-        //float lam = 1e-6f * max(tr, 1e-6f);
-        //cov[0][0] += lam;
-        //cov[1][1] += lam;
-        //cov[2][2] += lam;
-
-        //float3x3 inv = inverse(cov);
-        //float maxDot = 1e-12f;
-        //for (size_t pi = 0; pi < range.count; ++pi)
-        //{
-        //    Polygon poly = polygons[pi + range.localHead];
-        //    for (uint i = 0; i < poly.count; ++i)
-        //    {
-        //        float3 v = poly.vertices[i] - center;
-        //        float temp = dot(v, mul(inv, v));
-        //        maxDot = max(maxDot, temp);
-        //    }
-        //}
-        //B = inv * (1.0f / maxDot);
-        //center -= range.cellInt;
-
+        // --- symmetrize + regularize ---
         float3 center0 = center;
 
-        // cov 已经对称化过的话可以略；否则做一次
         cov = 0.5f * (cov + transpose(cov));
-
-        // 更推荐：用“与体素尺度相关”的正则，而不是 1e-6*trace 的固定写法
-        // 但先沿用你原逻辑，至少保证可逆
         float tr = cov[0][0] + cov[1][1] + cov[2][2];
         float lam = 1e-6f * max(tr, 1e-6f);
         cov[0][0] += lam;
         cov[1][1] += lam;
         cov[2][2] += lam;
 
-        // 1) PCA：拿主轴方向
+        // --- PCA axes ---
         float3x3 R;
         float3 eval;
-        eigenSym3_Jacobi(cov, R, eval);
+        eigenSym3_Jacobi(cov, R, eval); // columns are eigenvectors
 
-        // 2) 扫所有顶点：在主轴坐标系里求 min/max
+        // --- Pass 1: get qMin/qMax, AND keep the q that achieves min/max on each axis ---
         float3 qMin = float3(1e30f, 1e30f, 1e30f);
         float3 qMax = float3(-1e30f, -1e30f, -1e30f);
+
+        float3 qMinPt0 = float3(0), qMaxPt0 = float3(0);
+        float3 qMinPt1 = float3(0), qMaxPt1 = float3(0);
+        float3 qMinPt2 = float3(0), qMaxPt2 = float3(0);
 
         for (size_t pi = 0; pi < range.count; ++pi)
         {
@@ -285,48 +290,101 @@ struct Ellipsoid
             for (uint i = 0; i < poly.count; ++i)
             {
                 float3 p = poly.vertices[i] - center0;
-                float3 q = mul(transpose(R), p); // project to PCA axes
+                float3 q = mul(transpose(R), p);
 
-                qMin = min(qMin, q);
-                qMax = max(qMax, q);
+                if (q.x < qMin.x) { qMin.x = q.x; qMinPt0 = q; }
+                if (q.x > qMax.x) { qMax.x = q.x; qMaxPt0 = q; }
+
+                if (q.y < qMin.y) { qMin.y = q.y; qMinPt1 = q; }
+                if (q.y > qMax.y) { qMax.y = q.y; qMaxPt1 = q; }
+
+                if (q.z < qMin.z) { qMin.z = q.z; qMinPt2 = q; }
+                if (q.z > qMax.z) { qMax.z = q.z; qMaxPt2 = q; }
             }
         }
 
-        // 3) 用 OBB 的中心/半长来设置椭球中心与半轴（先不做整体缩放）
         float3 shift = 0.5f * (qMin + qMax);
         float3 half = 0.5f * (qMax - qMin);
 
-        // 建议把椭球中心移到投影区间中心（这一步非常关键，会明显“变紧”）
-        center = center0 + mul(R, shift);
-
-        // 4) 防退化：给最小半轴（尤其薄片的“厚度”）
-        // 这个参数非常影响“挡光率稀释”：越大越容易漏光；越小数值越紧但可能抖。
-        float minHalf = 1e-3f; // 如果体素边长=1，从 1e-3~5e-3 试起
+        // degeneracy guard (very important for thin planes)
+        float minHalf = 1e-3f; // if voxel size == 1; adjust if needed
         half = max(half, float3(minHalf, minHalf, minHalf));
+        float3 invHalf = 1.0f / half;
 
-        // 5) 再扫一遍算 maxS，做一次整体缩放保证所有点都在椭球内
-        float3 invHalf2 = 1.0f / (half * half);
-        float maxS = 1e-12f;
+        // --- Enhanced step: Ritter bounding sphere in normalized space y = (q - shift)/half ---
+        float3 yExt[6];
+        yExt[0] = (qMinPt0 - shift) * invHalf;
+        yExt[1] = (qMaxPt0 - shift) * invHalf;
+        yExt[2] = (qMinPt1 - shift) * invHalf;
+        yExt[3] = (qMaxPt1 - shift) * invHalf;
+        yExt[4] = (qMinPt2 - shift) * invHalf;
+        yExt[5] = (qMaxPt2 - shift) * invHalf;
 
+        int ia = 0, ib = 1;
+        float bestD2 = -1.0f;
+        [unroll] for (int a = 0; a < 6; ++a)
+        {
+            [unroll] for (int b = a + 1; b < 6; ++b)
+            {
+                float3 d = yExt[b] - yExt[a];
+                float d2 = dot(d, d);
+                if (d2 > bestD2)
+                {
+                    bestD2 = d2;
+                    ia = a; ib = b;
+                }
+            }
+        }
+
+        Sphere sph;
+        sphereInitFromTwoPoints(yExt[ia], yExt[ib], sph);
+
+        // Pass 2: expand to include all points
         for (size_t pi = 0; pi < range.count; ++pi)
         {
             Polygon poly = polygons[pi + range.localHead];
             for (uint i = 0; i < poly.count; ++i)
             {
-                float3 p = poly.vertices[i] - center;
+                float3 p = poly.vertices[i] - center0;
                 float3 q = mul(transpose(R), p);
-
-                float s = q.x * q.x * invHalf2.x + q.y * q.y * invHalf2.y + q.z * q.z * invHalf2.z;
-                maxS = max(maxS, s);
+                float3 y = (q - shift) * invHalf;
+                sphereExpandRitter(sph, y);
             }
         }
 
-        // 6) 构造 B：x^T B x <= 1
-        float3 invR2 = invHalf2 / maxS; // 等价于把半轴乘 sqrt(maxS)
-        B = mul(R, mul(diag3(invR2), transpose(R)));
-        B = 0.5f * (B + transpose(B)); // 数值上强制对称
+        // Pass 3 (recommended): recompute tight radius for the final center (still guaranteed enclosing)
+        float r2 = 0.0f;
+        for (size_t pi = 0; pi < range.count; ++pi)
+        {
+            Polygon poly = polygons[pi + range.localHead];
+            for (uint i = 0; i < poly.count; ++i)
+            {
+                float3 p = poly.vertices[i] - center0;
+                float3 q = mul(transpose(R), p);
+                float3 y = (q - shift) * invHalf;
 
-        // 7) 保持你原来的“center 相对体素左下角偏移”的约定
+                float3 d = y - sph.c;
+                r2 = max(r2, dot(d, d));
+            }
+        }
+        sph.r = sqrt(r2) * (1.0f + 1e-6f);
+
+        // --- Build ellipsoid from sphere back-transform ---
+        // center in PCA space:
+        float3 qCenter = shift + half * sph.c;
+
+        // world center:
+        center = center0 + mul(R, qCenter);
+
+        // semi-axes (componentwise):
+        float3 axis = half * sph.r;
+        axis = max(axis, float3(minHalf, minHalf, minHalf));
+
+        float3 invAxis2 = 1.0f / (axis * axis);
+        B = mul(R, mul(diag3(invAxis2), transpose(R)));
+        B = 0.5f * (B + transpose(B));
+
+        // keep your convention
         center -= range.cellInt;
     }
 #endif
