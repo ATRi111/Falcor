@@ -26,6 +26,95 @@ inline float3 calcShadingNormal(float3x3 TBN, float3 normal)
     return normalize(mul(TBN, normal));
 }
 
+inline float3 calcBarycentricCoordinates(float3 vertices[3], float3 p)
+{
+    float3 v0 = vertices[1] - vertices[0];
+    float3 v1 = vertices[2] - vertices[0];
+    float3 v2 = p - vertices[0];
+
+    float d00 = dot(v0, v0);
+    float d01 = dot(v0, v1);
+    float d11 = dot(v1, v1);
+    float d20 = dot(v2, v0);
+    float d21 = dot(v2, v1);
+
+    float denom = d00 * d11 - d01 * d01;
+
+    if (abs(denom) < 1e-8)
+        return float3(1) / float3(3);
+
+    float v = (d11 * d20 - d01 * d21) / denom;
+    float w = (d00 * d21 - d01 * d20) / denom;
+    float u = 1 - v - w;
+
+    return float3(u, v, w);
+}
+
+// 返回点p到三角形abc的最近点，及其重心坐标
+#if defined(HOST_CODE)
+inline float3 closestPointOnTriangle(float3 p, float3 a, float3 b, float3 c, float3& bary)
+#else
+inline float3 closestPointOnTriangle(float3 p, float3 a, float3 b, float3 c, out float3 bary)
+#endif
+{
+    float3 ab = b - a;
+    float3 ac = c - a;
+    float3 ap = p - a;
+    float d1 = dot(ab, ap);
+    float d2 = dot(ac, ap);
+
+    // Vertex region A
+    if (d1 <= 0.0f && d2 <= 0.0f) { bary = float3(1, 0, 0); return a; }
+
+    float3 bp = p - b;
+    float d3 = dot(ab, bp);
+    float d4 = dot(ac, bp);
+
+    // Vertex region B
+    if (d3 >= 0.0f && d4 <= d3) { bary = float3(0, 1, 0); return b; }
+
+    float vc = d1 * d4 - d3 * d2;
+    // Edge region AB
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f)
+    {
+        float v = d1 / (d1 - d3);
+        bary = float3(1 - v, v, 0);
+        return a + v * ab;
+    }
+
+    float3 cp = p - c;
+    float d5 = dot(ab, cp);
+    float d6 = dot(ac, cp);
+
+    // Vertex region C
+    if (d6 >= 0.0f && d5 <= d6) { bary = float3(0, 0, 1); return c; }
+
+    float vb = d5 * d2 - d1 * d6;
+    // Edge region AC
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f)
+    {
+        float w = d2 / (d2 - d6);
+        bary = float3(1 - w, 0, w);
+        return a + w * ac;
+    }
+
+    float va = d3 * d6 - d5 * d4;
+    // Edge region BC
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f)
+    {
+        float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        bary = float3(0, 1 - w, w);
+        return b + w * (c - b);
+    }
+
+    // Inside face region
+    float denom = max(va + vb + vc, 1e-20f);
+    float v = vb / denom;
+    float w = vc / denom;
+    bary = float3(1 - v - w, v, w);
+    return a + ab * v + ac * w;
+}
+
 struct Triangle
 {
     float3 vertices[3];
@@ -66,26 +155,7 @@ struct Triangle
 
     float3 barycentricCoordinates(float3 p)
     {
-        float3 v0 = vertices[1] - vertices[0];
-        float3 v1 = vertices[2] - vertices[0];
-        float3 v2 = p - vertices[0];
-
-        float d00 = dot(v0, v0);
-        float d01 = dot(v0, v1);
-        float d11 = dot(v1, v1);
-        float d20 = dot(v2, v0);
-        float d21 = dot(v2, v1);
-
-        float denom = d00 * d11 - d01 * d01;
-
-        if (abs(denom) < 1e-8)
-            return float3(1) / float3(3);
-
-        float v = (d11 * d20 - d01 * d21) / denom;
-        float w = (d00 * d21 - d01 * d20) / denom;
-        float u = 1 - v - w;
-
-        return float3(u, v, w);
+        return calcBarycentricCoordinates(vertices, p);
     }
 
     float2 lerpUV(float3 p)

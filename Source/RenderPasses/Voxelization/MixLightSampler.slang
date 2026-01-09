@@ -1,4 +1,5 @@
 #include "Shading.slang"
+#include "Math/Triangle.slang"
 import Scene.SceneTypes;
 import Scene.Scene;
 import Scene.Lights.EnvMap;
@@ -22,6 +23,35 @@ struct LightSample
     float3 lightColor; // 对于点光源和有向光，表示光照度；对于其他光源，表示亮度
     float pdf;
 };
+
+bool checkHitEmissive(float3 posW, float tolerance, out float3 lightColor)
+{
+    float minDistance = tolerance;
+    uint n = gScene.lightCollection.getActiveTriangleCount();
+    uint selectedID;
+    float2 selecetdUV;
+    for (uint i = 0; i < n; i++)
+    {
+        const EmissiveTriangle tri = gScene.lightCollection.getTriangle(i);
+        float3 bary;
+        float3 closest = closestPointOnTriangle(posW, tri.posW[0], tri.posW[1], tri.posW[2], bary);
+        float distance = length(posW - closest);
+        if (distance < minDistance)
+        {
+            minDistance = distance;
+            selectedID = tri.materialID;
+            selecetdUV = tri.getTexCoord(bary);
+        }
+    }
+
+    if (minDistance < tolerance)
+    {
+        lightColor = gScene.materials.evalEmissive(selectedID, selecetdUV);
+        return true;
+    }
+    lightColor = 0;
+    return false;
+}
 
 bool inline sampleGeneralLight<S : ISampleGenerator>(float3 posW, float3 v, PrimitiveBSDF BSDF, inout S sg, inout LightSample ls)
 {
@@ -103,12 +133,12 @@ bool inline sampleGeneralLight<S : ISampleGenerator>(float3 posW, float3 v, Prim
 bool inline sampleEmmisive<S : ISampleGenerator>(float3 posW, float3 v, PrimitiveBSDF BSDF, inout S sg, inout LightSample ls)
 {
     TriangleLightSample tls;
+    uint triangleCount = gScene.lightCollection.getActiveTriangleCount();
 
-    if (gScene.lightCollection.getActiveTriangleCount() == 0)
+    if (triangleCount == 0)
         return false;
 
     float uLight = Next(sg);
-    uint triangleCount = gScene.lightCollection.getActiveTriangleCount();
     uint idx = min((uint)(uLight * triangleCount), triangleCount - 1);
     uint triangleIndex = gScene.lightCollection.activeTriangles[idx];
     float triangleSelectionPdf = 1.f / (float)triangleCount;

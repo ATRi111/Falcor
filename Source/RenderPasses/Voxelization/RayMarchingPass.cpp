@@ -124,8 +124,21 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
             if (!mpEnvMapSampler || mpEnvMapSampler->getEnvMap() != pEnvMap)
                 mpEnvMapSampler = std::make_unique<EnvMapSampler>(mpDevice, pEnvMap);
         }
-
-        mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
+        if (mDebug)
+        {
+            if (VoxelizationBase::LightChanged)
+            {
+                mpScene->getILightCollection(pRenderContext);
+                mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
+                VoxelizationBase::LightChanged = false;
+                mpDevice->wait();
+            }
+        }
+        else
+        {
+            mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", "0");
+        }
+        
         // 必须在addDefine之后获取var
         auto var = mpFullScreenPass->getRootVar();
         mpScene->bindShaderData(var["gScene"]);
@@ -182,6 +195,12 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
     }
 }
 
+void RayMarchingPass::compile(RenderContext* pRenderContext, const CompileData& compileData)
+{
+    mDebug = false;
+    VoxelizationBase::LightChanged = true;
+}
+
 void RayMarchingPass::renderUI(Gui::Widgets& widget)
 {
     if (widget.checkbox("Debug", mDebug))
@@ -225,7 +244,8 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
             else
                 mOutputResolution = uint2(mSelectedResolution, mSelectedResolution);
             ref<Camera> camera = mpScene->getCamera();
-            camera->setAspectRatio(mOutputResolution.x / (float)mOutputResolution.y);
+            if(camera)
+                camera->setAspectRatio(mOutputResolution.x / (float)mOutputResolution.y);
             requestRecompile();
         }
     }
@@ -238,6 +258,7 @@ void RayMarchingPass::setScene(RenderContext* pRenderContext, const ref<Scene>& 
     mpScene = pScene;
     mpFullScreenPass = nullptr;
     mpDisplayNDFPass = nullptr;
+    mDebug = false;
 }
 
 bool RayMarchingPass::onMouseEvent(const MouseEvent& mouseEvent)

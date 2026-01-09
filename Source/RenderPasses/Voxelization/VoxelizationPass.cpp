@@ -83,11 +83,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         {
             list.push_back({resolutions[i], std::to_string(resolutions[i])});
         }
-        if (widget.dropdown("Voxel Resolution", list, mVoxelResolution))
-        {
-            VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
-            requestRecompile();
-        }
+        widget.dropdown("Voxel Resolution", list, mVoxelResolution);
     }
 
     static const std::string sceneNames[] = { "Arcade", "Tree", "BoxBunny", "Box", "Chandelier","Colosseum" };
@@ -125,10 +121,12 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
 
     if (mpScene && mVoxelizationComplete && mSamplingComplete && widget.button("Generate"))
     {
+        VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
         ImageLoader::Instance().setSceneName(mSceneName);
         mVoxelizationComplete = false;
         mSamplingComplete = false;
         mCompleteTimes = 0;
+        requestRecompile();
     }
 }
 

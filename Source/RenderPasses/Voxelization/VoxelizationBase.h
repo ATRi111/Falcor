@@ -63,6 +63,7 @@ public:
     static uint3 MinFactor; // 网格的分辨率必须是此值的整数倍
     static bool FileUpdated;
     static std::string ResourceFolder;
+    static bool LightChanged;
 
     static void UpdateVoxelGrid(ref<Scene> scene, uint voxelResolution)
     {
