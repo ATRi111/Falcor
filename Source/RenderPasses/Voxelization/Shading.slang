@@ -404,6 +404,9 @@ struct PrimitiveBSDF
 
     float calcCoverage(float3 direction)
     {
+#if !CHECK_COVERAGE
+        return 1;
+#endif
         float primitiveProjArea = primitiveProjAreaFunc.calc(direction);
         if (primitiveProjArea <= 0)
             return 1;

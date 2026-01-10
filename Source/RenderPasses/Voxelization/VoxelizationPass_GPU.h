@@ -20,6 +20,8 @@ public:
 
     virtual void voxelize(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void sample(RenderContext* pRenderContext, const RenderData& renderData) override;
+    virtual void renderUI(Gui::Widgets& widget) override;
+    virtual std::string getFileName() override;
 
 private:
     uint maxSolidVoxelCount;
@@ -29,7 +31,8 @@ private:
     ref<SampleGenerator> mpSampleGenerator;
     ref<Sampler> mpSampler;
 
-    ref<Buffer> vBuffer;    //GPU上的vBuffer对于CPU管线来说不需要
+    ref<Buffer> vBuffer; // GPU上的vBuffer对于CPU管线来说不需要
     ref<Buffer> polygonCountBuffer;
     std::vector<uint> vBuffer_CPU;
+    double mSolidRate;
 };

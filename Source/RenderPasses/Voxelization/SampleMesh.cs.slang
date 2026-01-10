@@ -10,7 +10,7 @@ import Utils.Math.MathHelpers;
 import Rendering.Materials.TexLODHelpers;
 import Scene.Material.BasicMaterialData;
 
-#define DISABLE_LOCK 0
+#define DISABLE_LOCK 1
 
 RWStructuredBuffer<int> vBuffer;
 RWStructuredBuffer<VoxelData> gBuffer;

@@ -11,12 +11,6 @@
 #include <random>
 using namespace Falcor;
 
-inline std::string ToString(size_t n)
-{
-    std::ostringstream oss;
-    oss << n;
-    return oss.str();
-}
 inline std::string ToString(float3 v)
 {
     std::ostringstream oss;
@@ -127,9 +121,9 @@ private:
     GridData& gridData;
     ref<Device> mpDevice;
     std::vector<ref<Buffer>> mBuffers;
-    std::vector<uint> voxelCount;       // 各组中的体素个数
-    std::vector<uint> gBufferOffsets;   // 每一组内的第一个体素在gBuffer中的偏移量
-    std::vector<uint> polygonCount;     // 各组中的多边形个数
+    std::vector<uint> voxelCount;     // 各组中的体素个数
+    std::vector<uint> gBufferOffsets; // 每一组内的第一个体素在gBuffer中的偏移量
+    std::vector<uint> polygonCount;   // 各组中的多边形个数
 
     std::vector<Polygon> currentPolygons; // 正在处理的Polygon
     uint currentVoxelCount = 0;
@@ -145,9 +139,11 @@ private:
         else
             gBufferOffsets.push_back(voxelCount.back() + gBufferOffsets.back());
 
-        ref<Buffer> buffer = mpDevice->createStructuredBuffer(sizeof(Polygon), currentPolygonCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess);
+        ref<Buffer> buffer = mpDevice->createStructuredBuffer(
+            sizeof(Polygon), currentPolygonCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+        );
 
-        if(currentPolygons.size() > 0)
+        if (currentPolygons.size() > 0)
             buffer->setBlob(currentPolygons.data(), 0, size_t(currentPolygonCount) * sizeof(Polygon));
 
         mBuffers.push_back(buffer);
@@ -202,7 +198,7 @@ public:
         gridData.totalPolygonCount = 0;
     }
 
-    //用于CPU上已经裁剪完成的情况
+    // 用于CPU上已经裁剪完成的情况
     void setBlob(const std::vector<std::vector<Polygon>>& polygonArrays, std::vector<PolygonRange>& polygonRangeBuffer)
     {
         FALCOR_ASSERT(polygonRangeBuffer.size() == polygonArrays.size());
@@ -234,14 +230,14 @@ public:
         flushCurrent();
     }
 
-    //预分配空间，用于GPU上裁剪之前
+    // 预分配空间，用于GPU上裁剪之前
     void reserve(std::vector<uint>& polygonCountBuffer, std::vector<PolygonRange>& polygonRangeBuffer)
     {
         FALCOR_ASSERT(polygonRangeBuffer.size() == polygonCountBuffer.size());
         reset();
         for (size_t v = 0; v < polygonRangeBuffer.size(); ++v)
         {
-            const uint n = polygonCountBuffer[v];  //GPU上第一遍仅统计个数
+            const uint n = polygonCountBuffer[v]; // GPU上第一遍仅统计个数
 
             FALCOR_ASSERT(n > 0 && n <= maxPolygonCount);
 

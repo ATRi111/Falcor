@@ -10,8 +10,7 @@ const std::string kClipMeshProgramFile = "E:/Project/Falcor/Source/RenderPasses/
 
 VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props) : VoxelizationPass(pDevice, props)
 {
-    maxSolidVoxelCount = (uint)floor(4294967296.0 / sizeof(PrimitiveBSDF)); // 缓冲区最大容量为4G
-
+    mSolidRate = 0.05;
     mSampleFrequency = 256;
 
     mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
@@ -30,11 +29,18 @@ void VoxelizationPass_GPU::setScene(RenderContext* pRenderContext, const ref<Sce
 
 void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    double maxCapacity = min(mSolidRate * gridData.totalVoxelCount() * sizeof(VoxelData), 4294967296.0); // 缓冲区最大容量为4G
+    maxSolidVoxelCount = (uint)ceil(maxCapacity / sizeof(VoxelData));
     gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), maxSolidVoxelCount, ResourceBindFlags::UnorderedAccess);
+    ref<Buffer> gBufferLock = mpDevice->createStructuredBuffer(sizeof(uint), maxSolidVoxelCount, ResourceBindFlags::UnorderedAccess);
     vBuffer = mpDevice->createStructuredBuffer(sizeof(int), gridData.totalVoxelCount(), ResourceBindFlags::UnorderedAccess);
-    solidVoxelCount = mpDevice->createStructuredBuffer(sizeof(uint), 2, ResourceBindFlags::UnorderedAccess);
+    ref<Buffer> solidVoxelCount = mpDevice->createStructuredBuffer(sizeof(uint), 1, ResourceBindFlags::UnorderedAccess);
     polygonCountBuffer = mpDevice->createStructuredBuffer(sizeof(uint), maxSolidVoxelCount, ResourceBindFlags::UnorderedAccess);
+    polygonRangeBuffer = mpDevice->createStructuredBuffer(
+        sizeof(PolygonRange), maxSolidVoxelCount, ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
+    );
     pRenderContext->clearUAV(gBuffer->getUAV().get(), uint4(0));
+    pRenderContext->clearUAV(gBufferLock->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(vBuffer->getUAV().get(), uint4(0xFFFFFFFFu));
     pRenderContext->clearUAV(solidVoxelCount->getUAV().get(), uint4(0));
     pRenderContext->clearUAV(polygonCountBuffer->getUAV().get(), uint4(0));
@@ -56,7 +62,8 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     ShaderVar var = mSampleMeshPass->getRootVar();
     var["s"] = mpSampler;
     mpScene->bindShaderData(var["gScene"]);
-    var[kGBuffer] = gBuffer;
+    var["gBufferLock"] = gBufferLock;
+    var["gBuffer"] = gBuffer;
     var[kVBuffer] = vBuffer;
     var["polygonCountBuffer"] = polygonCountBuffer;
     var["solidVoxelCount"] = solidVoxelCount;
@@ -80,7 +87,11 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
         cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
         cb_mesh["materialID"] = meshDesc.materialID;
         mSampleMeshPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
+        pRenderContext->uavBarrier(vBuffer.get());
+        pRenderContext->uavBarrier(solidVoxelCount.get());
+        pRenderContext->uavBarrier(polygonCountBuffer.get());
         pRenderContext->uavBarrier(gBuffer.get());
+        pRenderContext->uavBarrier(gBufferLock.get());
     }
     Tools::Profiler::BeginSample("Sample Texture");
     pRenderContext->submit(true);
@@ -101,13 +112,23 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     polygonCounts.resize(gridData.solidVoxelCount);
     memcpy(polygonCounts.data(), pPolygonCount, sizeof(uint) * gridData.solidVoxelCount);
 
-    std::vector<PolygonRange> polygonRanges;
-    polygonRanges.resize(gridData.solidVoxelCount);
-    polygonGroup.reserve(polygonCounts, polygonRanges);
-
     vBuffer_CPU.resize(gridData.totalVoxelCount());
     memcpy(vBuffer_CPU.data(), pVbuffer, sizeof(int) * gridData.totalVoxelCount());
     pVBuffer_CPU = vBuffer_CPU.data();
+
+    std::vector<PolygonRange> polygonRanges;
+    polygonRanges.resize(gridData.solidVoxelCount);
+    polygonGroup.reserve(polygonCounts, polygonRanges);
+    for (size_t i = 0; i < vBuffer_CPU.size(); i++)
+    {
+        int offset = vBuffer_CPU[i];
+        if (offset >= 0)
+        {
+            int3 cellInt = IndexToCell(i, gridData.voxelCount);
+            polygonRanges[offset].cellInt = cellInt;
+        }
+    }
+    polygonRangeBuffer->setBlob(polygonRanges.data(), 0, sizeof(PolygonRange) * gridData.solidVoxelCount);
 
     cpuSolidVoxelCount->unmap();
     cpuPolygonCountBuffer->unmap();
@@ -131,9 +152,10 @@ void VoxelizationPass_GPU::sample(RenderContext* pRenderContext, const RenderDat
     }
 
     ShaderVar var = mClipPolygonPass->getRootVar();
+    mpScene->bindShaderData(var["gScene"]);
     var[kPolygonRangeBuffer] = polygonRangeBuffer;
     var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
-    var[vBuffer] = vBuffer;
+    var[kVBuffer] = vBuffer;
 
     uint groupVoxelCount = polygonGroup.getVoxelCount(mCompleteTimes);
     auto cb = var["CB"];
@@ -148,23 +170,35 @@ void VoxelizationPass_GPU::sample(RenderContext* pRenderContext, const RenderDat
 
     Tools::Profiler::BeginSample("Clip");
     uint meshCount = mpScene->getMeshCount();
-    for (MeshID meshID{ 0 }; meshID.get() < meshCount; ++meshID)
+    for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
     {
         MeshDesc meshDesc = mpScene->getMesh(meshID);
         uint triangleCount = meshDesc.getTriangleCount();
 
-        auto cb_mesh = mSampleMeshPass->getRootVar()["MeshData"];
+        auto cb_mesh = var["MeshData"];
         cb_mesh["vertexCount"] = meshDesc.vertexCount;
         cb_mesh["vbOffset"] = meshDesc.vbOffset;
         cb_mesh["triangleCount"] = triangleCount;
         cb_mesh["ibOffset"] = meshDesc.ibOffset;
         cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
         cb_mesh["materialID"] = meshDesc.materialID;
-        mSampleMeshPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
+        mClipPolygonPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
+        pRenderContext->uavBarrier(polygonCountBuffer.get());
     }
     pRenderContext->uavBarrier(polygonGroup.get(mCompleteTimes).get());
     pRenderContext->submit(true);
     Tools::Profiler::EndSample("Clip");
 
     VoxelizationPass::sample(pRenderContext, renderData);
+}
+
+void VoxelizationPass_GPU::renderUI(Gui::Widgets& widget)
+{
+    VoxelizationPass::renderUI(widget);
+    widget.var("Solid Rate", mSolidRate, 0.01, 1.0);
+}
+
+std::string VoxelizationPass_GPU::getFileName()
+{
+    return VoxelizationPass::getFileName() + "_GPU";
 }

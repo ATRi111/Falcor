@@ -18,9 +18,9 @@ public:
 
     virtual void voxelize(RenderContext* pRenderContext, const RenderData& renderData);
     virtual void sample(RenderContext* pRenderContext, const RenderData& renderData);
+    virtual std::string getFileName();
 
 protected:
-    std::string getFileName() const;
     void write(std::string fileName, void* gBuffer, void* vBuffer, void* pBlockMap);
     ref<ComputePass> mSamplePolygonPass;
 
@@ -31,7 +31,6 @@ protected:
     ref<Buffer> polygonRangeBuffer;
     PolygonBufferGroup polygonGroup;
     ref<Buffer> blockMap;
-    ref<Buffer> solidVoxelCount;
 
     void* pVBuffer_CPU;
 

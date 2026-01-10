@@ -68,7 +68,7 @@ void voxelizeTriangle(uint triangleId)
 {
     if (triangleId >= triangleCount)
         return;
-    
+
     Triangle triangle = {};
     uint3 vtxIndices = gScene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     if (any(vtxIndices >= vertexCount))

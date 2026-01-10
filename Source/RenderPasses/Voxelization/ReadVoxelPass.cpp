@@ -161,9 +161,10 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     widget.text("Voxel Count: " + ToString((int3)data.voxelCount));
     widget.text("Block Count: " + ToString((int3)data.blockCount3D()));
     widget.text("Grid Min: " + ToString(data.gridMin));
-    widget.text("Solid Voxel Count: " + ToString(data.solidVoxelCount));
-    widget.text("Max Polygon Count: " + ToString(data.maxPolygonCount));
-    widget.text("Total Polygon Count: " + ToString(data.totalPolygonCount));
+    widget.text("Solid Voxel Count: " + std::to_string(data.solidVoxelCount));
+    widget.text("Solid Rate: " + std::to_string(data.solidVoxelCount / (float)data.totalVoxelCount()));
+    widget.text("Max Polygon Count: " + std::to_string(data.maxPolygonCount));
+    widget.text("Total Polygon Count: " + std::to_string(data.totalPolygonCount));
 }
 
 void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

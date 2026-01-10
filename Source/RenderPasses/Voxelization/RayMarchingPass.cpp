@@ -132,7 +132,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
                 mpScene->getILightCollection(pRenderContext);
                 mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
                 VoxelizationBase::LightChanged = false;
-                mpDevice->wait();
+                pRenderContext->submit(true);
                 return;
             }
         }
@@ -140,7 +140,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         {
             mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", "0");
         }
-        
+
         // 必须在addDefine之后获取var
         auto var = mpFullScreenPass->getRootVar();
         mpScene->bindShaderData(var["gScene"]);
@@ -248,7 +248,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
             else
                 mOutputResolution = uint2(mSelectedResolution, mSelectedResolution);
             ref<Camera> camera = mpScene->getCamera();
-            if(camera)
+            if (camera)
                 camera->setAspectRatio(mOutputResolution.x / (float)mOutputResolution.y);
             requestRecompile();
         }

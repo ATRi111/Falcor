@@ -172,7 +172,7 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     Tools::Profiler::EndSample("Analyze Polygon");
 }
 
-std::string VoxelizationPass::getFileName() const
+std::string VoxelizationPass::getFileName()
 {
     std::ostringstream oss;
     oss << mSceneName;
