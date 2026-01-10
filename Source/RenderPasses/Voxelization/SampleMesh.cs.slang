@@ -16,7 +16,7 @@ RWStructuredBuffer<int> vBuffer;
 RWStructuredBuffer<VoxelData> gBuffer;
 RWStructuredBuffer<uint> polygonCountBuffer;
 RWStructuredBuffer<uint> gBufferLock;
-RWStructuredBuffer<uint> solidVoxelCount;   //单元素缓冲区
+RWStructuredBuffer<uint> solidVoxelCount; // 单元素缓冲区
 SamplerState s;
 
 cbuffer GridData
@@ -45,7 +45,7 @@ int tryGetOffset(int3 cellInt)
         return v;
 
     int original;
-    InterlockedCompareExchange(vBuffer[index], -1, -2, original);   //-2表示分配中
+    InterlockedCompareExchange(vBuffer[index], -1, -2, original); //-2表示分配中
     if (original == -1)
     {
         uint offset;
@@ -57,9 +57,18 @@ int tryGetOffset(int3 cellInt)
 
     while ((v = vBuffer[index]) == -2)
     {
-        
     }
     return v;
+}
+
+float4 sampleTextureArea(TextureHandle handle, float2 uv, float uvArea, float4 uniformValue)
+{
+    MaterialSystem ms = gScene.materials;
+    TextureInfo info = ms.getTextureInfo(handle);
+    float pixelArea = uvArea * info.width * info.height;
+    float lodLevel = 0.5f * log2(max(pixelArea, 1));
+    ITextureSampler lod = ExplicitLodTextureSampler(lodLevel);
+    return ms.sampleTexture(handle, s, uv, uniformValue, lod);
 }
 
 void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
@@ -84,18 +93,14 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
     }
     center /= polygon.count;
     area = 0.5f * abs(area);
-    ITextureSampler lod = ExplicitGradientTextureSampler(sqrt(area), sqrt(area));
-    //ITextureSampler lod = ExplicitLodTextureSampler(0);
     BasicMaterialData data = ms.getBasicMaterialData(materialID);
 
-    float3 baseColor = ms.sampleTexture(data.texBaseColor, s, center, data.baseColor, lod).rgb;
-    float4 spec = ms.sampleTexture(data.texSpecular, s, center, data.specular, lod); // G - Roughness; B - Metallic
-    float3 normal = ms.sampleTexture(data.texNormalMap, s, center, data.specular, lod).rgb;
+    float3 baseColor = sampleTextureArea(data.texBaseColor, center, area, data.baseColor).rgb;
+    float4 spec = sampleTextureArea(data.texSpecular, center, area, data.specular);
+    float3 normal = sampleTextureArea(data.texNormalMap, center, area, float4(0, 0, 1, 0)).rgb;
     normal = normal * 2.f - 1.f;
     normal = calcShadingNormal(tri.TBN, normal);
-    
-    if (normal.y < 0)
-        normal = -normal;
+
     ABSDFInput input = { baseColor, spec, normal, polygon.calcArea() };
 
     int offset = tryGetOffset(cellInt);
@@ -132,7 +137,7 @@ void voxelizeTriangle(uint triangleId)
 {
     if (triangleId >= triangleCount)
         return;
-    
+
     Triangle triangle = {};
     uint3 vtxIndices = gScene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     if (any(vtxIndices >= vertexCount))
