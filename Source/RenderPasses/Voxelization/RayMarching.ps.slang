@@ -411,9 +411,9 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
     HitResult[MAX_BOUNCE + 1] hits;
     float3[MAX_BOUNCE + 1] ls; // 第i个采样方向即第i个体素指向第i+1个体素的方向
     float3[MAX_BOUNCE + 1] hs;
-    float[MAX_BOUNCE + 1] pdfs; // 第i个pdf即第i+1个体素对第i个体素的贡献权重
+    float[MAX_BOUNCE + 1] pdfs; // 第i个pdf即对第i个体素的BSDF采样得到的权重
     bounce = min(bounce, MAX_BOUNCE);
-    uint hitCount = bounce + 1;
+    uint shadingPointCount = bounce + 1; // 要着色的点的个数，未中断时为primary hit + bounce
     hits[0] = hit;
     bool leaveGrid = false;
     for (int i = 0; i < bounce; i++)
@@ -424,47 +424,52 @@ float3 shadingGlobal(HitResult hit, float3 v, uint bounce, inout UniformSampleGe
         BSDF.updateCoverage(currentV, trasmittanceThreshold);
         BSDF.sample(currentV, ls[i], hs[i], sg);
 
-        hits[i + 1] = rayMarching(hits[i].cell, ls[i], -1, true);
         pdfs[i] = BSDF.evalPdf(ls[i], currentV, hs[i]);
         if (pdfs[i] <= 0)
         {
-            hitCount = i + 1;
+            shadingPointCount = i + 1; // 0,1,...,i;第i+1个点到第i个点的间接光照无法计算，但仍要计算直接光照
             break;
         }
         pdfs[i] = max(pdfs[i], minPdf);
+        hits[i + 1] = rayMarching(hits[i].cell, ls[i], -1, true);
         if (!hits[i + 1].hit)
         {
             leaveGrid = true;
-            hitCount = i + 1;
+            shadingPointCount = i + 1; // 0,1,...,i
             break;
         }
     }
 
     float3 reflectLights[MAX_BOUNCE + 1];
-    for (int i = hitCount - 1; i >= 0; i--)
+    for (int i = shadingPointCount - 1; i >= 0; i--)
     {
         reflectLights[i] = 0;
         HitResult currentHit = hits[i];
         uint currentOffset = vBuffer[currentHit.cellInt];
         float3 currentV = i == 0 ? v : -ls[i - 1];
 
-        reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg);
-        if (i == hitCount - 1)
+        reflectLights[i] += shadingDirect(currentHit, currentOffset, currentV, sg); // 直接光照
+        if (i == shadingPointCount - 1)                                             // 最后一个着色点不计算间接光照
         {
+#if USE_ENV_MAP
             if (leaveGrid && all(hs[i] == 0))
             {
                 float3 incidentLight = gEnvMapSampler.eval(ls[i]);
-                reflectLights[i] += shading(currentOffset, ls[i], currentV, hs[i], incidentLight) / pdfs[i];
+                reflectLights[i] += shading(currentOffset, ls[i], currentV, hs[i], incidentLight) / pdfs[i]; // 透射环境光
             }
+#endif
         }
         else
         {
             if (pdfs[i] <= 0)
                 continue;
             HitResult nextHit = hits[i + 1];
-            uint nextOffset = vBuffer[nextHit.cellInt];
-            float3 incidentLight = reflectLights[i + 1];
-            reflectLights[i] += shading(currentOffset, ls[i], currentV, hs[i], incidentLight) / pdfs[i];
+            if (nextHit.hit)
+            {
+                uint nextOffset = vBuffer[nextHit.cellInt];
+                float3 incidentLight = reflectLights[i + 1];
+                reflectLights[i] += shading(currentOffset, ls[i], currentV, hs[i], incidentLight) / pdfs[i]; // 间接光照
+            }
         }
     }
     return reflectLights[0];

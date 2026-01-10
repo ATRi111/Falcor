@@ -12,48 +12,6 @@ inline uint NormalIndex(float3 n)
     return (bx) | (bz << 1);
 }
 
-struct NDF
-{
-    float4 weightedNormals[LOBE_COUNT];
-    float roughness[LOBE_COUNT];
-
-    MUTATING
-    void init()
-    {
-        for (int i = 0; i < LOBE_COUNT; i++)
-        {
-            weightedNormals[i] = float4(0);
-            roughness[i] = 0;
-        }
-    }
-
-    MUTATING
-    void normalizeSelf(float area)
-    {
-        for (uint i = 0; i < LOBE_COUNT; i++)
-        {
-            float w = weightedNormals[i].w;
-            if (w > 0)
-            {
-#if defined(HOST_CODE)
-                float3 n = weightedNormals[i].xyz();
-#else
-                float3 n = weightedNormals[i].xyz;
-#endif
-
-                n = safeNormalize(n);
-                roughness[i] /= weightedNormals[i].w;
-                weightedNormals[i] = float4(n, w / area);
-            }
-            else
-            {
-                roughness[i] = 0;
-                weightedNormals[i] = float4(0);
-            }
-        }
-    }
-};
-
 struct ABSDFInput
 {
     float3 baseColor;
@@ -62,20 +20,22 @@ struct ABSDFInput
     float area;
 };
 
-struct ABSDF
+struct ABSDFLobe
 {
-    float3 diffuse;  // 兰伯特反射率
-    float3 specular; // 光线入射和出射方向相同时的菲涅尔反射率
-    NDF NDF;
-    float area;
+    float weight;
+    float3 normal;
+    float rough;
+    float3 diffuse;
+    float3 specular;
 
     MUTATING
     void init()
     {
+        weight = 0;
+        normal = float3(0);
+        rough = 0;
         diffuse = float3(0);
         specular = float3(0);
-        NDF.init();
-        area = 0;
     }
 
     MUTATING
@@ -88,11 +48,49 @@ struct ABSDF
 
         diffuse += input.area * lerp(input.baseColor, float3(0), input.specular.b);
         specular += input.area * lerp(float3(F0), input.baseColor, input.specular.b);
+        rough += input.area * input.specular.g;
+        normal += input.area * input.normal;
+        weight += input.area;
+    }
 
+    MUTATING
+    void normalizeSelf(float area)
+    {
+        if (weight > 0)
+        {
+            normal = safeNormalize(normal);
+            diffuse /= weight;
+            specular /= weight;
+            rough /= weight;
+            weight /= area;
+        }
+    }
+
+    bool IsValid() { return weight > 0 && dot(normal, normal) > 0; }
+};
+
+struct ABSDF
+{
+    ABSDFLobe lobes[LOBE_COUNT];
+    float area;
+
+    MUTATING
+    void init()
+    {
+        for (int i = 0; i < LOBE_COUNT; i++)
+        {
+            lobes[i].init();
+        }
+        area = 0;
+    }
+
+    MUTATING
+    void accumulate(ABSDFInput input)
+    {
+        if (input.normal.y < 0)
+            input.normal = -input.normal;
         uint index = NormalIndex(input.normal);
-        NDF.weightedNormals[index] += input.area * float4(input.normal, 1);
-        NDF.roughness[index] += input.area * input.specular.g;
-
+        lobes[index].accumulate(input);
         area += input.area;
     }
 
@@ -101,9 +99,10 @@ struct ABSDF
     {
         if (area == 0)
             return;
-        diffuse /= area;
-        specular /= area;
-        NDF.normalizeSelf(area);
+        for (int i = 0; i < LOBE_COUNT; i++)
+        {
+            lobes[i].normalizeSelf(area);
+        }
     }
 };
 

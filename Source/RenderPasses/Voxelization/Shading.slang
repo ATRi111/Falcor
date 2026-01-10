@@ -177,16 +177,16 @@ struct LobeBRDF
     float evalBRDFWeight()
     {
         float glossy = (1 - frostBite.rough) * evalSpecularWeight();
-        return lerp(0.8, 0.2, glossy);
+        return lerp(0.2, 0.8, glossy);
     }
 
     [mutating]
-    void init(float3 n, float3 diffuse, float3 specular, float rough)
+    void init(ABSDFLobe lobe)
     {
-        this.n = n;
+        n = lobe.normal;
         buildTBN(t, b, n);
-        frostBite.init(diffuse, rough);
-        cookTorrence.init(specular, rough);
+        frostBite.init(lobe.diffuse, lobe.rough);
+        cookTorrence.init(lobe.specular, lobe.rough);
         specularWeight = evalSpecularWeight();
     }
 
@@ -256,15 +256,13 @@ struct SurfaceBRDF
     void init(ABSDF ABSDF)
     {
         lobeCount = 0;
-        NDF NDF = ABSDF.NDF;
         for (uint i = 0; i < LOBE_COUNT; i++)
         {
-            float w = NDF.weightedNormals[i].w;
-            float3 n = NDF.weightedNormals[i].xyz;
-            if (w > 0 && dot(n, n) > 0)
+            ABSDFLobe lobe = ABSDF.lobes[i];
+            if (lobe.IsValid())
             {
-                lobes[lobeCount].init(n, ABSDF.diffuse, ABSDF.specular, NDF.roughness[i]);
-                weights[lobeCount] = NDF.weightedNormals[i].w; // 权重总和为1
+                lobes[lobeCount].init(lobe);
+                weights[lobeCount] = lobe.weight;
                 lobeCount++;
             }
         }

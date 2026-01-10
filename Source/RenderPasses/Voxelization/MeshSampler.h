@@ -91,8 +91,6 @@ public:
             normal = currentNormal ? currentNormal->SampleArea(uvs.data(), polygon.count).xyz() : float3(0, 0, 1);
             normal = calcShadingNormal(tri.TBN, normal);
         }
-        if (normal.y < 0)
-            normal = -normal;
         float area = polygon.calcArea();
         ABSDFInput input = {baseColor, spec, normal, area};
         gBuffer[offset].ABSDF.accumulate(input);
