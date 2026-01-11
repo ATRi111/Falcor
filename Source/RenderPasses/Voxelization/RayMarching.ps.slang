@@ -53,7 +53,7 @@ struct PsOut
 bool isSolidVoxel(int3 cellInt, out int offset)
 {
     offset = vBuffer[cellInt];
-    if (offset < 0)
+    if (offset < 0 || offset > solidVoxelCount)
         return false;
     return gBuffer[offset].area > 0;
 }
