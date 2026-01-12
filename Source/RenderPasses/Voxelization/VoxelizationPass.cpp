@@ -23,6 +23,12 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
 
     mpDevice = pDevice;
+
+    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
+        .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
+    mpSampler = pDevice->createSampler(samplerDesc);
 }
 
 RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
@@ -150,10 +156,13 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
 
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
+        defines.add(mpSampleGenerator->getDefines());
         mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
     ShaderVar var = mSamplePolygonPass->getRootVar();
+    mpScene->bindShaderData(var["gScene"]);
+    var["sampler"] = mpSampler;
     var[kGBuffer] = gBuffer;
     var[kPolygonRangeBuffer] = polygonRangeBuffer;
     var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);

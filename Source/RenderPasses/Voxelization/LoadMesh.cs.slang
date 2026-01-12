@@ -25,6 +25,7 @@ void loadTriangle(uint triangleId)
 {
     if (triangleId >= triangleCount)
         return;
+
     uint3 triangle = gScene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     triangle += vbOffset;
     triangles[triangleId + triOffset] = triangle;

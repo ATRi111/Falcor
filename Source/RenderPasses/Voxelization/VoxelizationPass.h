@@ -26,6 +26,8 @@ protected:
 
     ref<Device> mpDevice;
     ref<Scene> mpScene;
+    ref<SampleGenerator> mpSampleGenerator;
+    ref<Sampler> mpSampler;
 
     ref<Buffer> gBuffer;
     ref<Buffer> polygonRangeBuffer;

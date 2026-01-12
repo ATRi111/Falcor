@@ -26,17 +26,17 @@ inline float3 calcShadingNormal(float3x3 TBN, float3 normal)
     return safeNormalize(mul(TBN, normal));
 }
 
-inline float3 calcBarycentricCoordinates(float3 vertices[3], float3 p)
+inline float3 calcBarycentricCoordinates(float3 a, float3 b, float3 c, float3 p)
 {
-    float3 v0 = vertices[1] - vertices[0];
-    float3 v1 = vertices[2] - vertices[0];
-    float3 v2 = p - vertices[0];
+    float3 ab = b - a;
+    float3 ac = c - a;
+    float3 ap = p - a;
 
-    float d00 = dot(v0, v0);
-    float d01 = dot(v0, v1);
-    float d11 = dot(v1, v1);
-    float d20 = dot(v2, v0);
-    float d21 = dot(v2, v1);
+    float d00 = dot(ab, ab);
+    float d01 = dot(ab, ac);
+    float d11 = dot(ac, ac);
+    float d20 = dot(ap, ab);
+    float d21 = dot(ap, ac);
 
     float denom = d00 * d11 - d01 * d01;
 
@@ -165,7 +165,7 @@ struct Triangle
         return (s0 >= 0) && (s1 >= 0) && (s2 >= 0);
     }
 
-    float3 barycentricCoordinates(float3 p) { return calcBarycentricCoordinates(vertices, p); }
+    float3 barycentricCoordinates(float3 p) { return calcBarycentricCoordinates(vertices[0], vertices[1], vertices[2], p); }
 
     float2 lerpUV(float3 p)
     {

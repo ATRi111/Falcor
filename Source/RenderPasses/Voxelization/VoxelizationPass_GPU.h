@@ -28,9 +28,6 @@ private:
     ref<ComputePass> mSampleMeshPass;
     ref<ComputePass> mClipPolygonPass;
 
-    ref<SampleGenerator> mpSampleGenerator;
-    ref<Sampler> mpSampler;
-
     ref<Buffer> vBuffer; // GPU上的vBuffer对于CPU管线来说不需要
     ref<Buffer> polygonCountBuffer;
     std::vector<uint> vBuffer_CPU;

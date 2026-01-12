@@ -9,14 +9,10 @@
 
 using namespace Falcor;
 
-class MeshSampler
+class PolygonGenerator
 {
 private:
     GridData& gridData;
-    ImageLoader& loader;
-    CPUTexture* currentBaseColor;
-    CPUTexture* currentSpecular;
-    CPUTexture* currentNormal;
 
 public:
     std::vector<VoxelData> gBuffer;
@@ -25,11 +21,8 @@ public:
     std::vector<PolygonRange> polygonRangeBuffer;
     bool lerpNormal;
 
-    MeshSampler() : gridData(VoxelizationBase::GlobalGridData), loader(ImageLoader::Instance())
+    PolygonGenerator() : gridData(VoxelizationBase::GlobalGridData)
     {
-        currentBaseColor = nullptr;
-        currentNormal = nullptr;
-        currentSpecular = nullptr;
         lerpNormal = false;
     }
 
@@ -64,62 +57,30 @@ public:
         return vBuffer[index];
     }
 
-    void sampleArea(Triangle& tri, Polygon& polygon, int3 cellInt)
-    {
-        Tools::Profiler::BeginSample("Sample Mesh");
-        int offset = tryGetOffset(cellInt);
-
-        polygonArrays[offset].push_back(polygon);
-
-        std::array<float2, MAX_VERTEX_COUNT> uvs;
-        for (uint i = 0; i < polygon.count; i++)
-        {
-            uvs[i] = tri.lerpUV(polygon.vertices[i]);
-        }
-        float3 baseColor = currentBaseColor ? currentBaseColor->SampleArea(uvs.data(), polygon.count).xyz() : float3(0.5f);
-        float4 spec = currentSpecular ? currentSpecular->SampleArea(uvs.data(), polygon.count) : float4(0, 0.5f, 0, 0);
-
-        float3 normal;
-        if (lerpNormal)
-        {
-            float dummy;
-            float3 centroid = polygon.calcCentroid(dummy);
-            normal = tri.lerpNormal(centroid);
-        }
-        else
-        {
-            normal = currentNormal ? currentNormal->SampleArea(uvs.data(), polygon.count).xyz() : float3(0, 0, 1);
-            normal = calcShadingNormal(tri.TBN, normal);
-        }
-        float area = polygon.calcArea();
-        ABSDFInput input = {baseColor, spec, normal, area};
-        gBuffer[offset].ABSDF.accumulate(input);
-
-        Tools::Profiler::EndSample("Sample Mesh");
-    }
-
-    void clip(Triangle& tri)
+    void clip(const MeshHeader& mesh,uint triangleID, Triangle& tri)
     {
         AABBInt aabb = tri.calcAABBInt();
         for (int i = 0; i < aabb.count(); i++)
         {
-            Tools::Profiler::BeginSample("Clip");
             int3 cellInt = aabb.indexToCell(i);
             float3 minPoint = float3(cellInt);
             Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri); // 多边形与三角形顶点顺序一致
-            Tools::Profiler::EndSample("Clip");
             polygon.normal = tri.TBN.getCol(2); // 几何法线
             if (polygon.count >= 3)
-                sampleArea(tri, polygon, cellInt);
+            {
+                //sampleArea(tri, polygon, cellInt);
+                polygon.triRef.meshID = mesh.meshID;
+                polygon.triRef.triangleID = triangleID;
+                polygon.triRef.materialID = mesh.materialID;
+                int offset = tryGetOffset(cellInt);
+                polygonArrays[offset].push_back(polygon);
+            }
         }
     }
 
-    void sampleMesh(MeshHeader mesh, float3* pPos, float3* pNormal, float2* pUV, uint3* pIndex)
+    void clipMesh(const MeshHeader& mesh, float3* pPos, float3* pNormal, float2* pUV, uint3* pIndex)
     {
-        currentBaseColor = loader.loadImage(mesh.materialID, BaseColor);
-        currentSpecular = loader.loadImage(mesh.materialID, Specular);
-        currentNormal = loader.loadImage(mesh.materialID, Normal);
-        for (size_t tid = 0; tid < mesh.triangleCount; tid++)
+        for (uint tid = 0; tid < mesh.triangleCount; tid++)
         {
             Triangle tri = {};
             uint3 indices = pIndex[tid + mesh.triangleOffset];
@@ -139,15 +100,15 @@ public:
                 tri.vertices[i] = (tri.vertices[i] - gridData.gridMin) / gridData.voxelSize;
             }
             tri.buildTBN();
-            clip(tri);
+            clip(mesh, tid, tri);
         }
     }
 
-    void sampleAll(SceneHeader scene, std::vector<MeshHeader> meshList, float3* pPos, float3* pNormal, float2* pUV, uint3* pTri)
+    void clipAll(SceneHeader scene, std::vector<MeshHeader> meshList, float3* pPos, float3* pNormal, float2* pUV, uint3* pTri)
     {
         for (size_t i = 0; i < meshList.size(); i++)
         {
-            sampleMesh(meshList[i], pPos, pNormal, pUV, pTri);
+            clipMesh(meshList[i], pPos, pNormal, pUV, pTri);
         }
         gridData.solidVoxelCount = gBuffer.size();
     }

@@ -102,6 +102,7 @@ struct SceneHeader
 
 struct MeshHeader
 {
+    uint meshID;
     uint materialID;
     uint vertexCount;
     uint triangleCount;

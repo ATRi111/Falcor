@@ -12,8 +12,24 @@ BEGIN_NAMESPACE_FALCOR
 // 忽略罕见的7/8/9边形情况
 #define MAX_VERTEX_COUNT 6
 
+//记录多边形所属的面片
+struct TriangleRef
+{
+    uint meshID;
+    uint triangleID;
+    uint materialID;
+    MUTATING
+    void init()
+    {
+        meshID = 0;
+        triangleID = 0;
+        materialID = 0;
+    }
+};
+
 struct Polygon
 {
+    TriangleRef triRef;
     float3 vertices[MAX_VERTEX_COUNT];
     uint count;
     float3 normal;
@@ -31,6 +47,7 @@ struct Polygon
         {
             vertices[i] = points[i];
         }
+        triRef.init();
     }
 
     void addTo(std::vector<float3>& points)

@@ -57,7 +57,7 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
     for (MeshID meshID{ 0 }; meshID.get() < meshCount; ++meshID)
     {
         MeshDesc meshDesc = mpScene->getMesh(meshID);
-        MeshHeader mesh = { meshDesc.materialID, meshDesc.vertexCount, meshDesc.getTriangleCount(), triangleOffset };
+        MeshHeader mesh = { meshID.get(), meshDesc.materialID, meshDesc.vertexCount, meshDesc.getTriangleCount(), triangleOffset};
         meshList.push_back(mesh);
 
         auto meshData = mLoadMeshPass->getRootVar()["MeshData"];
@@ -84,25 +84,28 @@ void VoxelizationPass_CPU::voxelize(RenderContext* pRenderContext, const RenderD
     uint3* pTri = reinterpret_cast<uint3*>(cpuTriangles->map());
     SceneHeader header = { meshCount, vertexCount, triangleCount };
 
-    meshSampler.reset();
-    meshSampler.sampleAll(header, meshList, pPos, pNormal, pUV, pTri);
-    polygonGroup.setBlob(meshSampler.polygonArrays, meshSampler.polygonRangeBuffer);
+    Tools::Profiler::BeginSample("Clip");
+    polygonGenerator.reset();
+    polygonGenerator.clipAll(header, meshList, pPos, pNormal, pUV, pTri);
+    Tools::Profiler::EndSample("Clip");
+
+    polygonGroup.setBlob(polygonGenerator.polygonArrays, polygonGenerator.polygonRangeBuffer);
     cpuPositions->unmap();
     cpuNormals->unmap();
     cpuTexCoords->unmap();
     cpuTriangles->unmap();
 
     gBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::UnorderedAccess);
-    gBuffer->setBlob(meshSampler.gBuffer.data(), 0, gridData.solidVoxelCount * sizeof(VoxelData));
+    gBuffer->setBlob(polygonGenerator.gBuffer.data(), 0, gridData.solidVoxelCount * sizeof(VoxelData));
 
     polygonRangeBuffer = mpDevice->createStructuredBuffer(
         sizeof(PolygonRange),
         gridData.solidVoxelCount,
         ResourceBindFlags::ShaderResource | ResourceBindFlags::UnorderedAccess
     );
-    polygonRangeBuffer->setBlob(meshSampler.polygonRangeBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonRange));
+    polygonRangeBuffer->setBlob(polygonGenerator.polygonRangeBuffer.data(), 0, gridData.solidVoxelCount * sizeof(PolygonRange));
 
-    pVBuffer_CPU = meshSampler.vBuffer.data();
+    pVBuffer_CPU = polygonGenerator.vBuffer.data();
 
     pRenderContext->submit(true);
 }
@@ -115,5 +118,10 @@ void VoxelizationPass_CPU::sample(RenderContext* pRenderContext, const RenderDat
 void VoxelizationPass_CPU::renderUI(Gui::Widgets& widget)
 {
     VoxelizationPass::renderUI(widget);
-    widget.checkbox("LerpNormal", meshSampler.lerpNormal);
+    widget.checkbox("LerpNormal", polygonGenerator.lerpNormal);
+}
+
+std::string VoxelizationPass_CPU::getFileName()
+{
+    return VoxelizationPass::getFileName() + "_CPU";
 }
