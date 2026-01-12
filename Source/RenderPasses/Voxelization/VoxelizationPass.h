@@ -22,7 +22,7 @@ public:
 
 protected:
     void write(std::string fileName, void* gBuffer, void* vBuffer, void* pBlockMap);
-    ref<ComputePass> mSamplePolygonPass;
+    ref<ComputePass> mAnalyzePolygonPass;
 
     ref<Device> mpDevice;
     ref<Scene> mpScene;
@@ -45,4 +45,5 @@ protected:
     bool mSamplingComplete;
     bool mVoxelizationComplete;
     uint mCompleteTimes;
+    bool mLerpNormal;
 };

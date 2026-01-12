@@ -14,11 +14,15 @@ import Scene.Material.BasicMaterialData;
 StructuredBuffer<Polygon> polygonBuffer; // 局部缓冲区
 StructuredBuffer<PolygonRange> polygonRangeBuffer;
 RWStructuredBuffer<VoxelData> gBuffer;
-RWStructuredBuffer<uint> gBufferLock;
 RWStructuredBuffer<uint> blockMap; // 逻辑上是Texture2D<uint4>
 SamplerState sampler;
 
-#define DISABLE_LOCK 1
+cbuffer GridData
+{
+    float3 gridMin;
+    float3 voxelSize;
+    uint3 voxelCount;
+};
 
 cbuffer CB
 {
@@ -86,7 +90,6 @@ void sampleTexture(Polygon polygon, int3 cellInt, int offset, inout ABSDF ABSDF)
 {
     TriangleRef triRef = polygon.triRef;
     MaterialSystem ms = gScene.materials;
-    MaterialType type = ms.getMaterialType(triRef.materialID);
 
     float2[MAX_VERTEX_COUNT] uvs;
     uint3 vtxIndices = gScene.getIndices(triRef.meshID, triRef.triangleID);
@@ -94,13 +97,16 @@ void sampleTexture(Polygon polygon, int3 cellInt, int offset, inout ABSDF ABSDF)
     StaticVertexData[3] vertices = { gScene.getVertex(vtxIndices.x), gScene.getVertex(vtxIndices.y), gScene.getVertex(vtxIndices.z) };
     for (int i = 0; i < 3; i++)
     {
+        tri.vertices[i] = (vertices[i].position - gridMin) / voxelSize;    //体素是等大立方体，因此世界空间坐标到网格的坐标不影响TBN计算
         tri.uvs[i] = vertices[i].texCrd;
+#if LERP_NORMAL
+        tri.normals[i] =vertices[i].normal;
+#endif
     }
     tri.buildTBN();
     for (uint i = 0; i < polygon.count; i++)
     {
-        float3 bary = calcBarycentricCoordinates(vertices[0].position, vertices[1].position, vertices[2].position, polygon.vertices[i]);
-        float2 uv = vertices[0].texCrd * bary.x + vertices[1].texCrd * bary.y + vertices[2].texCrd * bary.z;
+        float2 uv = tri.lerpUV(polygon.vertices[i]);
         uvs[i] = uv;
     }
     float area = 0;
@@ -118,24 +124,19 @@ void sampleTexture(Polygon polygon, int3 cellInt, int offset, inout ABSDF ABSDF)
 
     float3 baseColor = sampleTextureArea(data.texBaseColor, center, area, data.baseColor).rgb;
     float4 spec = sampleTextureArea(data.texSpecular, center, area, data.specular);
-    float3 normal = sampleTextureArea(data.texNormalMap, center, area, float4(0, 0, 1, 0)).rgb;
+    float3 normal;
+#if LERP_NORMAL
+    float dummy;
+    float3 centroid = polygon.calcCentroid(dummy);
+    normal = tri.lerpNormal(centroid);
+#else
+    normal = sampleTextureArea(data.texNormalMap, center, area, float4(0, 0, 1, 0)).rgb;
     normal = normal * 2.f - 1.f;
     normal = calcShadingNormal(tri.TBN, normal);
+#endif
 
     ABSDFInput input = { baseColor, spec, normal, polygon.calcArea() };
-
-#if !DISABLE_LOCK
-    uint old;
-    do
-    {
-        InterlockedCompareExchange(gBufferLock[offset], 0u, 1u, old);
-    } while (old != 0u);
-#endif
     ABSDF.accumulate(input);
-#if !DISABLE_LOCK
-    uint dummy;
-    InterlockedExchange(gBufferLock[offset], 0u, dummy);
-#endif
 }
 
 void updateBlockMap(int3 cellInt)
@@ -161,12 +162,12 @@ void calc(uint offset)
         Polygon polygon = polygonBuffer[i];
         sampleTexture(polygon, range.cellInt, index, data.ABSDF);
     }
+    data.ABSDF.normalizeSelf();
     
     if (!data.IsSolid())
         return;
 
     data.ellipsoid.fit(polygonBuffer, range);
-    data.ABSDF.normalizeSelf();
 
     SphericalFunc polyF = data.polygonsProjAreaFunc;
     SphericalFunc primF = data.primitiveProjAreaFunc;

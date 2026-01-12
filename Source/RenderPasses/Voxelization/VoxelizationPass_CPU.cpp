@@ -118,7 +118,6 @@ void VoxelizationPass_CPU::sample(RenderContext* pRenderContext, const RenderDat
 void VoxelizationPass_CPU::renderUI(Gui::Widgets& widget)
 {
     VoxelizationPass::renderUI(widget);
-    widget.checkbox("LerpNormal", polygonGenerator.lerpNormal);
 }
 
 std::string VoxelizationPass_CPU::getFileName()

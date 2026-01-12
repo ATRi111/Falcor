@@ -7,6 +7,7 @@ import Utils.Math.MathHelpers;
 
 const static float Pi = 3.14159265359;
 const static float InvPi = 0.318309886183790671538;
+const static float MinRough = 0.01;
 
 inline float pow5(float x)
 {
@@ -185,8 +186,9 @@ struct LobeBRDF
     {
         n = lobe.normal;
         buildTBN(t, b, n);
-        frostBite.init(lobe.diffuse, lobe.rough);
-        cookTorrence.init(lobe.specular, lobe.rough);
+        float rough = max(lobe.rough, MinRough);
+        frostBite.init(lobe.diffuse, rough);
+        cookTorrence.init(lobe.specular, rough);
         specularWeight = evalSpecularWeight();
     }
 

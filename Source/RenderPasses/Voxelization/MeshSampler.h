@@ -19,11 +19,9 @@ public:
     std::vector<int> vBuffer;
     std::vector<std::vector<Polygon>> polygonArrays;
     std::vector<PolygonRange> polygonRangeBuffer;
-    bool lerpNormal;
 
     PolygonGenerator() : gridData(VoxelizationBase::GlobalGridData)
     {
-        lerpNormal = false;
     }
 
     void reset()
