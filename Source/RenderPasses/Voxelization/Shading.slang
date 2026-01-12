@@ -266,6 +266,16 @@ struct SurfaceBRDF
                 lobeCount++;
             }
         }
+        if (lobeCount == 0)
+        {
+            // 防止没有有效lobes
+            ABSDFLobe defaultLobe;
+            defaultLobe.init();
+            defaultLobe.normal = float3(0, 0, 1);
+            lobes[0].init(defaultLobe);
+            weights[0] = 1;
+            lobeCount = 1;
+        }
     }
 
     uint getRandomLobe(float uLobe)
