@@ -10,8 +10,8 @@ const std::string kAnalyzePolygonProgramFile = "E:/Project/Falcor/Source/RenderP
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice), polygonGroup(pDevice, VoxelizationBase::GlobalGridData), gridData(VoxelizationBase::GlobalGridData)
 {
-    mSceneNameIndex = 4;
-    mSceneName = "Chandelier";
+    mSceneNameIndex = 0;
+    mSceneName = "Auto";
     mVoxelizationComplete = true;
     mSamplingComplete = true;
     mCompleteTimes = 0;
@@ -23,6 +23,12 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
 
     mpDevice = pDevice;
+
+    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
+    Sampler::Desc samplerDesc;
+    samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
+        .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
+    mpSampler = pDevice->createSampler(samplerDesc);
 }
 
 RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
@@ -52,11 +58,17 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
     {
         if (mCompleteTimes < polygonGroup.size())
         {
+            if (mCompleteTimes == 0)
+                Tools::Profiler::BeginSample("Analyze Polygon");
             sample(pRenderContext, renderData);
             mCompleteTimes++;
         }
         else
         {
+            pRenderContext->submit(true);
+            Tools::Profiler::EndSample("Analyze Polygon");
+
+            Tools::Profiler::BeginSample("Write File");
             ref<Buffer> cpuGBuffer = copyToCpu(mpDevice, pRenderContext, gBuffer);
             ref<Buffer> cpuBlockMap = copyToCpu(mpDevice, pRenderContext, blockMap);
             pRenderContext->submit(true);
@@ -65,9 +77,10 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
             write(getFileName(), pGBuffer_CPU, pVBuffer_CPU, pBlockMap_CPU);
             cpuGBuffer->unmap();
             cpuBlockMap->unmap();
+            mSamplingComplete = true;
+            Tools::Profiler::EndSample("Write File");
             Tools::Profiler::Print();
             Tools::Profiler::Reset();
-            mSamplingComplete = true;
         }
     }
 }
@@ -86,7 +99,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         widget.dropdown("Voxel Resolution", list, mVoxelResolution);
     }
 
-    static const std::string sceneNames[] = {"Arcade", "Azalea", "BoxBunny", "Box", "Chandelier", "Colosseum"};
+    static const std::string sceneNames[] = {"Auto", "Arcade", "Azalea", "BoxBunny", "Box", "Chandelier", "Colosseum"};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)
@@ -119,6 +132,8 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         widget.dropdown("Polygon Per Frame", list, polygonGroup.maxPolygonCount);
     }
 
+    widget.checkbox("LerpNormal", mLerpNormal);
+
     if (mpScene && mVoxelizationComplete && mSamplingComplete && widget.button("Generate"))
     {
         VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
@@ -133,7 +148,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
 void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
-    mSamplePolygonPass = nullptr;
+    mAnalyzePolygonPass = nullptr;
     VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
 }
 
@@ -141,7 +156,7 @@ void VoxelizationPass::voxelize(RenderContext* pRenderContext, const RenderData&
 
 void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (!mSamplePolygonPass)
+    if (!mAnalyzePolygonPass)
     {
         ProgramDesc desc;
         desc.addShaderModules(mpScene->getShaderModules());
@@ -150,10 +165,15 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
 
         DefineList defines;
         defines.add(mpScene->getSceneDefines());
-        mSamplePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
+        defines.add(mpSampleGenerator->getDefines());
+        mAnalyzePolygonPass = ComputePass::create(mpDevice, desc, defines, true);
     }
 
-    ShaderVar var = mSamplePolygonPass->getRootVar();
+    mAnalyzePolygonPass->addDefine("LERP_NORMAL", mLerpNormal ? "1" : "0");
+
+    ShaderVar var = mAnalyzePolygonPass->getRootVar();
+    mpScene->bindShaderData(var["gScene"]);
+    var["sampler"] = mpSampler;
     var[kGBuffer] = gBuffer;
     var[kPolygonRangeBuffer] = polygonRangeBuffer;
     var[kPolygonBuffer] = polygonGroup.get(mCompleteTimes);
@@ -166,16 +186,33 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     cb["gBufferOffset"] = polygonGroup.getVoxelOffset(mCompleteTimes);
     cb["blockCount"] = gridData.blockCount();
 
-    Tools::Profiler::BeginSample("Analyze Polygon");
-    mSamplePolygonPass->execute(pRenderContext, uint3(groupVoxelCount, 1, 1));
-    pRenderContext->submit(true);
-    Tools::Profiler::EndSample("Analyze Polygon");
+    auto cb_grid = var["GridData"];
+    cb_grid["gridMin"] = gridData.gridMin;
+    cb_grid["voxelSize"] = gridData.voxelSize;
+    cb_grid["voxelCount"] = gridData.voxelCount;
+
+    mAnalyzePolygonPass->execute(pRenderContext, uint3(groupVoxelCount, 1, 1));  //每个体素执行一次，没有同步问题
+}
+
+std::string trim_non_alnum_ends(std::string s) {
+    auto is_alnum = [](unsigned char c) { return std::isalnum(c) != 0; };
+
+    size_t b = 0;
+    while (b < s.size() && !is_alnum((unsigned char)s[b])) ++b;
+
+    size_t e = s.size();
+    while (e > b && !is_alnum((unsigned char)s[e - 1])) --e;
+
+    return s.substr(b, e - b);
 }
 
 std::string VoxelizationPass::getFileName()
 {
     std::ostringstream oss;
-    oss << mSceneName;
+    if (mSceneName == "Auto")
+        oss << trim_non_alnum_ends(mpScene->getPath().stem().string());
+    else
+        oss << mSceneName;
     oss << "_";
     oss << ToString((int3)gridData.voxelCount);
     oss << "_";

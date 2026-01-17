@@ -344,9 +344,6 @@ float3 debugShading(HitResult hit, uint offset, float3 v)
     {
     case ABSDFDrawMode::Normal:
         return bsdf.surface.getMainNormal(v) * 0.5 + 0.5;
-    case ABSDFDrawMode::EllipsoidProjArea:
-        result = e.projectArea(v) / PI * 2;
-        break;
     case ABSDFDrawMode::Ellipsoid:
         float3 localPos = hit.cell - hit.cellInt;
         float3 d = localPos - e.center;

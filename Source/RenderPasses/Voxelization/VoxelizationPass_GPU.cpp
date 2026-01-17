@@ -12,12 +12,6 @@ VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties
 {
     mSolidRate = 0.05;
     mSampleFrequency = 256;
-
-    mpSampleGenerator = SampleGenerator::create(mpDevice, SAMPLE_GENERATOR_DEFAULT);
-    Sampler::Desc samplerDesc;
-    samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
-        .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
-    mpSampler = pDevice->createSampler(samplerDesc);
 }
 
 void VoxelizationPass_GPU::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)

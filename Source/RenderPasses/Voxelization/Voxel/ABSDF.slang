@@ -5,11 +5,47 @@ BEGIN_NAMESPACE_FALCOR
 
 #define LOBE_COUNT 4
 
+//恰好和坐标轴平行的情况必须特殊处理，以免相隔90°的法线落入同一个lobe
 inline uint NormalIndex(float3 n)
 {
-    uint bx = (n.x >= 0) ? 1 : 0;
-    uint bz = (n.z >= 0) ? 1 : 0;
-    return (bx) | (bz << 1);
+    float ax = abs(n.x);
+    float az = abs(n.z);
+
+    const float eps = 1e-6f;
+
+    bool useX = false;
+
+    if (ax > az + eps)
+    {
+        useX = true; // X 主导
+    }
+    else if (az > ax + eps)
+    {
+        useX = false; // Z 主导
+    }
+    else
+    {
+        // ax ~= az 的 tie-break：保证确定性
+        if (n.x >= n.z)
+            useX = true;
+        else
+            useX = false;
+    }
+
+    if (useX)
+    {
+        if (n.x >= 0.0f)
+            return 0u; // +X
+        else
+            return 1u; // -X
+    }
+    else
+    {
+        if (n.z >= 0.0f)
+            return 2u; // +Z
+        else
+            return 3u; // -Z
+    }
 }
 
 struct ABSDFInput
@@ -111,7 +147,6 @@ enum class ABSDFDrawMode : uint32_t
     Default,
     Normal,
     Ellipsoid,
-    EllipsoidProjArea,
     PrimitiveProjArea,
     PolygonsProjArea,
     TotalProjArea,
@@ -125,7 +160,6 @@ FALCOR_ENUM_INFO(
         { ABSDFDrawMode::Default, "Default" },
         { ABSDFDrawMode::Normal, "Normal" },
         { ABSDFDrawMode::Ellipsoid, "Ellipsoid" },
-        { ABSDFDrawMode::EllipsoidProjArea, "EllipsoidProjArea" },
         { ABSDFDrawMode::PrimitiveProjArea, "PrimitiveProjArea" },
         { ABSDFDrawMode::PolygonsProjArea, "PolygonsProjArea" },
         { ABSDFDrawMode::TotalProjArea, "TotalProjArea" },

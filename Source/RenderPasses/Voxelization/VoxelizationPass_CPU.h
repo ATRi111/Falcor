@@ -18,7 +18,9 @@ public:
     virtual void voxelize(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void sample(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void renderUI(Gui::Widgets& widget) override;
+
+    virtual std::string getFileName() override;
 private:
     ref<ComputePass> mLoadMeshPass;
-    MeshSampler meshSampler;
+    PolygonGenerator polygonGenerator;  //TODO:释放内存
 };
