@@ -14,9 +14,9 @@ RayMarchingPass::RayMarchingPass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
     mpDevice = pDevice;
-    mShadowBias100 = 0.1f;
+    mShadowBias100 = 0.01f;
     mMinPdf100 = 0.1f;
-    mTrasmittanceThreshold100 = 1.f;
+    mTrasmittanceThreshold100 = 5.f;
     mUseEmissiveLight = false;
     mDebug = false;
     mCheckEllipsoid = true;
@@ -217,7 +217,7 @@ void RayMarchingPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.checkbox("Use Mipmap", mUseMipmap))
         mOptionsChanged = true;
-    if (widget.slider("Shadow Bias(x100)", mShadowBias100, 0.0f, 1.0f))
+    if (widget.slider("Shadow Bias(x100)", mShadowBias100, 0.0f, 0.2f))
         mOptionsChanged = true;
     if (widget.slider("Min Pdf(x100)", mMinPdf100, 0.0f, 0.2f))
         mOptionsChanged = true;
