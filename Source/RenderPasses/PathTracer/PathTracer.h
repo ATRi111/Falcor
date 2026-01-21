@@ -176,7 +176,7 @@ private:
 
     bool mEnabled = true; ///< Switch to enable/disable the path tracer. When disabled the pass outputs are cleared.
     RenderPassHelpers::IOSize mOutputSizeSelection = RenderPassHelpers::IOSize::Default; ///< Selected output size.
-    uint2 mFixedOutputSize = {64, 64}; ///< Output size in pixels when 'Fixed' size is selected.
+    uint2 mFixedOutputSize = {512, 512}; ///< Output size in pixels when 'Fixed' size is selected.
 
     bool mSERSupported = false; ///< True if the device supports SER.
 
