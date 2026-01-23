@@ -12,7 +12,7 @@ BEGIN_NAMESPACE_FALCOR
 // 忽略罕见的7/8/9边形情况
 #define MAX_VERTEX_COUNT 6
 
-//记录多边形所属的面片
+// 记录多边形所属的面片
 struct TriangleRef
 {
     uint meshID;
@@ -160,6 +160,52 @@ struct PolygonRange
             sum += polygons[i + localHead].calcProjArea(direction);
         }
         return sum;
+    }
+
+    uint calcVisibleProjCellsRaster(StructuredBuffer<Polygon> polygons, float3 direction)
+    {
+        Basis2 b = orthonormal_basis(normalize(direction));
+
+        float3 cubeCenter = float3(cellInt) + float3(0.5f);
+
+        uint mask[PROJ_WORDS];
+        [unroll]
+        for (uint i = 0; i < PROJ_WORDS; ++i)
+            mask[i] = 0u;
+
+        for (uint pi = 0; pi < count; ++pi)
+        {
+            Polygon poly = polygons[localHead + pi];
+            uint n = poly.count;
+            if (n < 3)
+                continue;
+
+            float2 pv[MAX_VERTEX_COUNT];
+
+            [unroll]
+            for (uint k = 0; k < MAX_VERTEX_COUNT; ++k)
+            {
+                if (k >= n)
+                    break;
+                float3 p = poly.vertices[k] - cubeCenter;
+                pv[k] = float2(dot(p, b.u), dot(p, b.w));
+            }
+
+            float2 v0 = pv[0];
+            for (uint k = 1; k + 1 < n; ++k)
+            {
+                rasterizeTriToMask(v0, pv[k], pv[k + 1], mask);
+            }
+        }
+
+        return maskCountBits(mask);
+    }
+
+    // 通过类光栅化的过程计算可见投影面积
+    float calcVisibleProjAreaRaster(StructuredBuffer<Polygon> polygons, float3 direction)
+    {
+        uint covered = calcVisibleProjCellsRaster(polygons, direction);
+        return float(covered) * (PROJ_PIXEL_SIZE * PROJ_PIXEL_SIZE);
     }
 #endif
 };

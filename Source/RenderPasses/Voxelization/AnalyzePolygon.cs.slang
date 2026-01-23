@@ -70,8 +70,8 @@ void Estimate(
         primitiveFunc.accumulate(weight * primitiveProjArea, direction);
 
         float totalProjArea = range.calcTotalProjArea(polygonBuffer, direction);
-        // TODO:计算可见投影面积
-        polygonFunc.accumulate(weight * totalProjArea, direction);
+        float visibleProjArea = range.calcVisibleProjAreaRaster(polygonBuffer, direction);
+        polygonFunc.accumulate(weight * visibleProjArea, direction);
         totalFunc.accumulate(weight * totalProjArea, direction);
     }
 }
@@ -97,10 +97,10 @@ void sampleTexture(Polygon polygon, int3 cellInt, int offset, inout ABSDF ABSDF)
     StaticVertexData[3] vertices = { gScene.getVertex(vtxIndices.x), gScene.getVertex(vtxIndices.y), gScene.getVertex(vtxIndices.z) };
     for (int i = 0; i < 3; i++)
     {
-        tri.vertices[i] = (vertices[i].position - gridMin) / voxelSize;    //体素是等大立方体，因此世界空间坐标到网格的坐标不影响TBN计算
+        tri.vertices[i] = (vertices[i].position - gridMin) / voxelSize; // 体素是等大立方体，因此世界空间坐标到网格的坐标不影响TBN计算
         tri.uvs[i] = vertices[i].texCrd;
 #if LERP_NORMAL
-        tri.normals[i] =vertices[i].normal;
+        tri.normals[i] = vertices[i].normal;
 #endif
     }
     tri.buildTBN();
@@ -163,7 +163,7 @@ void calc(uint offset)
         sampleTexture(polygon, range.cellInt, index, data.ABSDF);
     }
     data.ABSDF.normalizeSelf();
-    
+
     if (!data.IsSolid())
         return;
 

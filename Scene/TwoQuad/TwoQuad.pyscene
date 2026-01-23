@@ -1,0 +1,71 @@
+# -------------------------
+# Materials
+# -------------------------
+redRough = StandardMaterial('Red Rough (Dielectric)')
+redRough.baseColor = float4(0.8, 0.05, 0.05, 1.0)
+redRough.roughness = 0.8
+redRough.metallic = 0.0
+redRough.doubleSided = True
+
+silverMetal = StandardMaterial('Silver Smooth (Metal)')
+silverMetal.baseColor = float4(0.8, 0.8, 0.8, 1.0)
+silverMetal.roughness = 0.05
+silverMetal.metallic = 1.0
+silverMetal.doubleSided = True
+
+# -------------------------
+# Geometry
+# -------------------------
+quadMesh = TriangleMesh.createQuad()
+
+# -------------------------
+# Two squares = front/back faces of an axis-aligned cube [0,1]^3
+# Quad default: XZ plane centered at origin -> rotate -90deg around X to become XY plane.
+# -------------------------
+squareRot = float3(-90.0, 0.0, 0.0)  # XZ -> XY
+
+# Face centers for cube [0,1]^3
+frontCenter = float3(0.5, 0.5, 0.0)
+backCenter  = float3(0.5, 0.5, 1.0)
+
+# Side length = 1, and createQuad() is typically 1x1 already ([-0.5,0.5] in local X/Z),
+# so scaling (1,1,1) keeps a 1x1 square after rotation.
+squareScale = float3(1.0, 1.0, 1.0)
+
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode(
+        'FrontFace_Red',
+        Transform(
+            scaling=squareScale,
+            translation=frontCenter,
+            rotationEulerDeg=squareRot
+        )
+    ),
+    sceneBuilder.addTriangleMesh(quadMesh, redRough)
+)
+
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode(
+        'BackFace_Silver',
+        Transform(
+            scaling=squareScale,
+            translation=backCenter,
+            rotationEulerDeg=squareRot
+        )
+    ),
+    sceneBuilder.addTriangleMesh(quadMesh, silverMetal)
+)
+
+# -------------------------
+# Camera (keep your envMap as is)
+# -------------------------
+camera = Camera()
+camera.position    = float3(0.5, 0.5, -2.0)
+camera.target      = float3(0.5, 0.5, 0.5)   # look at cube center
+camera.up          = float3(0, 1, 0)
+camera.focalLength = 35.0
+sceneBuilder.addCamera(camera)
+
+envMap = EnvMap('../EnvMap/White.exr')
+envMap.intensity = 1.0
+sceneBuilder.envMap = envMap

@@ -1,0 +1,81 @@
+# -------------------------
+# Materials
+# -------------------------
+redRough = StandardMaterial('Red Rough (Dielectric)')
+redRough.baseColor = float4(0.8, 0.05, 0.05, 1.0)
+redRough.roughness = 0.8
+redRough.metallic = 0.0
+redRough.doubleSided = True
+
+silverMetal = StandardMaterial('Silver Smooth (Metal)')
+silverMetal.baseColor = float4(0.8, 0.8, 0.8, 1.0)
+silverMetal.roughness = 0.05
+silverMetal.metallic = 1.0
+silverMetal.doubleSided = True
+
+# -------------------------
+# Geometry
+# -------------------------
+quadMesh = TriangleMesh.createQuad()
+
+# Target parallelogram corners:
+# (0,0,0) (1,0,0) (0,0.5,1) (1,0.5,1)
+P00 = float3(0.0, 0.0, 0.0)
+U   = float3(1.0, 0.0, 0.0)
+V   = float3(0.0, 0.5, 1.0)
+
+# Center = P00 + 0.5*U + 0.5*V  (IMPORTANT: float3 must be on the left)
+center1 = P00 + (U * 0.5) + (V * 0.5)
+center2 = center1 + float3(0.0, 0.5, 0.0)   # second quad shifted +0.5 in Y
+
+# Lengths
+lenU = 1.0
+lenV = 1.118     # sqrt(1.25)
+
+# Rotation: align local +Z to V direction (V in YZ plane)
+# tan(alpha) = V.y / V.z = 0.5 / 1 -> alpha ~ 26.565 deg
+alphaDeg = 26.5650511771
+
+# -------------------------
+# Mesh instances
+# Assumption (consistent with your Cornell Box example):
+# createQuad() lies on XZ plane (Y is normal), centered at origin, size 1.
+# So we scale X and Z, rotate about X, translate to center.
+# -------------------------
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode(
+        'Quad1_Red',
+        Transform(
+            scaling=float3(lenU, 1.0, lenV),
+            translation=center1,
+            rotationEulerDeg=float3(-alphaDeg, 0.0, 0.0)
+        )
+    ),
+    sceneBuilder.addTriangleMesh(quadMesh, redRough)
+)
+
+sceneBuilder.addMeshInstance(
+    sceneBuilder.addNode(
+        'Quad2_Silver',
+        Transform(
+            scaling=float3(lenU, 1.0, lenV),
+            translation=center2,
+            rotationEulerDeg=float3(-alphaDeg, 0.0, 0.0)
+        )
+    ),
+    sceneBuilder.addTriangleMesh(quadMesh, silverMetal)
+)
+
+# -------------------------
+# Camera (no lights / no emissive)
+# -------------------------
+camera = Camera()
+camera.position    = float3(0.5, 0.6, -2)
+camera.target      = float3(0.5, 0.6, -1)
+camera.up          = float3(0, 1, 0)
+camera.focalLength = 35.0
+sceneBuilder.addCamera(camera)
+
+envMap = EnvMap('../EnvMap/White.exr')
+envMap.intensity = 1.0
+sceneBuilder.envMap = envMap

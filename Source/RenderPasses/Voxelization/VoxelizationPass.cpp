@@ -89,7 +89,7 @@ void VoxelizationPass::compile(RenderContext* pRenderContext, const CompileData&
 
 void VoxelizationPass::renderUI(Gui::Widgets& widget)
 {
-    static const uint resolutions[] = {16, 32, 64, 128, 256, 512, 1000, 1024};
+    static const uint resolutions[] = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000, 1024};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(resolutions) / sizeof(uint); i++)
@@ -122,7 +122,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         widget.dropdown("Sample Frequency", list, mSampleFrequency);
     }
 
-    static const uint polygonPerFrames[] = { 1000, 4000,  16000,  64000, 128000, 256000, 512000,1024000 };
+    static const uint polygonPerFrames[] = {1000, 4000, 16000, 64000, 128000, 256000, 512000, 1024000};
     {
         Gui::DropdownList list;
         for (uint32_t i = 0; i < sizeof(polygonPerFrames) / sizeof(uint); i++)
@@ -191,17 +191,20 @@ void VoxelizationPass::sample(RenderContext* pRenderContext, const RenderData& r
     cb_grid["voxelSize"] = gridData.voxelSize;
     cb_grid["voxelCount"] = gridData.voxelCount;
 
-    mAnalyzePolygonPass->execute(pRenderContext, uint3(groupVoxelCount, 1, 1));  //每个体素执行一次，没有同步问题
+    mAnalyzePolygonPass->execute(pRenderContext, uint3(groupVoxelCount, 1, 1)); // 每个体素执行一次，没有同步问题
 }
 
-std::string trim_non_alnum_ends(std::string s) {
+std::string trim_non_alnum_ends(std::string s)
+{
     auto is_alnum = [](unsigned char c) { return std::isalnum(c) != 0; };
 
     size_t b = 0;
-    while (b < s.size() && !is_alnum((unsigned char)s[b])) ++b;
+    while (b < s.size() && !is_alnum((unsigned char)s[b]))
+        ++b;
 
     size_t e = s.size();
-    while (e > b && !is_alnum((unsigned char)s[e - 1])) --e;
+    while (e > b && !is_alnum((unsigned char)s[e - 1]))
+        --e;
 
     return s.substr(b, e - b);
 }
