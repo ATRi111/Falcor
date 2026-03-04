@@ -191,6 +191,9 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
         var["selectedVoxel"] = mSelectedVoxel;
 
+        auto cb = var["CB"];
+        cb["clearColor"] = float4(mClearColor, 0);
+
         ref<Fbo> fbo = Fbo::create(mpDevice);
         fbo->attachColorTarget(pOutputColor, 0);
         mpDisplayNDFPass->execute(pRenderContext, fbo);
