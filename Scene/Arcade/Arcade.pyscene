@@ -33,6 +33,8 @@ envMap = EnvMap('../EnvMap/White.exr')
 envMap.intensity = 1.0
 sceneBuilder.envMap = envMap
 
+m = sceneBuilder.getMaterial("Poster")
+m.metallic = 0.0
 
 # Add camera
 camera = Camera()
