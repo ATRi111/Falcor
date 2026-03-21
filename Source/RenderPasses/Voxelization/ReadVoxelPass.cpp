@@ -4,7 +4,7 @@
 
 namespace
 {
-const std::string kPrepareProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/PrepareShadingData.cs.slang";
+const std::string kPrepareProgramFile = "RenderPasses/Voxelization/PrepareShadingData.cs.slang";
 
 }; // namespace
 
@@ -118,18 +118,30 @@ void ReadVoxelPass::compile(RenderContext* pRenderContext, const CompileData& co
 
 void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 {
-    if (VoxelizationBase::FileUpdated)
+    if (gVoxelizationFilesUpdated)
     {
         filePaths.clear();
-        for (const auto& entry : std::filesystem::directory_iterator(VoxelizationBase::ResourceFolder))
+        const auto& resourceFolder = getVoxelizationResourceFolderPath();
+        if (std::filesystem::exists(resourceFolder))
         {
-            if (std::filesystem::is_regular_file(entry))
+            for (const auto& entry : std::filesystem::directory_iterator(resourceFolder))
             {
-                filePaths.push_back(entry.path());
+                if (std::filesystem::is_regular_file(entry))
+                {
+                    filePaths.push_back(entry.path());
+                }
             }
         }
-        VoxelizationBase::FileUpdated = false;
+        gVoxelizationFilesUpdated = false;
     }
+
+    if (filePaths.empty())
+    {
+        widget.text("No voxel cache files found in " + getVoxelizationResourceFolderPath().string());
+        return;
+    }
+
+    selectedFile = std::min(selectedFile, uint(filePaths.size() - 1));
     Gui::DropdownList list;
     for (uint i = 0; i < filePaths.size(); i++)
     {

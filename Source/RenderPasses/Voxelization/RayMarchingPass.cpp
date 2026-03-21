@@ -5,8 +5,8 @@
 
 namespace
 {
-const std::string kShaderFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/RayMarching.ps.slang";
-const std::string kDisplayShaderFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/DisplayNDF.ps.slang";
+const std::string kShaderFile = "RenderPasses/Voxelization/RayMarching.ps.slang";
+const std::string kDisplayShaderFile = "RenderPasses/Voxelization/DisplayNDF.ps.slang";
 const std::string kOutputColor = "color";
 } // namespace
 
@@ -127,11 +127,11 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
         }
         if (mUseEmissiveLight)
         {
-            if (VoxelizationBase::LightChanged)
+            if (gVoxelizationLightChanged)
             {
                 mpScene->getILightCollection(pRenderContext);
                 mpFullScreenPass->addDefine("USE_EMISSIVE_LIGHTS", mpScene->useEmissiveLights() ? "1" : "0");
-                VoxelizationBase::LightChanged = false;
+                gVoxelizationLightChanged = false;
                 pRenderContext->submit(true);
                 return;
             }
@@ -203,7 +203,7 @@ void RayMarchingPass::execute(RenderContext* pRenderContext, const RenderData& r
 void RayMarchingPass::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
     mUseEmissiveLight = false;
-    VoxelizationBase::LightChanged = true;
+    gVoxelizationLightChanged = true;
 }
 
 void RayMarchingPass::renderUI(Gui::Widgets& widget)

@@ -4,7 +4,7 @@
 
 namespace
 {
-const std::string kAnalyzePolygonProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/AnalyzePolygon.cs.slang";
+const std::string kAnalyzePolygonProgramFile = "RenderPasses/Voxelization/AnalyzePolygon.cs.slang";
 }; // namespace
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
@@ -226,9 +226,8 @@ std::string VoxelizationPass::getFileName()
 
 void VoxelizationPass::write(std::string fileName, void* pGBuffer, void* pVBuffer, void* pBlockMap)
 {
-    std::ofstream f;
-    std::string s = VoxelizationBase::ResourceFolder + fileName;
-    f.open(s, std::ios::binary);
+    const auto path = getVoxelizationResourceFolderPath() / fileName;
+    std::ofstream f(path, std::ios::binary);
     f.write(reinterpret_cast<char*>(&gridData), sizeof(GridData));
 
     f.write(reinterpret_cast<const char*>(pVBuffer), gridData.totalVoxelCount() * sizeof(int));
@@ -236,5 +235,5 @@ void VoxelizationPass::write(std::string fileName, void* pGBuffer, void* pVBuffe
     f.write(reinterpret_cast<const char*>(pBlockMap), gridData.totalBlockCount() * sizeof(uint4));
 
     f.close();
-    VoxelizationBase::FileUpdated = true;
+    gVoxelizationFilesUpdated = true;
 }

@@ -1,6 +1,15 @@
 #include "ImageLoader.h"
+#include "../VoxelizationBase.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
+
+namespace
+{
+std::string getTextureFolder(const std::filesystem::path& relativePath)
+{
+    return resolveVoxelizationProjectPath(relativePath).generic_string() + "/";
+}
+}
 
 ImageLoader::ImageLoader()
 {
@@ -12,7 +21,7 @@ ImageLoader::ImageLoader()
     }
 
     {
-        std::string folder = "E:/Project/Falcor/Scene/Arcade/Textures/";
+        std::string folder = getTextureFolder("Scene/Arcade/Textures");
         idToPath_Arcade[0] = folder + "Wall";
         idToPath_Arcade[1] = folder + "CheckerTile";
         idToPath_Arcade[2] = folder + "Poster";
@@ -22,7 +31,7 @@ ImageLoader::ImageLoader()
     }
 
     {
-        std::string folder = "E:/Project/Falcor/Scene/SpeedTree/Azalea/Textures/";
+        std::string folder = getTextureFolder("Scene/SpeedTree/Azalea/Textures");
         idToPath_Azalea[0] = folder + "T_Pink_Flower";
         idToPath_Azalea[1] = folder + "T_Azalea_Leaves_2";
         idToPath_Azalea[2] = folder + "T_Azalea_Leaves_1";
@@ -31,14 +40,14 @@ ImageLoader::ImageLoader()
     }
 
     {
-        std::string folder = "E:/Project/Falcor/Scene/Box/Textures/";
+        std::string folder = getTextureFolder("Scene/Box/Textures");
         idToPath_Box[0] = folder + "Floor";
         idToPath_Box[1] = folder + "LeftWall";
         idToPath_Box[2] = folder + "RightWall";
     }
 
     {
-        std::string folder = "E:/Project/Falcor/Scene/BoxBunny/Textures/";
+        std::string folder = getTextureFolder("Scene/BoxBunny/Textures");
         idToPath_BoxBunny[0] = folder + "Floor";
         idToPath_BoxBunny[1] = folder + "LeftWall";
         idToPath_BoxBunny[2] = folder + "RightWall";
@@ -46,7 +55,7 @@ ImageLoader::ImageLoader()
     }
 
     {
-        std::string folder = "E:/Project/Falcor/Scene/Chandelier/Textures/";
+        std::string folder = getTextureFolder("Scene/Chandelier/Textures");
         idToPath_Chandelier[0] = folder + "Candle";
         idToPath_Chandelier[1] = folder + "Body";
         idToPath_Chandelier[2] = folder + "Pillar";

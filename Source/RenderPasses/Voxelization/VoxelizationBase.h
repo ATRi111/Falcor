@@ -48,6 +48,55 @@ inline std::string kPBuffer = "pBuffer";
 inline std::string kPolygonBuffer = "polygonBuffer";
 inline std::string kPolygonRangeBuffer = "polygonRangeBuffer";
 inline std::string kBlockMap = "blockMap";
+inline bool gVoxelizationFilesUpdated = true;
+inline bool gVoxelizationLightChanged = true;
+
+inline std::filesystem::path findVoxelizationProjectRoot()
+{
+    std::vector<std::filesystem::path> searchRoots = {std::filesystem::current_path(), getRuntimeDirectory()};
+    for (const auto& root : searchRoots)
+    {
+        auto candidate = std::filesystem::absolute(root);
+        while (!candidate.empty())
+        {
+            if (
+                std::filesystem::exists(candidate / "CMakeLists.txt") &&
+                std::filesystem::exists(candidate / "Source" / "RenderPasses" / "Voxelization")
+            )
+            {
+                return candidate;
+            }
+
+            const auto parent = candidate.parent_path();
+            if (parent == candidate)
+                break;
+            candidate = parent;
+        }
+    }
+
+    return std::filesystem::current_path();
+}
+
+inline const std::filesystem::path& getVoxelizationProjectRoot()
+{
+    static const std::filesystem::path root = findVoxelizationProjectRoot();
+    return root;
+}
+
+inline std::filesystem::path resolveVoxelizationProjectPath(const std::filesystem::path& relativePath)
+{
+    return getVoxelizationProjectRoot() / relativePath;
+}
+
+inline const std::filesystem::path& getVoxelizationResourceFolderPath()
+{
+    static const std::filesystem::path resourceFolder = []() {
+        auto path = resolveVoxelizationProjectPath("resource");
+        std::filesystem::create_directories(path);
+        return path;
+    }();
+    return resourceFolder;
+}
 
 class VoxelizationBase
 {
@@ -55,9 +104,6 @@ public:
     static const int NDFLobeCount = 8;
     static GridData GlobalGridData;
     static uint3 MinFactor; // 网格的分辨率必须是此值的整数倍
-    static bool FileUpdated;
-    static std::string ResourceFolder;
-    static bool LightChanged;
 
     static void UpdateVoxelGrid(ref<Scene> scene, uint voxelResolution)
     {
