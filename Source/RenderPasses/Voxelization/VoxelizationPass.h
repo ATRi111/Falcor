@@ -1,5 +1,6 @@
 #pragma once
 #include "VoxelizationBase.h"
+#include "VoxelizationProperties.h"
 
 using namespace Falcor;
 
@@ -11,6 +12,8 @@ public:
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
+    virtual void setProperties(const Properties& props) override;
+    virtual Properties getProperties() const override;
     virtual void renderUI(Gui::Widgets& widget) override;
     virtual bool onMouseEvent(const MouseEvent& mouseEvent) override { return false; }
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
@@ -21,6 +24,9 @@ public:
     virtual std::string getFileName();
 
 protected:
+    void parseProperties(const Properties& props);
+    void beginGeneration();
+    std::filesystem::path getOutputFilePath();
     void write(std::string fileName, void* gBuffer, void* vBuffer, void* pBlockMap);
     ref<ComputePass> mAnalyzePolygonPass;
 
@@ -46,4 +52,5 @@ protected:
     bool mVoxelizationComplete;
     uint mCompleteTimes;
     bool mLerpNormal;
+    bool mAutoGenerate;
 };

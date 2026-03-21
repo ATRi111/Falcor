@@ -10,8 +10,9 @@ const std::string kClipMeshProgramFile = "RenderPasses/Voxelization/ClipMesh.cs.
 
 VoxelizationPass_GPU::VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props) : VoxelizationPass(pDevice, props)
 {
-    mSolidRate = 0.05;
+    mSolidRate = 0.4;
     mSampleFrequency = 256;
+    setProperties(props);
 }
 
 void VoxelizationPass_GPU::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
@@ -19,6 +20,24 @@ void VoxelizationPass_GPU::setScene(RenderContext* pRenderContext, const ref<Sce
     VoxelizationPass::setScene(pRenderContext, pScene);
     mSampleMeshPass = nullptr;
     mClipPolygonPass = nullptr;
+}
+
+void VoxelizationPass_GPU::setProperties(const Properties& props)
+{
+    VoxelizationPass::setProperties(props);
+
+    for (const auto& [key, value] : props)
+    {
+        if (key == VoxelizationProperties::kSolidRate)
+            mSolidRate = value;
+    }
+}
+
+Properties VoxelizationPass_GPU::getProperties() const
+{
+    Properties props = VoxelizationPass::getProperties();
+    props[VoxelizationProperties::kSolidRate] = mSolidRate;
+    return props;
 }
 
 void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderData& renderData)

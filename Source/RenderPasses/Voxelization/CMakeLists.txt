@@ -25,6 +25,7 @@ target_sources(Voxelization PRIVATE
 
     VoxelizationBase.h
     VoxelizationBase.cpp
+    VoxelizationProperties.h
 
     VoxelizationShared.slang
     Shading.slang

@@ -1,17 +1,32 @@
 #include "VoxelizationPass.h"
 #include "Image/ImageLoader.h"
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 
 namespace
 {
 const std::string kAnalyzePolygonProgramFile = "RenderPasses/Voxelization/AnalyzePolygon.cs.slang";
+const std::string kSceneNames[] = {"Auto", "Arcade", "Azalea", "BoxBunny", "Box", "Chandelier", "Colosseum"};
+constexpr uint32_t kSceneNameCount = sizeof(kSceneNames) / sizeof(kSceneNames[0]);
+
+uint32_t getSceneNameIndex(const std::string& sceneName)
+{
+    for (uint32_t i = 0; i < kSceneNameCount; ++i)
+    {
+        if (kSceneNames[i] == sceneName)
+            return i;
+    }
+
+    return 0;
+}
 }; // namespace
 
 VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice), polygonGroup(pDevice, VoxelizationBase::GlobalGridData), gridData(VoxelizationBase::GlobalGridData)
 {
     mSceneNameIndex = 0;
-    mSceneName = "Auto";
+    mSceneName = kSceneNames[mSceneNameIndex];
     mVoxelizationComplete = true;
     mSamplingComplete = true;
     mCompleteTimes = 0;
@@ -19,6 +34,8 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
 
     mSampleFrequency = 1024;
     mVoxelResolution = 512;
+    mLerpNormal = false;
+    mAutoGenerate = false;
 
     VoxelizationBase::UpdateVoxelGrid(nullptr, mVoxelResolution);
 
@@ -29,6 +46,8 @@ VoxelizationPass::VoxelizationPass(ref<Device> pDevice, const Properties& props)
     samplerDesc.setFilterMode(TextureFilteringMode::Linear, TextureFilteringMode::Linear, TextureFilteringMode::Linear)
         .setAddressingMode(TextureAddressingMode::Wrap, TextureAddressingMode::Wrap, TextureAddressingMode::Wrap);
     mpSampler = pDevice->createSampler(samplerDesc);
+
+    parseProperties(props);
 }
 
 RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
@@ -43,8 +62,19 @@ RenderPassReflection VoxelizationPass::reflect(const CompileData& compileData)
 
 void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
-    if (!mpScene || mVoxelizationComplete && mSamplingComplete)
+    auto& dict = renderData.getDictionary();
+    if (!mpScene)
+    {
+        dict[VoxelizationProperties::kDictionaryCompleted] = false;
+        dict[VoxelizationProperties::kDictionaryOutputPath] = std::string{};
         return;
+    }
+
+    if (mVoxelizationComplete && mSamplingComplete)
+        return;
+
+    dict[VoxelizationProperties::kDictionaryCompleted] = false;
+    dict[VoxelizationProperties::kDictionaryOutputPath] = std::string{};
 
     if (!mVoxelizationComplete)
     {
@@ -74,10 +104,13 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
             pRenderContext->submit(true);
             void* pGBuffer_CPU = cpuGBuffer->map();
             void* pBlockMap_CPU = cpuBlockMap->map();
+            const auto outputPath = getOutputFilePath();
             write(getFileName(), pGBuffer_CPU, pVBuffer_CPU, pBlockMap_CPU);
             cpuGBuffer->unmap();
             cpuBlockMap->unmap();
             mSamplingComplete = true;
+            dict[VoxelizationProperties::kDictionaryOutputPath] = outputPath.string();
+            dict[VoxelizationProperties::kDictionaryCompleted] = true;
             Tools::Profiler::EndSample("Write File");
             Tools::Profiler::Print();
             Tools::Profiler::Reset();
@@ -86,6 +119,30 @@ void VoxelizationPass::execute(RenderContext* pRenderContext, const RenderData& 
 }
 
 void VoxelizationPass::compile(RenderContext* pRenderContext, const CompileData& compileData) {}
+
+void VoxelizationPass::setProperties(const Properties& props)
+{
+    parseProperties(props);
+
+    if (mpScene)
+    {
+        VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
+        if (mAutoGenerate && mVoxelizationComplete && mSamplingComplete)
+            beginGeneration();
+    }
+}
+
+Properties VoxelizationPass::getProperties() const
+{
+    Properties props;
+    props[VoxelizationProperties::kSceneName] = mSceneName;
+    props[VoxelizationProperties::kSampleFrequency] = mSampleFrequency;
+    props[VoxelizationProperties::kVoxelResolution] = mVoxelResolution;
+    props[VoxelizationProperties::kPolygonPerFrame] = polygonGroup.maxPolygonCount;
+    props[VoxelizationProperties::kLerpNormal] = mLerpNormal;
+    props[VoxelizationProperties::kAutoGenerate] = mAutoGenerate;
+    return props;
+}
 
 void VoxelizationPass::renderUI(Gui::Widgets& widget)
 {
@@ -99,16 +156,15 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
         widget.dropdown("Voxel Resolution", list, mVoxelResolution);
     }
 
-    static const std::string sceneNames[] = {"Auto", "Arcade", "Azalea", "BoxBunny", "Box", "Chandelier", "Colosseum"};
     {
         Gui::DropdownList list;
-        for (uint32_t i = 0; i < sizeof(sceneNames) / sizeof(std::string); i++)
+        for (uint32_t i = 0; i < kSceneNameCount; i++)
         {
-            list.push_back({i, sceneNames[i]});
+            list.push_back({i, kSceneNames[i]});
         }
         if (widget.dropdown("Scene Name", list, mSceneNameIndex))
         {
-            mSceneName = sceneNames[mSceneNameIndex];
+            mSceneName = kSceneNames[mSceneNameIndex];
         }
     }
 
@@ -136,12 +192,7 @@ void VoxelizationPass::renderUI(Gui::Widgets& widget)
 
     if (mpScene && mVoxelizationComplete && mSamplingComplete && widget.button("Generate"))
     {
-        VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
-        ImageLoader::Instance().setSceneName(mSceneName);
-        mVoxelizationComplete = false;
-        mSamplingComplete = false;
-        mCompleteTimes = 0;
-        requestRecompile();
+        beginGeneration();
     }
 }
 
@@ -150,6 +201,9 @@ void VoxelizationPass::setScene(RenderContext* pRenderContext, const ref<Scene>&
     mpScene = pScene;
     mAnalyzePolygonPass = nullptr;
     VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
+
+    if (mpScene && mAutoGenerate && mVoxelizationComplete && mSamplingComplete)
+        beginGeneration();
 }
 
 void VoxelizationPass::voxelize(RenderContext* pRenderContext, const RenderData& renderData) {}
@@ -224,6 +278,11 @@ std::string VoxelizationPass::getFileName()
     return oss.str();
 }
 
+std::filesystem::path VoxelizationPass::getOutputFilePath()
+{
+    return getVoxelizationResourceFolderPath() / getFileName();
+}
+
 void VoxelizationPass::write(std::string fileName, void* pGBuffer, void* pVBuffer, void* pBlockMap)
 {
     const auto path = getVoxelizationResourceFolderPath() / fileName;
@@ -236,4 +295,49 @@ void VoxelizationPass::write(std::string fileName, void* pGBuffer, void* pVBuffe
 
     f.close();
     gVoxelizationFilesUpdated = true;
+}
+
+void VoxelizationPass::parseProperties(const Properties& props)
+{
+    for (const auto& [key, value] : props)
+    {
+        if (key == VoxelizationProperties::kSceneName)
+        {
+            mSceneName = value.operator std::string();
+            mSceneNameIndex = getSceneNameIndex(mSceneName);
+        }
+        else if (key == VoxelizationProperties::kSampleFrequency)
+        {
+            mSampleFrequency = value;
+        }
+        else if (key == VoxelizationProperties::kVoxelResolution)
+        {
+            mVoxelResolution = std::max(1u, static_cast<uint32_t>(value));
+        }
+        else if (key == VoxelizationProperties::kPolygonPerFrame)
+        {
+            polygonGroup.maxPolygonCount = std::max(1u, static_cast<uint32_t>(value));
+        }
+        else if (key == VoxelizationProperties::kLerpNormal)
+        {
+            mLerpNormal = value;
+        }
+        else if (key == VoxelizationProperties::kAutoGenerate)
+        {
+            mAutoGenerate = value;
+        }
+    }
+}
+
+void VoxelizationPass::beginGeneration()
+{
+    if (!mpScene)
+        return;
+
+    VoxelizationBase::UpdateVoxelGrid(mpScene, mVoxelResolution);
+    ImageLoader::Instance().setSceneName(mSceneName);
+    mVoxelizationComplete = false;
+    mSamplingComplete = false;
+    mCompleteTimes = 0;
+    requestRecompile();
 }

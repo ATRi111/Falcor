@@ -17,6 +17,8 @@ public:
     VoxelizationPass_GPU(ref<Device> pDevice, const Properties& props);
 
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
+    virtual void setProperties(const Properties& props) override;
+    virtual Properties getProperties() const override;
 
     virtual void voxelize(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void sample(RenderContext* pRenderContext, const RenderData& renderData) override;
