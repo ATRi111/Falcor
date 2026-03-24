@@ -1,0 +1,43 @@
+AI doc navigation
+
+Read these files by intent
+- Current project status / recent voxelization decisions:
+  .FORAGENT\atri111_voxel_latest_status.html
+- How to configure the repo and build any target:
+  .FORAGENT\build_any_target_brief.txt
+- How to run VoxelizationGPU and what its parameters mean:
+  .FORAGENT\voxelization_gpu_tool_brief.txt
+- How voxel caches are written and how ReadVoxelPass reads them:
+  .FORAGENT\voxelization_pipeline_brief.txt
+- How to implement the separate direct-light + AO voxel render flow:
+  .FORAGENT\voxel_direct_ao_plan.txt
+
+If docs are not enough, inspect source in this order
+- Tool entry and headless automation:
+  Source\Tools\VoxelizationGPU\VoxelizationGPU.cpp
+- Shared pass orchestration, final write format, output-path reporting:
+  Source\RenderPasses\Voxelization\VoxelizationPass.cpp
+- GPU voxelization implementation and solidRate behavior:
+  Source\RenderPasses\Voxelization\VoxelizationPass_GPU.cpp
+- Cache-file reader, file dropdown, and recompile flow:
+  Source\RenderPasses\Voxelization\ReadVoxelPass.cpp
+- On-disk struct layout and reader-side unpacking:
+  Source\RenderPasses\Voxelization\VoxelizationShared.slang
+  Source\RenderPasses\Voxelization\Voxel\VoxelGrid.slang
+  Source\RenderPasses\Voxelization\PrepareShadingData.cs.slang
+
+Fast path by task
+- Need to build or rebuild something:
+  read build_any_target_brief.txt first
+- Need to run the voxelization tool or change CLI behavior:
+  read voxelization_gpu_tool_brief.txt first
+- Need exact output compatibility with the original pass:
+  read voxelization_pipeline_brief.txt first, then inspect VoxelizationPass.cpp and VoxelizationPass_GPU.cpp
+- Need to debug why a cache file does not load:
+  read voxelization_pipeline_brief.txt first, then inspect ReadVoxelPass.cpp and the struct-definition files
+- Need to build a simpler renderer on top of existing voxel caches:
+  read voxel_direct_ao_plan.txt first, then inspect scripts\Voxelization_GPU.py, ReadVoxelPass.cpp, and RayMarchingPass.cpp
+
+Working rule
+- Prefer .FORAGENT notes for quick orientation.
+- Then open source only for the exact area you need to modify.

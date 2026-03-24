@@ -1,0 +1,98 @@
+Voxelization write/read pipeline brief for AI
+
+Purpose
+- This file explains how the headless VoxelizationGPU tool writes voxel caches, and how ReadVoxelPass reads them back.
+- Treat the on-disk layout as a contract between the writer and the reader.
+
+Write path: VoxelizationGPU.exe -> VoxelizationPass_GPU -> .bin file
+1. Tool setup
+- VoxelizationGPU.exe creates a headless SampleApp and a minimal RenderGraph.
+- It creates a VoxelizationPass_GPU render pass with pass properties from CLI.
+- It sets autoGenerate=true, loads the scene with SceneBuilder, and calls graph.setScene(scene).
+
+2. Pass orchestration
+- The tool does not implement voxelization itself.
+- It polls the render-graph dictionary keys:
+  Voxelization.completed
+  Voxelization.outputPath
+- The app exits only after the original pass reports completion.
+
+3. GPU voxelization stage
+- VoxelizationPass_GPU::voxelize() allocates temporary GPU buffers:
+  gBuffer
+  vBuffer
+  polygonCountBuffer
+  polygonRangeBuffer
+  solidVoxelCount
+- Capacity for compact solid-voxel buffers is estimated from solidRate * totalVoxelCount.
+- SampleMesh.cs.slang runs per triangle across all meshes and builds:
+  a dense voxel-to-solid-index map in vBuffer
+  compact per-solid-voxel VoxelData entries in gBuffer
+  polygon counts per solid voxel
+
+4. CPU regrouping stage
+- After the first GPU stage, the pass reads back:
+  solidVoxelCount
+  vBuffer
+  polygonCountBuffer
+- CPU code sets gridData.solidVoxelCount, rebuilds polygonRanges, and creates polygon groups for incremental processing.
+
+5. Polygon analysis stage
+- For each polygon group/frame:
+  ClipMesh.cs.slang clips triangles into the current polygon buffer.
+  AnalyzePolygon.cs.slang accumulates material, normal, ellipsoid, and projected-area data into VoxelData.
+  blockMap is also filled for downstream traversal.
+
+6. Final file write
+- After all groups finish, the pass copies gBuffer and blockMap back to CPU.
+- VoxelizationPass::write() serializes data to resource\*.bin in this exact order:
+  GridData
+  vBuffer for all voxels
+  compact VoxelData array for solid voxels only
+  blockMap
+- GPU output naming comes from VoxelizationPass_GPU::getFileName(), which appends _GPU.
+
+Reader path: ReadVoxelPass -> GPU buffers for ray marching
+1. File discovery
+- ReadVoxelPass scans the project resource\ folder when gVoxelizationFilesUpdated is true.
+- The UI dropdown selects a cache file by filename. It does not select a scene file.
+
+2. Read button behavior
+- On Read, ReadVoxelPass first reads only GridData from the selected file.
+- It then calls requestRecompile(), because output resource sizes depend on voxelCount and solidVoxelCount from the file header.
+
+3. Full file load on execute
+- On the next execute() when mComplete is false, ReadVoxelPass opens the file again and reads the same layout in the same order:
+  GridData
+  vBuffer
+  VoxelData[]
+  blockMap
+- vBuffer is uploaded into a 3D texture.
+- VoxelData[] is uploaded into a structured buffer.
+- blockMap is uploaded into a 2D texture.
+
+4. Shading-data preparation
+- PrepareShadingData.cs.slang converts each VoxelData entry into:
+  PrimitiveBSDF gBuffer
+  Ellipsoid pBuffer
+- Downstream passes such as RayMarchingPass consume:
+  vBuffer
+  gBuffer
+  pBuffer
+  blockMap
+
+Binary contract and caveats
+- Reader and writer must stay layout-compatible.
+- If GridData, VoxelData, or write order changes, ReadVoxelPass must be updated too.
+- Scene Name mainly affects the output filename prefix; it does not choose which scene file gets voxelized.
+- solidRate affects temporary GPU buffer sizing and overflow risk, not the on-disk layout.
+- ReadVoxelPass still expects a scene to be set on the graph for shader modules/scene defines, but the voxel cache itself comes only from the selected file.
+
+Key source files
+- Source\Tools\VoxelizationGPU\VoxelizationGPU.cpp
+- Source\RenderPasses\Voxelization\VoxelizationPass.cpp
+- Source\RenderPasses\Voxelization\VoxelizationPass_GPU.cpp
+- Source\RenderPasses\Voxelization\ReadVoxelPass.cpp
+- Source\RenderPasses\Voxelization\PrepareShadingData.cs.slang
+- Source\RenderPasses\Voxelization\VoxelizationShared.slang
+- Source\RenderPasses\Voxelization\Voxel\VoxelGrid.slang
