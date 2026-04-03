@@ -28,6 +28,13 @@ private:
     ref<FullScreenPass> mpFullScreenPass;
 
     GridData& gridData;
+    uint mDrawMode;
+    float mShadowBias100;
+    bool mCheckEllipsoid;
+    bool mCheckVisibility;
+    bool mCheckCoverage;
+    bool mUseMipmap;
+    bool mRenderBackground;
     bool mOptionsChanged;
     uint mFrameIndex;
     uint mSelectedResolution;

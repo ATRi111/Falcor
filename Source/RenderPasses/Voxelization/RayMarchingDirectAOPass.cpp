@@ -6,11 +6,27 @@ namespace
 {
 const std::string kShaderFile = "RenderPasses/Voxelization/RayMarchingDirectAO.ps.slang";
 const std::string kOutputColor = "color";
+
+enum class RayMarchingDirectAODrawMode : uint32_t
+{
+    Combined = 0,
+    DirectOnly = 1,
+    AOOnly = 2,
+    NormalDebug = 3,
+    CoverageDebug = 4,
+};
 } // namespace
 
 RayMarchingDirectAOPass::RayMarchingDirectAOPass(ref<Device> pDevice, const Properties& props)
     : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
 {
+    mDrawMode = static_cast<uint32_t>(RayMarchingDirectAODrawMode::Combined);
+    mShadowBias100 = 0.01f;
+    mCheckEllipsoid = true;
+    mCheckVisibility = true;
+    mCheckCoverage = true;
+    mUseMipmap = true;
+    mRenderBackground = true;
     mOptionsChanged = false;
     mFrameIndex = 0;
     mSelectedResolution = 0;
@@ -51,6 +67,12 @@ RenderPassReflection RayMarchingDirectAOPass::reflect(const CompileData& compile
 
 void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
+    pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
+
+    if (!mpScene)
+        return;
+
     auto& dict = renderData.getDictionary();
     if (mOptionsChanged)
     {
@@ -59,18 +81,46 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
         mOptionsChanged = false;
     }
 
-    ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
-    pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
-
     if (!mpFullScreenPass)
     {
         ProgramDesc desc;
         desc.addShaderLibrary(kShaderFile).psEntry("main");
         desc.setShaderModel(ShaderModel::SM6_5);
+
+        DefineList defines;
+        defines.add("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
+        defines.add("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
+        defines.add("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
+        defines.add("USE_MIP_MAP", mUseMipmap ? "1" : "0");
         // Stage 1 uses a pure-color shader that does not import scene interfaces yet.
         // Passing scene type conformances here breaks startup when script and scene are loaded together.
-        mpFullScreenPass = FullScreenPass::create(mpDevice, desc);
+        mpFullScreenPass = FullScreenPass::create(mpDevice, desc, defines);
     }
+
+    mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
+    mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
+    mpFullScreenPass->addDefine("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
+    mpFullScreenPass->addDefine("USE_MIP_MAP", mUseMipmap ? "1" : "0");
+
+    ref<Camera> pCamera = mpScene->getCamera();
+    auto var = mpFullScreenPass->getRootVar();
+    var[kVBuffer] = renderData.getTexture(kVBuffer);
+    var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
+    var[kPBuffer] = renderData.getResource(kPBuffer)->asBuffer();
+    var[kBlockMap] = renderData.getTexture(kBlockMap);
+
+    auto cbGridData = var["GridData"];
+    cbGridData["gridMin"] = gridData.gridMin;
+    cbGridData["voxelSize"] = gridData.voxelSize;
+    cbGridData["voxelCount"] = gridData.voxelCount;
+    cbGridData["solidVoxelCount"] = static_cast<uint32_t>(gridData.solidVoxelCount);
+
+    auto cb = var["CB"];
+    cb["pixelCount"] = mOutputResolution;
+    cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
+    cb["shadowBias"] = mShadowBias100 / 100.0f / gridData.voxelSize.x;
+    cb["drawMode"] = mDrawMode;
+    cb["renderBackground"] = mRenderBackground;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
@@ -85,6 +135,29 @@ void RayMarchingDirectAOPass::compile(RenderContext* pRenderContext, const Compi
 
 void RayMarchingDirectAOPass::renderUI(Gui::Widgets& widget)
 {
+    static const Gui::DropdownList kDrawModes = {
+        {static_cast<uint32_t>(RayMarchingDirectAODrawMode::Combined), "Combined"},
+        {static_cast<uint32_t>(RayMarchingDirectAODrawMode::DirectOnly), "DirectOnly"},
+        {static_cast<uint32_t>(RayMarchingDirectAODrawMode::AOOnly), "AOOnly"},
+        {static_cast<uint32_t>(RayMarchingDirectAODrawMode::NormalDebug), "NormalDebug"},
+        {static_cast<uint32_t>(RayMarchingDirectAODrawMode::CoverageDebug), "CoverageDebug"},
+    };
+
+    if (widget.dropdown("Draw Mode", kDrawModes, mDrawMode))
+        mOptionsChanged = true;
+    if (widget.checkbox("Render Background", mRenderBackground))
+        mOptionsChanged = true;
+    if (widget.checkbox("Use Mipmap", mUseMipmap))
+        mOptionsChanged = true;
+    if (widget.checkbox("Check Ellipsoid", mCheckEllipsoid))
+        mOptionsChanged = true;
+    if (widget.checkbox("Check Visibility", mCheckVisibility))
+        mOptionsChanged = true;
+    if (widget.checkbox("Check Coverage", mCheckCoverage))
+        mOptionsChanged = true;
+    if (widget.slider("Shadow Bias(x100)", mShadowBias100, 0.0f, 0.2f))
+        mOptionsChanged = true;
+
     static const uint kResolutions[] = {0, 32, 64, 128, 256, 512, 1024};
     Gui::DropdownList list;
     for (uint resolution : kResolutions)
@@ -112,4 +185,7 @@ void RayMarchingDirectAOPass::setScene(RenderContext* pRenderContext, const ref<
     mpScene = pScene;
     mpFullScreenPass = nullptr;
     mFrameIndex = 0;
+
+    if (const auto pCamera = mpScene ? mpScene->getCamera() : nullptr)
+        pCamera->setAspectRatio(mOutputResolution.x / static_cast<float>(mOutputResolution.y));
 }
