@@ -1,50 +1,47 @@
-import falcor
 import os
 
-# 自动选取 bin 文件：与场景同名前缀的第一个，或 resource 下第一个
+
 def find_bin_file(scene_name_hint=""):
     resource_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resource")
     if not os.path.isdir(resource_dir):
         return ""
+
     files = sorted(os.listdir(resource_dir))
-    # 优先匹配场景名
     if scene_name_hint:
         hint = scene_name_hint.lower()
-        for f in files:
-            if hint in f.lower():
-                return os.path.join(resource_dir, f)
-    # 回退到第一个文件
-    if files:
-        return os.path.join(resource_dir, files[0])
-    return ""
+        for filename in files:
+            if hint in filename.lower():
+                return os.path.join(resource_dir, filename)
 
-def resolve_scene_hint():
-    # `--scene` 传入的场景有时会在脚本执行后才真正绑定到 `m.scene`，
-    # 先读 batch 明确传入的 hint，避免 CornellBox 启动时回退到 Arcade cache。
-    for key in ("DIRECTAO_SCENE_PATH", "DIRECTAO_SCENE_HINT"):
-        value = os.environ.get(key, "").strip()
-        if value:
-            return os.path.basename(value).split(".")[0]
+    return os.path.join(resource_dir, files[0]) if files else ""
 
+
+def build_graph(draw_mode=1, output_resolution=256):
+    scene_hint = ""
     try:
         if m.scene:
-            return os.path.basename(str(m.scene.path)).split(".")[0]
+            scene_hint = os.path.basename(str(m.scene.path)).split(".")[0]
     except Exception:
         pass
 
-    return ""
-
-def render_graph_Pass():
-    scene_hint = resolve_scene_hint()
     bin_file = find_bin_file(scene_hint)
-    print("[MainlineDirectAO] scene hint:", scene_hint if scene_hint else "<empty>")
-    print("[MainlineDirectAO] voxel cache:", bin_file if bin_file else "<none>")
 
-    g = RenderGraph("VoxelizationMainlineDirectAO")
+    g = RenderGraph("VoxelizationMainlineDirectAO_Capture")
 
     voxel_pass = createPass("VoxelizationPass_GPU")
     read_pass = createPass("ReadVoxelPass", {"binFile": bin_file} if bin_file else {})
-    marching_pass = createPass("RayMarchingDirectAOPass")
+    marching_pass = createPass(
+        "RayMarchingDirectAOPass",
+        {
+            "drawMode": draw_mode,
+            "outputResolution": output_resolution,
+            "renderBackground": True,
+            "useMipmap": True,
+            "checkEllipsoid": True,
+            "checkVisibility": True,
+            "checkCoverage": True,
+        },
+    )
     viewport_pass = createPass("RenderToViewportPass")
     accumulate_pass = createPass("AccumulatePass", {"enabled": True, "autoReset": True, "precisionMode": "Single", "maxFrameCount": 1024})
     tone_mapper = createPass("ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})
@@ -66,12 +63,27 @@ def render_graph_Pass():
     g.addEdge("RenderToViewportPass.output", "AccumulatePass.input")
     g.addEdge("AccumulatePass.output", "ToneMapper.src")
     g.markOutput("ToneMapper.dst")
-
     return g
 
 
-Graph = render_graph_Pass()
-try:
-    m.addGraph(Graph)
-except NameError:
-    pass
+draw_mode = int(os.environ.get("DIRECTAO_DRAW_MODE", "1"))
+output_resolution = int(os.environ.get("DIRECTAO_OUTPUT_RESOLUTION", "256"))
+base_filename = os.environ.get("DIRECTAO_BASE_FILENAME", "mainline_directao")
+
+Graph = build_graph(draw_mode=draw_mode, output_resolution=output_resolution)
+m.addGraph(Graph)
+m.setActiveGraph(Graph)
+m.ui = False
+m.resizeFrameBuffer(512, 512)
+m.clock.pause()
+output_dir = r"E:\GraduateDesign\Falcor_Cp\.FORAGENT\captures"
+os.makedirs(output_dir, exist_ok=True)
+m.frameCapture.outputDir = output_dir
+m.frameCapture.baseFilename = base_filename
+
+for frame in range(4):
+    m.clock.frame = frame
+    m.renderFrame()
+
+m.frameCapture.capture()
+exit()

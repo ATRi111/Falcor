@@ -17,6 +17,8 @@
 #include "Voxel/VoxelGrid.slang"
 #include "Math/VoxelizationUtility.slang"
 #include "Shading.slang"
+import Scene.Scene;
+import Scene.SceneTypes;
 
 Texture3D<int> vBuffer;
 StructuredBuffer<PrimitiveBSDF> gBuffer;
@@ -38,6 +40,7 @@ cbuffer CB
     float shadowBias;
     uint drawMode;
     bool renderBackground;
+    float transmittanceThreshold;
 }
 
 #include "RayMarchingTraversal.slang"
@@ -52,6 +55,8 @@ static const uint kDrawModeDirectOnly = 1;
 static const uint kDrawModeAOOnly = 2;
 static const uint kDrawModeNormalDebug = 3;
 static const uint kDrawModeCoverageDebug = 4;
+
+#define MAX_ANALYTIC_LIGHTS 8
 
 float3 screenCoordToCell(float2 screenCoord, float ndcDepth)
 {
@@ -73,22 +78,82 @@ float4 renderMissBackground(float3 direction)
     return float4(color, 1);
 }
 
-float3 evalPlaceholderColor(uint mode, float3 mainNormal, float coverage)
+// 确定性直接光照：遍历所有 analytic 光源，无随机采样
+// 若场景无 analytic 光，返回简单 ambient 使画面可见
+float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDir)
 {
-    float diffuseTerm = saturate(dot(mainNormal, normalize(float3(0.45f, 0.80f, 0.38f))));
-    float3 directPlaceholder = lerp(float3(0.10f, 0.08f, 0.06f), float3(0.82f, 0.75f, 0.60f), diffuseTerm);
+    PrimitiveBSDF bsdf = gBuffer[offset];
+    bsdf.updateCoverage(viewDir, transmittanceThreshold);
 
-    switch (mode)
+    float3 posW = gridMin + hit.cell * voxelSize;
+
+    float3 result = 0;
+    uint lightCount = min(gScene.getLightCount(), (uint)MAX_ANALYTIC_LIGHTS);
+    uint supportedLightCount = 0;
+    for (uint i = 0; i < lightCount; i++)
     {
-    case kDrawModeCombined:
-        return directPlaceholder * lerp(0.35f, 1.0f, coverage);
-    case kDrawModeDirectOnly:
-        return directPlaceholder;
-    case kDrawModeAOOnly:
-        return coverage.xxx;
-    default:
-        return directPlaceholder;
+        LightData light = gScene.getLight(i);
+        float3 lightDir = 0;
+        float3 lightColor = 0;
+        float lightDistance = -1;
+
+        if (light.type == LightType::Point)
+        {
+            float3 toL = light.posW - posW;
+            lightDistance = length(toL);
+            lightDir = toL / max(lightDistance, 1e-6f);
+
+            float sqrDist = max(dot(toL, toL), 1e-4f);
+            float spot = 1.0f;
+            if (light.openingAngle < Pi)
+            {
+                float cosTerm = dot(light.dirW, -lightDir);
+                float cosOuter = light.cosOpeningAngle;
+                float innerAng = max(light.openingAngle - light.penumbraAngle, 0.0f);
+                float cosInner = cos(innerAng);
+                float t2 = saturate((cosTerm - cosOuter) / max(cosInner - cosOuter, 1e-6f));
+                spot = t2 * t2 * (3.0f - 2.0f * t2);
+                if (light.penumbraAngle <= 0.0f)
+                    spot = (cosTerm >= cosOuter) ? 1.0f : 0.0f;
+            }
+            lightColor = light.intensity * spot / sqrDist;
+        }
+        else if (light.type == LightType::Directional)
+        {
+            lightDir = -light.dirW;
+            lightColor = light.intensity;
+            lightDistance = -1;
+        }
+        else
+        {
+            continue;
+        }
+
+        supportedLightCount++;
+
+        // 距离转换为体素单位（visibility 函数用体素坐标距离）
+        float3 shadowNormal = bsdf.surface.getMainNormal(lightDir);
+        float voxelDist = lightDistance > 0 ? lightDistance / voxelSize.x : -1;
+        float visibility = calcLightVisibility(hit, lightDir, shadowNormal, voxelDist);
+        if (visibility <= 0)
+            continue;
+
+        float3 h = normalizeSafe(lightDir + viewDir);
+        result += visibility * lightColor * bsdf.eval(lightDir, viewDir, h);
     }
+
+    // 无受支持的 analytic 光时（如 CornellBox 纯 emissive 场景），用简单半球 ambient 保证可见
+    if (supportedLightCount == 0)
+    {
+        float3 skyDir = normalize(float3(0.3f, 1.0f, 0.2f));
+        float3 ambientNormal = bsdf.surface.getMainNormal(skyDir);
+        float NdotL = saturate(dot(ambientNormal, skyDir));
+        float ambient = 0.05f;
+        float3 h2 = normalizeSafe(skyDir + viewDir);
+        result = (NdotL + ambient) * bsdf.eval(skyDir, viewDir, h2);
+    }
+
+    return result;
 }
 
 PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
@@ -128,8 +193,16 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
     case kDrawModeCoverageDebug:
         color = valueToColor(coverage);
         break;
+    case kDrawModeDirectOnly:
+    case kDrawModeCombined:
+        color = evalDeterministicDirectLighting(hit, offset, viewDir);
+        break;
+    case kDrawModeAOOnly:
+        // stage3 placeholder: AO 在 stage4 实现
+        color = float3(1, 1, 1);
+        break;
     default:
-        color = evalPlaceholderColor(drawMode, mainNormal, coverage);
+        color = float3(0.2f, 0.7f, 0.2f);
         break;
     }
 

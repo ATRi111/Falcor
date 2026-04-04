@@ -17,6 +17,7 @@ public:
 
     RayMarchingDirectAOPass(ref<Device> pDevice, const Properties& props);
 
+    virtual Properties getProperties() const override;
     virtual RenderPassReflection reflect(const CompileData& compileData) override;
     virtual void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
@@ -24,6 +25,8 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    void parseProperties(const Properties& props);
+
     ref<Scene> mpScene;
     ref<FullScreenPass> mpFullScreenPass;
 
@@ -39,4 +42,5 @@ private:
     uint mFrameIndex;
     uint mSelectedResolution;
     uint2 mOutputResolution;
+    float mTransmittanceThreshold100;
 };

@@ -37,7 +37,6 @@ How to find target names
 - Read the relevant CMakeLists.txt. The target name is the CMake target name, not necessarily the folder name.
 - Common executable targets in this repo include:
   Mogwai
-  VoxelizationGPU
   FalcorTest
   ImageCompare
   RenderGraphEditor

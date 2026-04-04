@@ -14,6 +14,12 @@ ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : Ren
     mOptionsChanged = false;
     selectedFile = 0;
     mpDevice = pDevice;
+
+    // 支持从脚本传入 binFile 路径自动触发读取
+    if (props.has("binFile"))
+    {
+        mAutoBinFile = props["binFile"].operator std::filesystem::path();
+    }
 }
 
 RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
@@ -182,6 +188,28 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
+
+    // 如果脚本指定了 binFile，场景加载后自动触发读取
+    if (mpScene && !mAutoBinFile.empty() && std::filesystem::exists(mAutoBinFile))
+    {
+        std::ifstream f(mAutoBinFile, std::ios::binary | std::ios::ate);
+        if (f.is_open())
+        {
+            size_t offset = 0;
+            size_t fileSize = std::filesystem::file_size(mAutoBinFile);
+            tryRead(f, offset, sizeof(GridData), &gridData, fileSize);
+            f.close();
+
+            // 把此文件加入 filePaths 并选中
+            filePaths.clear();
+            filePaths.push_back(mAutoBinFile);
+            selectedFile = 0;
+
+            requestRecompile();
+            mComplete = false;
+            mOptionsChanged = true;
+        }
+    }
 }
 
 bool ReadVoxelPass::tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize)

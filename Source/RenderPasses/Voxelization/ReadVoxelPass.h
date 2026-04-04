@@ -36,4 +36,5 @@ private:
 
     bool mComplete;
     bool mOptionsChanged;
+    std::filesystem::path mAutoBinFile;
 };

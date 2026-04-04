@@ -6,6 +6,15 @@ namespace
 {
 const std::string kShaderFile = "RenderPasses/Voxelization/RayMarchingDirectAO.ps.slang";
 const std::string kOutputColor = "color";
+const std::string kPropDrawMode = "drawMode";
+const std::string kPropShadowBias = "shadowBias";
+const std::string kPropCheckEllipsoid = "checkEllipsoid";
+const std::string kPropCheckVisibility = "checkVisibility";
+const std::string kPropCheckCoverage = "checkCoverage";
+const std::string kPropUseMipmap = "useMipmap";
+const std::string kPropRenderBackground = "renderBackground";
+const std::string kPropOutputResolution = "outputResolution";
+const std::string kPropTransmittanceThreshold = "transmittanceThreshold";
 
 enum class RayMarchingDirectAODrawMode : uint32_t
 {
@@ -31,6 +40,54 @@ RayMarchingDirectAOPass::RayMarchingDirectAOPass(ref<Device> pDevice, const Prop
     mFrameIndex = 0;
     mSelectedResolution = 0;
     mOutputResolution = uint2(1920, 1080);
+    mTransmittanceThreshold100 = 5.0f;
+
+    parseProperties(props);
+}
+
+void RayMarchingDirectAOPass::parseProperties(const Properties& props)
+{
+    for (const auto& [key, value] : props)
+    {
+        if (key == kPropDrawMode)
+            mDrawMode = value;
+        else if (key == kPropShadowBias)
+            mShadowBias100 = value;
+        else if (key == kPropCheckEllipsoid)
+            mCheckEllipsoid = value;
+        else if (key == kPropCheckVisibility)
+            mCheckVisibility = value;
+        else if (key == kPropCheckCoverage)
+            mCheckCoverage = value;
+        else if (key == kPropUseMipmap)
+            mUseMipmap = value;
+        else if (key == kPropRenderBackground)
+            mRenderBackground = value;
+        else if (key == kPropOutputResolution)
+        {
+            mSelectedResolution = value;
+            mOutputResolution = mSelectedResolution == 0 ? uint2(1920, 1080) : uint2(mSelectedResolution, mSelectedResolution);
+        }
+        else if (key == kPropTransmittanceThreshold)
+            mTransmittanceThreshold100 = value;
+        else
+            logWarning("Unknown property '{}' in RayMarchingDirectAOPass properties.", key);
+    }
+}
+
+Properties RayMarchingDirectAOPass::getProperties() const
+{
+    Properties props;
+    props[kPropDrawMode] = mDrawMode;
+    props[kPropShadowBias] = mShadowBias100;
+    props[kPropCheckEllipsoid] = mCheckEllipsoid;
+    props[kPropCheckVisibility] = mCheckVisibility;
+    props[kPropCheckCoverage] = mCheckCoverage;
+    props[kPropUseMipmap] = mUseMipmap;
+    props[kPropRenderBackground] = mRenderBackground;
+    props[kPropOutputResolution] = mSelectedResolution;
+    props[kPropTransmittanceThreshold] = mTransmittanceThreshold100;
+    return props;
 }
 
 RenderPassReflection RayMarchingDirectAOPass::reflect(const CompileData& compileData)
@@ -86,14 +143,11 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
         ProgramDesc desc;
         desc.addShaderLibrary(kShaderFile).psEntry("main");
         desc.setShaderModel(ShaderModel::SM6_5);
-
-        DefineList defines;
+        DefineList defines = mpScene->getSceneDefines();
         defines.add("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
         defines.add("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
         defines.add("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
         defines.add("USE_MIP_MAP", mUseMipmap ? "1" : "0");
-        // Stage 1 uses a pure-color shader that does not import scene interfaces yet.
-        // Passing scene type conformances here breaks startup when script and scene are loaded together.
         mpFullScreenPass = FullScreenPass::create(mpDevice, desc, defines);
     }
 
@@ -104,6 +158,7 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
 
     ref<Camera> pCamera = mpScene->getCamera();
     auto var = mpFullScreenPass->getRootVar();
+    mpScene->bindShaderData(var["gScene"]);
     var[kVBuffer] = renderData.getTexture(kVBuffer);
     var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
     var[kPBuffer] = renderData.getResource(kPBuffer)->asBuffer();
@@ -121,6 +176,7 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
     cb["shadowBias"] = mShadowBias100 / 100.0f / gridData.voxelSize.x;
     cb["drawMode"] = mDrawMode;
     cb["renderBackground"] = mRenderBackground;
+    cb["transmittanceThreshold"] = mTransmittanceThreshold100 / 100.0f;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
@@ -156,6 +212,8 @@ void RayMarchingDirectAOPass::renderUI(Gui::Widgets& widget)
     if (widget.checkbox("Check Coverage", mCheckCoverage))
         mOptionsChanged = true;
     if (widget.slider("Shadow Bias(x100)", mShadowBias100, 0.0f, 0.2f))
+        mOptionsChanged = true;
+    if (widget.slider("Transmittance Threshold(x100)", mTransmittanceThreshold100, 0.0f, 10.0f))
         mOptionsChanged = true;
 
     static const uint kResolutions[] = {0, 32, 64, 128, 256, 512, 1024};
