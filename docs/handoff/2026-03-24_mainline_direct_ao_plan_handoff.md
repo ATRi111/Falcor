@@ -1,5 +1,7 @@
 # Mainline DirectAO Plan Handoff
 
+> 此交接文档已被 `E:\GraduateDesign\Falcor_Cp\docs\handoff\2026-04-04_mainline_direct_ao_plan3_handoff.md` 和 `E:\GraduateDesign\Falcor_Cp\.FORAGENT\plan3.md` 取代，保留仅供历史对照。
+
 ## 模块职责
 
 本模块只负责“从主线 voxel 渲染链独立推导并整理 Direct Light + AO 的落地手册”，产出是可直接给后续 AI 按阶段执行的实施文档，而不是代码实现本身。

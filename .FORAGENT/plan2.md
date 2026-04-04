@@ -1,5 +1,7 @@
 # Agent执行手册：主线 Voxel Direct Light + AO 落地计划
 
+> 此文件已被 `E:\GraduateDesign\Falcor_Cp\.FORAGENT\plan3.md` 取代，保留仅供历史对照。
+
 ## 1. 任务定义
 
 你不是来继续讨论方案，你是来按顺序把方案落地。

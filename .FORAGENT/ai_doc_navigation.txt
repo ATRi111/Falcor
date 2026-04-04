@@ -1,6 +1,8 @@
 AI doc navigation
 
 Read these files by intent
+- Current mainline DirectAO remaining stages:
+  .FORAGENT\plan3.md
 - Current project status / recent voxelization decisions:
   .FORAGENT\atri111_voxel_latest_status.html
 - How to configure the repo and build any target:
@@ -9,7 +11,8 @@ Read these files by intent
   .FORAGENT\voxelization_gpu_tool_brief.txt
 - How voxel caches are written and how ReadVoxelPass reads them:
   .FORAGENT\voxelization_pipeline_brief.txt
-- How to implement the separate direct-light + AO voxel render flow:
+- Historical / superseded DirectAO notes (read only for comparison, not as implementation baseline):
+  .FORAGENT\plan2.md
   .FORAGENT\voxel_direct_ao_plan.txt
 
 If docs are not enough, inspect source in this order
@@ -35,8 +38,10 @@ Fast path by task
   read voxelization_pipeline_brief.txt first, then inspect VoxelizationPass.cpp and VoxelizationPass_GPU.cpp
 - Need to debug why a cache file does not load:
   read voxelization_pipeline_brief.txt first, then inspect ReadVoxelPass.cpp and the struct-definition files
-- Need to build a simpler renderer on top of existing voxel caches:
-  read voxel_direct_ao_plan.txt first, then inspect scripts\Voxelization_GPU.py, ReadVoxelPass.cpp, and RayMarchingPass.cpp
+- Need to continue the current mainline deterministic DirectAO + AO path:
+  read plan3.md first, then inspect scripts\Voxelization_MainlineDirectAO.py, ReadVoxelPass.cpp, RayMarchingDirectAOPass.cpp, and RayMarchingDirectAO.ps.slang
+- Need historical context on the older separate DirectAO route:
+  read voxel_direct_ao_plan.txt only after plan3.md, and do not use it as the primary implementation baseline
 
 Working rule
 - Prefer .FORAGENT notes for quick orientation.
