@@ -8,7 +8,7 @@ struct HitResult
 bool isSolidVoxel(int3 cellInt, out int offset)
 {
     offset = vBuffer[cellInt];
-    if (offset < 0 || offset > solidVoxelCount)
+    if (offset < 0 || offset >= solidVoxelCount)
         return false;
     return gBuffer[offset].area > 0;
 }
@@ -234,6 +234,80 @@ HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, b
     return hit;
 }
 
+HitResult rayMarchingConservative_DDA(float3 from, float3 direction, bool ignoreFirst)
+{
+    float3 cell = from;
+    int3 cellInt = int3(floor(from));
+
+    float3 reciprocal_direction = 1.0f / direction;
+    int3 directions = int3(sign(direction));
+    if (ignoreFirst)
+        leave(cell, cellInt, directions, direction, reciprocal_direction);
+
+    while (true)
+    {
+        if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
+            break;
+
+        int offset;
+        if (isSolidVoxel(cellInt, offset))
+        {
+            HitResult hit = { true, cellInt, cellInt + 0.5f };
+            return hit;
+        }
+
+        leave(cell, cellInt, directions, direction, reciprocal_direction);
+    }
+
+    HitResult hit = { false, cellInt, cellInt + 0.5f };
+    return hit;
+}
+
+HitResult rayMarchingConservative_Mipmap(float3 from, float3 direction, bool ignoreFirst)
+{
+    float3 cell = from;
+    int3 cellInt = int3(floor(from));
+
+    float3 reciprocal_direction = 1.0f / direction;
+    int3 directions = int3(sign(direction));
+    if (ignoreFirst)
+        leave(cell, cellInt, directions, direction, reciprocal_direction);
+
+    while (true)
+    {
+        if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
+            break;
+
+        int3 blockInt = cellInt / BLOCK_TO_VOXEL;
+        if (isSolidBlock(blockInt))
+        {
+            int3 current = blockInt;
+            while (all(current == blockInt))
+            {
+                if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
+                    break;
+
+                int offset;
+                if (isSolidVoxel(cellInt, offset))
+                {
+                    HitResult hit = { true, cellInt, cellInt + 0.5f };
+                    return hit;
+                }
+
+                leave(cell, cellInt, directions, direction, reciprocal_direction);
+                current = cellInt / BLOCK_TO_VOXEL;
+            }
+        }
+        else
+        {
+            leaveBlock(cell, cellInt, directions, direction, reciprocal_direction);
+        }
+    }
+
+    HitResult hit = { false, cellInt, cellInt + 0.5f };
+    return hit;
+}
+
 HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ignoreFirst)
 {
     direction = normalizeSafe(direction);
@@ -250,6 +324,22 @@ HitResult rayMarching(float3 from, float3 direction, float maxDistance, bool ign
     if (maxDistance > 0)
         return rayMarching_DDA(from, direction, maxDistance, ignoreFirst);
     return rayMarching_DDA(from, direction, maxDistance, ignoreFirst);
+#endif
+}
+
+HitResult rayMarchingConservative(float3 from, float3 direction, bool ignoreFirst)
+{
+    direction = normalizeSafe(direction);
+    if (all(direction == float3(0)))
+    {
+        HitResult hit = { false, int3(from), from };
+        return hit;
+    }
+
+#if USE_MIP_MAP
+    return rayMarchingConservative_Mipmap(from, direction, ignoreFirst);
+#else
+    return rayMarchingConservative_DDA(from, direction, ignoreFirst);
 #endif
 }
 

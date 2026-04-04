@@ -197,6 +197,10 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
 
     from += (inOut.x + 1e-6f) * delta;
     HitResult hit = rayMarching(from, direction, -1, false);
+#if CHECK_ELLIPSOID
+    if (!hit.hit)
+        hit = rayMarchingConservative(from, direction, false);
+#endif
     if (!hit.hit)
         return psOut;
 
