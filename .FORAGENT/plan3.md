@@ -1,363 +1,175 @@
-# Agent执行手册：主线 DirectAO 剩余阶段计划（plan3）
+# 主线 DirectAO 后续可选优化计划（plan3）
 
-> 本文件取代 `E:\GraduateDesign\Falcor_Cp\.FORAGENT\plan2.md`，只覆盖 Stage4 及之后。
-> Stage1-3 已完成，当前唯一主线基线是 `RayMarchingDirectAO*` + `scripts\Voxelization_MainlineDirectAO.py`。
+## 1. 文档定位
 
-## 1. 当前基线
+- 当前可验收、可展示的主线基线停在 Stage4。
+- 当前主线基线是 `RayMarchingDirectAO*` + `scripts\Voxelization_MainlineDirectAO.py`，其目标已经是“稳定可展示的 voxel direct + AO”。
+- 本文件只保留 Stage4 之后仍可能继续做的内容，而且全部都是可选项 / optional；它们不是当前主线必做项。
+- 如果用户没有明确要求继续优化 AO、层级结构或环境项，不要因为看到了本文件就继续推进后续 stage。
 
-当前仓库已经稳定完成以下内容：
+## 2. 当前基线
 
-- `RayMarchingDirectAOPass` 已注册并接入 `scripts\Voxelization_MainlineDirectAO.py`
-- `RayMarchingTraversal.slang` 已从原 `RayMarching.ps.slang` 抽出主线可复用 traversal/visibility helper
-- `RayMarchingDirectAO.ps.slang` 的 `DirectOnly` / `Combined` 已改为确定性 analytic direct lighting
-- Stage3 的 primary-ray conservative fallback、`shadowNormal` 修正、unsupported light fallback 已验证通过
+当前仓库应以这条链路为准：
 
-当前还没有完成的内容：
+- `scripts\Voxelization_MainlineDirectAO.py`
+- `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+- `Source\RenderPasses\Voxelization\RayMarchingTraversal.slang`
 
-- `AOOnly` 仍是占位输出
-- 主线 AO 还没有稳定、可验收的一帧结果
-- `ReadVoxelPass` 还没有为 AO 提供新的辅助资源
-- 更早的 `VoxelDirectAO*` 代码和文档仍残留在仓库里，后续应清理
+当前已经具备的基线能力：
 
-## 2. 为什么从 plan2 升级到 plan3
+- `DirectOnly` 使用确定性的 analytic direct lighting。
+- `Combined` 已经是可展示的 direct + AO 主线结果。
+- `AOOnly` 已经不再是占位输出，当前 AO 以 Stage4 的稳定 baseline 为准。
+- 实际验收应以 Mogwai 窗口里的画面为准，不以离屏导出图为准。
 
-`plan2.md` 的 Stage4-6 有两个主要问题：
+## 3. 共用约束
 
-1. 它把“runtime 固定方向 AO 验证”和“ReadVoxelPass 内完整方向性 AO 预计算”挤得太近，中间缺了一个更通用、更低风险的 `aoOccupancy` 层级结构。
-2. 它把 `voxelOcclusion` 预计算写成了必做项，但结合当前仓库实现、Falcor 资源契约和 `deep_research.txt` 的 VXAO 思路，更合理的顺序是：
-   - 先做稳定 AO baseline
-   - 再补可采样的 occupancy mip
-   - 再把 AO 从短射线升级到层级采样
-   - 最后才决定是否真的需要方向性预计算和 stable env
+- 后续优化仍只围绕 `RayMarchingDirectAO*` 主线；不要把 mesh 方案、legacy 方案或其他历史实验重新塞回这个计划。
+- 不改 `.bin` 文件格式，不改 `VoxelizationPass.cpp` / `VoxelizationPass_GPU.cpp` 的写盘顺序。
+- `ReadVoxelPass` 现有 `vBuffer / gBuffer / pBuffer / blockMap` 契约只能扩展，不能破坏。
+- AO 核心路径禁止重新引入 `frameIndex` 驱动的随机半球采样。
+- 任何 optional stage 都必须先保持 Stage4 基线外观不倒退，再谈继续推进。
 
-本计划同时吸收以下现实约束：
+## 4. Optional Stage5：`aoOccupancy` 层级结构
 
-- `docs/memory` 里已经确认 Stage1-3 的关键问题都集中在主线 `RayMarchingDirectAO*`，不应再回退到 `VoxelDirectAO*`
-- `deep_research.txt` 提到的 VXAO / mip hierarchy 更适合作为 Stage5-6 的演进方向，而不是 Stage4 一步到位硬上完整预计算
-- `shader-dev` 里的邻域 AO / 固定方向 AO 思路适合做 Stage4 的稳定 fallback，但不能直接替代当前工程的主线资源契约
+### 目标
 
-## 3. 绝对约束
+把 `ReadVoxelPass` 扩展成能生成可采样的 3D occupancy mip，为后续层级 AO 提供通用输入。
 
-- 继续以 `RayMarchingDirectAO*` 为唯一实现主线；不要再把 `VoxelDirectAO*` 当成实现基线。
-- 在 legacy 清理阶段真正执行前，`VoxelDirectAO*` 只能作为对照参考，不能继续往里加新逻辑。
-- Stage4-6 不改 `.bin` 文件格式，不改 `VoxelizationPass.cpp` / `VoxelizationPass_GPU.cpp` 的写盘顺序。
-- `ReadVoxelPass` 的既有输出契约必须保持兼容：`vBuffer / gBuffer / pBuffer / blockMap` 不能被替换，只能额外增加输出。
-- AO 核心路径禁止重新引入 `frameIndex` 驱动的随机半球采样；允许的打散只能来自稳定空间 hash。
-- primary hit 的 conservative fallback 是 Stage3 为 pinhole 修复保留的特例；AO/shadow 短射线默认不要直接复用同样的保守回退，否则很容易整体过黑。
-- 只有在主线 AO 路线通过验证后，才允许进入 legacy `VoxelDirectAO*` 清理阶段。
+### 主要改动区域
 
-## 4. 每阶段共用的验证流程
+- `Source\RenderPasses\Voxelization\ReadVoxelPass.h`
+- `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+- `Source\RenderPasses\Voxelization\CMakeLists.txt`
+- 新增 occupancy 生成 shader
+- `scripts\Voxelization_MainlineDirectAO.py`
 
-每个阶段结束至少做下面这些事：
+### 实施要点
 
-1. 编译：
+- 新增输出建议命名为 `aoOccupancy`。
+- 资源形式优先 `Texture3D + mip chain`，格式优先 `R8Unorm` 或 `R16Float`。
+- base level 从 `vBuffer` 派生；`blockMap` 只能做 coarse skip，不能替代细节占据源。
+- 首版不要求立刻改变 AO 外观，先把资源契约和生成链路做稳。
 
-```powershell
-cd E:\GraduateDesign\Falcor_Cp
-tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Voxelization
-```
+### 主要风险
 
-2. 如果改动涉及 pass 注册、脚本、shader 复制、ReadVoxelPass 资源反射或插件加载链路，再补：
+- `ReadVoxelPass.reflect()` 输出变化后脚本或 graph 接线失配。
+- 资源尺寸、mip 数与 `gridData` 不一致会直接导致采样异常。
 
-```powershell
-cd E:\GraduateDesign\Falcor_Cp
-tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Mogwai
-```
+### 通过条件
 
-3. 运行：
+- 旧 `.bin` 仍可正常读取。
+- 主线脚本不因新增输出崩溃。
+- `aoOccupancy` 不接入 shading 时，Stage4 基线结果不变。
 
-```powershell
-E:\GraduateDesign\Falcor_Cp\build\windows-vs2022\bin\Release\Mogwai.exe --script E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py
-```
+## 5. Optional Stage6：层级 AO 主线路径
 
-4. GUI 内手测：
-   - 加载与 cache 匹配的 scene
-   - `ReadVoxelPass` 读入已有 `.bin`
-   - 确认 `Solid Voxel Count > 0`
-   - 切换 `DirectOnly / AOOnly / Combined / NormalDebug`
+### 目标
 
-5. 画面确认以 Mogwai 窗口截图为准，不以离屏导出 png 为准。
+把 Stage4 的 `contactAO + macroAO` 从“稳定 baseline”升级为“contact AO + occupancy mip 层级 AO”的主线路径，同时保留 Stage4 作为 fallback。
 
-## 5. Stage4：先做稳定 AO baseline，但仍只依赖现有 4 个输入
+### 主要改动区域
 
-### 5.1 目标
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.h`
+- `scripts\Voxelization_MainlineDirectAO.py`
 
-在不改 `ReadVoxelPass` 输出契约的前提下，把主线 AO 从占位输出推进到“单帧稳定、可调、可观察”的 baseline。
+### 实施要点
 
-这一阶段的 AO 不是最终性能形态，目标是先得到：
+- `contactAO` 继续负责近场缝隙和接触暗化。
+- `hierarchicalAO` 使用 `aoOccupancy` 做分层采样，按距离提高采样 footprint 或 mip level。
+- 保留 Stage4 的 ray-based `macroAO` 作为 fallback/debug 对照，不要直接删掉。
+- 目标是减少远距离 AO 的离散感和运行成本，而不是重新改变整体风格。
 
-- `AOOnly` 可见且稳定
-- `Combined` 有可信的 cavity / corner darkening
-- AO 参数变更会正确 reset accumulation
-- 画面不回退到 `VoxelDirectAO.ps.slang` 那种 `frameIndex` 驱动的随机噪点
+### 主要风险
 
-### 5.2 本阶段要改的文件
+- AO 变平滑后容易整体偏灰、偏闷。
+- 只追求层级 AO 成本而忽略 Stage4 的接触暗化，会让近景丢层次。
 
-修改：
+### 通过条件
 
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.h`
-- `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py`
+- `AOOnly` 比 Stage4 更平滑，但不过度发灰。
+- `Combined` 不会突然整体变暗。
+- 关闭新路径后能稳定回退到 Stage4 行为。
 
-### 5.3 实现策略
+## 6. Optional Stage7：方向性 occlusion / bent normal / stable env
 
-先做“两层 AO”，都只依赖现有 `vBuffer / gBuffer / pBuffer / blockMap`：
+### 目标
 
-1. `contactAO`
-   - 基于 `hit.cellInt` 周围局部邻域的占据关系做接触暗化
-   - 重点补墙角、缝隙、体素交界处
-   - 目标是低成本、极稳定、能作为后续 AO 的 debug 基线
+只有在 Stage6 成本仍高、或用户明确要求更稳定的环境项时，才补方向性 occlusion、bent normal 或 stable env。
 
-2. `macroAO`
-   - 使用固定 4/6 个半球方向做短距离 AO probe
-   - 方向集围绕 `mainNormal` 构建
-   - 只允许用 `hit.cellInt` 或 coarse tile 的稳定 hash 旋转，不能混入 `frameIndex`
-   - 继续走现在的 `rayMarching()`，`ignoreFirst=true`
+### 主要改动区域
 
-建议的最终组合：
+- `Source\RenderPasses\Voxelization\ReadVoxelPass.h`
+- `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.h`
+- `Source\RenderPasses\Voxelization\CMakeLists.txt`
 
-```cpp
-ao = lerp(1.0, contactAO * macroAO, aoStrength);
-```
+### 实施要点
 
-### 5.4 这一阶段不要做的事
+- 如果要做方向性 occlusion，优先建立在 `aoOccupancy` 或其派生结构上，不要重新从 `blockMap` 硬推。
+- 如果要做 stable env，优先使用 bent normal 或方向性遮蔽近似，不要回到 `frameIndex` 随机采样。
+- 这是优化项，不应改变 Stage4/Stage6 已经稳定下来的整体风格口径。
 
-- 不要重新使用 `UniformSampleGenerator(pixel, frameIndex)` 做 AO 主路径
-- 不要直接把 AO 乘进 `bsdf.internalVisibility`
-- 不要把 AO/shadow 短射线默认改成 conservative fallback
-- 不要在这一阶段引入新的 ReadVoxelPass 输出
+### 主要风险
 
-### 5.5 UI / 属性建议
+- 环境项一旦能量口径不一致，很容易把现有基线整体抬亮或压暗。
+- 方向性预计算收益不明显时，会徒增复杂度和维护成本。
 
-至少新增：
+### 通过条件
 
-- `aoEnabled`
-- `aoStrength`
-- `aoRadius`
-- `aoStepCount`
-- `aoDirectionSet`
-- `aoContactStrength`
-- `aoUseStableRotation`
+- profile 或实际画面能证明收益足够明显。
+- 关闭该功能后仍能回退到 Stage6。
 
-如果 UI 太拥挤，允许先把 `aoDirectionSet` 和 `aoUseStableRotation` 写成属性而不全都暴露成 widget。
+## 7. Optional Stage8：调参与性能收敛
 
-### 5.6 通过条件
+### 目标
 
-- `AOOnly` 静止一帧就稳定，没有 Monte Carlo 雪花
-- 缓慢移动相机时不出现明显 temporal shimmer
-- `Combined` 能看到清晰但不过度发黑的接触暗化
-- 改 AO 参数后 accumulation 会立即 reset
+在不改变 Stage4 主体观感的前提下，对 AO 半径、强度、方向数、步数和 shader 成本做收敛式优化。
 
-## 6. Stage5：在 ReadVoxelPass 里先补一个可采样的 occupancy mip，而不是马上做完整方向性 AO 预计算
+### 主要改动区域
 
-### 6.1 目标
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+- `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+- `scripts\Voxelization_MainlineDirectAO.py`
 
-为后续 AO 升级提供一个通用、可复用的 3D occupancy hierarchy。
+### 实施要点
 
-这是 plan3 相对 plan2 的关键改动：先做通用 `aoOccupancy`，再决定要不要上 `voxelOcclusion`。
+- 所有调参都必须以 Stage4 视觉口径为锚点。
+- 优先减少“更亮、更灰、更硬”的风格漂移，而不是单纯追求更重 AO。
+- 只有在 Mogwai 实际窗口画面确认不穿帮时，才接受参数收敛结果。
 
-### 6.2 本阶段要改的文件
+### 主要风险
 
-新增：
+- 为了压成本而削弱 AO，最后把当前可展示基线又改回去。
+- 只看离屏图调参，会误判实际 Mogwai 画面。
 
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\BuildAOOccupancy.cs.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\GenerateAOOccupancyMip.cs.slang`
+### 通过条件
 
-修改：
+- 近景和中景的 Stage4 观感仍然成立。
+- 开销下降或 UI/参数复杂度明显收敛。
 
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.h`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\CMakeLists.txt`
-- `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py`
+## 8. 验证要求
 
-### 6.3 资源设计
+任何 optional stage 完成后，至少检查：
 
-新增一个可选输出：
+1. `DirectOnly / AOOnly / Combined` 是否仍保持当前 Stage4 口径。
+2. 静止观察时是否重新出现 temporal shimmer 或随机雪花。
+3. 缓慢移动相机时是否突然变亮、变黑或出现 pinhole。
+4. 验收截图必须来自 Mogwai 窗口实际画面，而不是离屏导图。
 
-- `aoOccupancy`
-
-建议形式：
-
-- `Texture3D`
-- 带 mip chain
-- 格式优先 `R8Unorm` 或 `R16Float`
-
-不要首版就用 `R8Uint`：
-
-- Stage6 如果要在 pixel shader 里按 LOD 采样 occupancy，整数纹理会让 filtered mip / sample-level 路径更别扭
-- 这一层级结构的目标就是服务层级 AO，而不是只当 bitmask
-
-### 6.4 数据来源
-
-- base level 从 `vBuffer` 派生
-- 必要时可结合 `gBuffer[offset].area > 0` 做更稳的 solid 判断
-- 不要只依赖 `blockMap`；它只能当 coarse skip，不能当 AO 细节来源
-
-### 6.5 通过条件
-
-- 旧 `.bin` 仍然能被 `ReadVoxelPass` 正常读取
-- 原 `Voxelization_GPU.py` 和主线 `Voxelization_MainlineDirectAO.py` 都不因新增输出而崩
-- `aoOccupancy` 没接到 graph 时，Stage4 AO 结果不回退
-- 资源尺寸、mip 数和当前 gridData 匹配
-
-## 7. Stage6：把 AO 升级成“contact AO + occupancy mip 层级 AO”的主线版本
-
-### 7.1 目标
-
-把 Stage4 的短射线 `macroAO` 从“验证性 fallback”升级成真正的主线路径，同时保留 Stage4 作为 fallback/debug oracle。
-
-### 7.2 本阶段要改的文件
-
-修改：
-
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.h`
-- `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py`
-
-### 7.3 实现策略
-
-最终 AO 分成两部分：
-
-1. `contactAO`
-   - 继续沿用 Stage4 的局部接触 AO
-   - 负责近场缝隙和锐利接触阴影
-
-2. `hierarchicalAO`
-   - 使用 `aoOccupancy` 做分层采样
-   - 按方向步进时，采样 footprint 随距离增大，对应更高 mip
-   - 可以是 cone tracing，也可以是 line tracing + `lod = log2(footprint)` 的近似版本
-
-建议先做：
-
-- 4 或 6 个固定方向
-- 每个方向少量 step
-- 累加 opacity/occlusion，超过阈值提前退出
-
-组合建议：
-
-```cpp
-ao = lerp(1.0, contactAO * hierarchicalAO, aoStrength);
-```
-
-### 7.4 兼容策略
-
-- `aoOccupancy` 不存在、未初始化或用户关闭时，自动回退到 Stage4 的 ray-based `macroAO`
-- 这样 Stage4 不只是过渡方案，也是 Stage6 的回退路径和 debug 对照
-
-### 7.5 通过条件
-
-- `AOOnly` 比 Stage4 更平滑，且远处 cavity / corner darkening 更连贯
-- `Combined` 不因 AO 升级而整体压暗
-- 与 Stage4 相比，AO 运行开销下降或至少没有明显恶化
-- `aoOccupancy` 开关关闭后能稳定回退到 Stage4 行为
-
-## 8. Stage7：只有在确有必要时，才补方向性 occlusion/bent normal 预计算和 stable env
-
-### 8.1 目标
-
-这不是首轮验收的必做项，而是性能或外观驱动的二阶段优化。
-
-只有满足下面任一条件时才做：
-
-- Stage6 的 hierarchical AO 运行成本仍然过高
-- 用户明确要求更稳定的环境项
-- profile 表明 runtime AO 仍是主瓶颈
-
-### 8.2 本阶段可能改的文件
-
-新增：
-
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\AOStructures.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\BuildVoxelOcclusion.cs.slang`
-
-修改：
-
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.h`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.h`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\CMakeLists.txt`
-
-### 8.3 实现原则
-
-- 方向性 occlusion / bent normal 必须建立在 Stage5 的 `aoOccupancy` 之上，不要重新从 `blockMap` 直接推导
-- `voxelOcclusion` 是优化项，不是 Stage4-6 的前置条件
-- stable env 如果要做，优先使用 bent normal 或 `dirOcc[6]` 的近似方向；不要回到 `sampleLight()` 或 `frameIndex` 随机 env 采样
-- 即便做了预计算，也要保留 Stage6 的 runtime fallback
-
-### 8.4 通过条件
-
-- profile 能证明这一阶段确实降低了 AO 或 env 路径成本，或显著提升了稳定性
-- 开关关闭时仍能回退到 Stage6
-- 如果收益不明显，这一阶段允许跳过，不应阻塞后续清理和验收
-
-## 9. Stage8：退役更早的 VoxelDirectAO* 路线（代码 + 文档）
-
-### 9.1 目标
-
-在主线 `RayMarchingDirectAO*` 路线通过 Stage4-6 验证后，把更早的 `VoxelDirectAO*` 彻底从代码和文档层面移除，避免之后的 Agent 再走错入口。
-
-### 9.2 本阶段要处理的文件
-
-代码删除：
-
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\VoxelDirectAOPass.h`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\VoxelDirectAOPass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\VoxelDirectAO.ps.slang`
-- `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_DirectAO.py`
-
-代码修改：
-
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\VoxelizationBase.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\CMakeLists.txt`
-
-文档清理：
-
-- `E:\GraduateDesign\Falcor_Cp\.FORAGENT\voxel_direct_ao_plan.txt`
-- `E:\GraduateDesign\Falcor_Cp\.FORAGENT\ai_doc_navigation.txt`
-- `E:\GraduateDesign\Falcor_Cp\docs\handoff\` 里提到 `VoxelDirectAO*` 仍可作为实施入口的旧文档
-- `E:\GraduateDesign\Falcor_Cp\docs\memory\` 里如果有“继续用 `VoxelDirectAO*` 做实现基线”的旧表述，也一并修正
-
-### 9.3 清理顺序
-
-1. 先全仓搜索 `VoxelDirectAO`
-2. 确认主线脚本只剩 `Voxelization_MainlineDirectAO.py`
-3. 删除 legacy 代码文件
-4. 删除 CMake / plugin 注册残留
-5. 最后清文档和导航
-
-### 9.4 通过条件
-
-- `Voxelization` / `Mogwai` 编译通过
-- 搜索不到仍在主动引用 legacy pass 的代码和脚本
-- `.FORAGENT` 和 `docs/handoff` 的导航入口只指向主线 `RayMarchingDirectAO*`
-
-## 10. 最终验收清单
-
-全部阶段完成后，至少确认：
-
-1. `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Voxelization` 通过
-2. `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Mogwai` 通过
-3. `scripts\Voxelization_GPU.py` 原 GI 路径仍可运行
-4. `scripts\Voxelization_MainlineDirectAO.py` 可运行
-5. `DirectOnly` 仍保持 Stage3 的确定性稳定
-6. `AOOnly` 一帧稳定，无随机闪烁
-7. `Combined` 既有 direct lighting，也有合理 AO
-8. AO 参数变化会 reset accumulation
-9. 如果做了 Stage7，关闭其开关后能回退到 Stage6
-10. 如果做了 Stage8，全仓不再保留 active `VoxelDirectAO*` 实现入口
-
-## 11. 后续 Agent 的优先阅读顺序
+## 9. 后续 Agent 优先查看
 
 1. `E:\GraduateDesign\Falcor_Cp\.FORAGENT\plan3.md`
-2. `E:\GraduateDesign\Falcor_Cp\docs\memory\2026-04-04_mainline_direct_ao_stage3.md`
-3. `E:\GraduateDesign\Falcor_Cp\docs\handoff\2026-04-04_mainline_direct_ao_stage3_handoff.md`
-4. `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-5. `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-6. `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingTraversal.slang`
-7. `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
-8. `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py`
-
+2. `E:\GraduateDesign\Falcor_Cp\docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
+3. `E:\GraduateDesign\Falcor_Cp\docs\handoff\2026-04-04_mainline_direct_ao_stage4_cleanup_handoff.md`
+4. `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py`
+5. `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+6. `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+7. `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+8. `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingTraversal.slang`

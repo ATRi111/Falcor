@@ -1,48 +1,42 @@
 AI doc navigation
 
-Read these files by intent
-- Current mainline DirectAO remaining stages:
+Read these files by task
+- Need the current accepted voxel baseline or optional AO follow-up:
   .FORAGENT\plan3.md
-- Current project status / recent voxelization decisions:
-  .FORAGENT\atri111_voxel_latest_status.html
-- How to configure the repo and build any target:
+- Need the next-stage mesh + voxel hybrid rendering plan:
+  .FORAGENT\plan4.md
+- Need the concise long-term hybrid renderer vision:
+  .FORAGENT\future_hyrbid_renderer_plan.md
+- Need build instructions:
   .FORAGENT\build_any_target_brief.txt
-- How to run VoxelizationGPU and what its parameters mean:
-  .FORAGENT\voxelization_gpu_tool_brief.txt
-- How voxel caches are written and how ReadVoxelPass reads them:
-  .FORAGENT\voxelization_pipeline_brief.txt
-- Historical / superseded DirectAO notes (read only for comparison, not as implementation baseline):
-  .FORAGENT\plan2.md
-  .FORAGENT\voxel_direct_ao_plan.txt
+
+Current voxel mainline entry
+- scripts\Voxelization_MainlineDirectAO.py
+- Source\RenderPasses\Voxelization\ReadVoxelPass.cpp
+- Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp
+- Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang
+- Source\RenderPasses\Voxelization\RayMarchingTraversal.slang
+
+Mesh / hybrid candidate entry for plan4
+- Source\RenderPasses\GBuffer\GBuffer\GBufferRaster.cpp
+- Source\RenderPasses\GBuffer\VBuffer\VBufferRT.cpp
+- Source\RenderPasses\ToneMapper\ToneMapper.cpp
 
 If docs are not enough, inspect source in this order
-- Tool entry and headless automation:
-  Source\Tools\VoxelizationGPU\VoxelizationGPU.cpp
-- Shared pass orchestration, final write format, output-path reporting:
-  Source\RenderPasses\Voxelization\VoxelizationPass.cpp
-- GPU voxelization implementation and solidRate behavior:
-  Source\RenderPasses\Voxelization\VoxelizationPass_GPU.cpp
-- Cache-file reader, file dropdown, and recompile flow:
+- Cache-file reader and current voxel resource contract:
   Source\RenderPasses\Voxelization\ReadVoxelPass.cpp
-- On-disk struct layout and reader-side unpacking:
   Source\RenderPasses\Voxelization\VoxelizationShared.slang
-  Source\RenderPasses\Voxelization\Voxel\VoxelGrid.slang
-  Source\RenderPasses\Voxelization\PrepareShadingData.cs.slang
-
-Fast path by task
-- Need to build or rebuild something:
-  read build_any_target_brief.txt first
-- Need to run the voxelization tool or change CLI behavior:
-  read voxelization_gpu_tool_brief.txt first
-- Need exact output compatibility with the original pass:
-  read voxelization_pipeline_brief.txt first, then inspect VoxelizationPass.cpp and VoxelizationPass_GPU.cpp
-- Need to debug why a cache file does not load:
-  read voxelization_pipeline_brief.txt first, then inspect ReadVoxelPass.cpp and the struct-definition files
-- Need to continue the current mainline deterministic DirectAO + AO path:
-  read plan3.md first, then inspect scripts\Voxelization_MainlineDirectAO.py, ReadVoxelPass.cpp, RayMarchingDirectAOPass.cpp, and RayMarchingDirectAO.ps.slang
-- Need historical context on the older separate DirectAO route:
-  read voxel_direct_ao_plan.txt only after plan3.md, and do not use it as the primary implementation baseline
+- Current voxel shading mainline:
+  Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp
+  Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang
+  Source\RenderPasses\Voxelization\RayMarchingTraversal.slang
+- Existing mesh visibility / GBuffer options:
+  Source\RenderPasses\GBuffer\GBuffer\GBufferRaster.cpp
+  Source\RenderPasses\GBuffer\VBuffer\VBufferRT.cpp
+- Final output and tone mapping:
+  Source\RenderPasses\ToneMapper\ToneMapper.cpp
 
 Working rule
-- Prefer .FORAGENT notes for quick orientation.
-- Then open source only for the exact area you need to modify.
+- `plan3.md` 只描述 Stage4 之后的 optional AO 优化，不是当前主线必做。
+- `plan4.md` 只描述下一阶段 mesh + voxel 混合方案，不要把它误当成立刻开工的实现任务。
+- 先读计划文档，再只打开与你当前修改直接相关的源码。
