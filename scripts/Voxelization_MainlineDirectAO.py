@@ -119,6 +119,13 @@ def render_graph_Pass():
     use_mipmap = env_bool("DIRECTAO_USE_MIPMAP", True)
     render_background = env_bool("DIRECTAO_RENDER_BACKGROUND", True)
     transmittance_threshold = float(os.environ.get("DIRECTAO_TRANSMITTANCE_THRESHOLD", "5.0"))
+    ao_enabled = env_bool("DIRECTAO_AO_ENABLED", True)
+    ao_strength = float(os.environ.get("DIRECTAO_AO_STRENGTH", "0.55"))
+    ao_radius = float(os.environ.get("DIRECTAO_AO_RADIUS", "6.0"))
+    ao_step_count = env_int("DIRECTAO_AO_STEP_COUNT", 3)
+    ao_direction_set = env_int("DIRECTAO_AO_DIRECTION_SET", 6)
+    ao_contact_strength = float(os.environ.get("DIRECTAO_AO_CONTACT_STRENGTH", "0.75"))
+    ao_use_stable_rotation = env_bool("DIRECTAO_AO_USE_STABLE_ROTATION", True)
     voxel_pass_name = "VoxelizationPass_CPU" if voxel_backend == "CPU" else "VoxelizationPass_GPU"
     voxel_pass_props = {}
     if voxel_backend == "CPU":
@@ -154,6 +161,13 @@ def render_graph_Pass():
             "useMipmap": use_mipmap,
             "renderBackground": render_background,
             "transmittanceThreshold": transmittance_threshold,
+            "aoEnabled": ao_enabled,
+            "aoStrength": ao_strength,
+            "aoRadius": ao_radius,
+            "aoStepCount": ao_step_count,
+            "aoDirectionSet": ao_direction_set,
+            "aoContactStrength": ao_contact_strength,
+            "aoUseStableRotation": ao_use_stable_rotation,
         },
     )
     tone_mapper = createPass("ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})

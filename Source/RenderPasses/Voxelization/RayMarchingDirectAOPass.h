@@ -38,9 +38,16 @@ private:
     bool mCheckCoverage;
     bool mUseMipmap;
     bool mRenderBackground;
+    bool mAOEnabled;
     bool mOptionsChanged;
+    bool mAOUseStableRotation;
     uint mFrameIndex;
+    uint mAOStepCount;
+    uint mAODirectionSet;
     uint mSelectedResolution;
     uint2 mOutputResolution;
+    float mAOStrength;
+    float mAORadius;
+    float mAOContactStrength;
     float mTransmittanceThreshold100;
 };

@@ -45,6 +45,13 @@ cbuffer CB
     uint drawMode;
     bool renderBackground;
     float transmittanceThreshold;
+    bool aoEnabled;
+    float aoStrength;
+    float aoRadius;
+    uint aoStepCount;
+    uint aoDirectionSet;
+    float aoContactStrength;
+    bool aoUseStableRotation;
 }
 
 #include "RayMarchingTraversal.slang"
@@ -61,6 +68,124 @@ static const uint kDrawModeNormalDebug = 3;
 static const uint kDrawModeCoverageDebug = 4;
 
 #define MAX_ANALYTIC_LIGHTS 8
+
+uint hashCell(int3 cellInt)
+{
+    uint seed = asuint(cellInt.x) * 73856093u;
+    seed ^= asuint(cellInt.y) * 19349663u;
+    seed ^= asuint(cellInt.z) * 83492791u;
+    seed ^= seed >> 16;
+    seed *= 2246822519u;
+    seed ^= seed >> 13;
+    seed *= 3266489917u;
+    seed ^= seed >> 16;
+    return seed;
+}
+
+float hashToUnitFloat(uint seed)
+{
+    return float(seed) * (1.0f / 4294967295.0f);
+}
+
+void buildShadingBasis(float3 mainNormal, out float3 tangent, out float3 bitangent)
+{
+    float3 up = abs(mainNormal.z) < 0.999f ? float3(0, 0, 1) : float3(0, 1, 0);
+    tangent = normalizeSafe(cross(up, mainNormal));
+    if (dot(tangent, tangent) < 1e-6f)
+        tangent = float3(1, 0, 0);
+    bitangent = normalizeSafe(cross(mainNormal, tangent));
+}
+
+void applyStableRotation(inout float3 tangent, inout float3 bitangent, float angle)
+{
+    float s = sin(angle);
+    float c = cos(angle);
+    float3 rotatedTangent = c * tangent + s * bitangent;
+    float3 rotatedBitangent = c * bitangent - s * tangent;
+    tangent = rotatedTangent;
+    bitangent = rotatedBitangent;
+}
+
+float evalProbeOcclusion(float3 origin, float3 direction, float maxDistance)
+{
+    const uint stepCount = max(aoStepCount, 1u);
+    const float safeRadius = max(maxDistance, 1e-3f);
+    const float stepLength = safeRadius / float(stepCount);
+    float occlusion = 0.0f;
+
+    [loop]
+    for (uint stepIndex = 1; stepIndex <= stepCount; ++stepIndex)
+    {
+        float probeDistance = stepLength * float(stepIndex);
+        HitResult probe = rayMarching(origin, direction, probeDistance, true);
+        if (probe.hit)
+        {
+            float distanceWeight = 1.0f - (float(stepIndex) - 1.0f) / float(stepCount);
+            occlusion = saturate(distanceWeight);
+            break;
+        }
+    }
+
+    return occlusion;
+}
+
+float evalContactAO(HitResult hit, float3 mainNormal, float3 tangent, float3 bitangent)
+{
+    const float3 origin = hit.cell + shadowBias * mainNormal;
+    const float contactRadius = clamp(aoRadius * 0.35f, 1.0f, 2.5f);
+    float occlusion = 0.0f;
+
+    [unroll]
+    for (uint sampleIndex = 0; sampleIndex < 4; ++sampleIndex)
+    {
+        float azimuth = (float(sampleIndex) + 0.5f) * (Pi * 0.5f);
+        float3 lateral = cos(azimuth) * tangent + sin(azimuth) * bitangent;
+        float3 probeDir = normalizeSafe(mainNormal * 1.15f + lateral);
+        if (dot(probeDir, probeDir) > 0.0f)
+            occlusion += rayMarching(origin, probeDir, contactRadius, true).hit ? 1.0f : 0.0f;
+    }
+
+    float meanOcclusion = occlusion * 0.25f;
+    return saturate(1.0f - aoContactStrength * meanOcclusion);
+}
+
+float evalMacroAO(HitResult hit, float3 mainNormal, float3 tangent, float3 bitangent)
+{
+    const uint directionCount = aoDirectionSet >= 6 ? 6u : 4u;
+    const float3 origin = hit.cell + shadowBias * mainNormal;
+    float occlusion = 0.0f;
+
+    [loop]
+    for (uint sampleIndex = 0; sampleIndex < directionCount; ++sampleIndex)
+    {
+        float azimuth = (2.0f * Pi) * (float(sampleIndex) + 0.5f) / float(directionCount);
+        float3 lateral = cos(azimuth) * tangent + sin(azimuth) * bitangent;
+        float3 probeDir = normalizeSafe(mainNormal * 1.35f + 0.75f * lateral);
+        occlusion += evalProbeOcclusion(origin, probeDir, aoRadius);
+    }
+
+    return saturate(1.0f - occlusion / float(directionCount));
+}
+
+float evalStableAO(HitResult hit, float3 mainNormal)
+{
+    if (!aoEnabled || aoStrength <= 0.0f || aoRadius <= 0.0f)
+        return 1.0f;
+
+    float3 tangent;
+    float3 bitangent;
+    buildShadingBasis(mainNormal, tangent, bitangent);
+
+    if (aoUseStableRotation)
+    {
+        float stableAngle = (2.0f * Pi) * hashToUnitFloat(hashCell(hit.cellInt));
+        applyStableRotation(tangent, bitangent, stableAngle);
+    }
+
+    float contactAO = evalContactAO(hit, mainNormal, tangent, bitangent);
+    float macroAO = evalMacroAO(hit, mainNormal, tangent, bitangent);
+    return lerp(1.0f, contactAO * macroAO, saturate(aoStrength));
+}
 
 float3 screenCoordToCell(float2 screenCoord, float ndcDepth)
 {
@@ -209,6 +334,7 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
     float3 viewDir = -direction;
     float3 mainNormal = bsdf.surface.getMainNormal(viewDir);
     float coverage = bsdf.calcCoverage(viewDir);
+    float ao = evalStableAO(hit, mainNormal);
     float3 color = 0;
 
     switch (drawMode)
@@ -220,12 +346,13 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
         color = valueToColor(coverage);
         break;
     case kDrawModeDirectOnly:
-    case kDrawModeCombined:
         color = evalDeterministicDirectLighting(hit, offset, viewDir);
         break;
+    case kDrawModeCombined:
+        color = evalDeterministicDirectLighting(hit, offset, viewDir) * ao;
+        break;
     case kDrawModeAOOnly:
-        // stage3 placeholder: AO 在 stage4 实现
-        color = float3(1, 1, 1);
+        color = pow(saturate(ao), 12.0f).xxx;
         break;
     default:
         color = float3(0.2f, 0.7f, 0.2f);

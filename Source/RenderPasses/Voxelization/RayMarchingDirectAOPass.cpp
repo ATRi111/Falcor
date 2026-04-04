@@ -1,6 +1,7 @@
 #include "RayMarchingDirectAOPass.h"
 #include "Shading.slang"
 #include "RenderGraph/RenderPassStandardFlags.h"
+#include <algorithm>
 
 namespace
 {
@@ -15,6 +16,13 @@ const std::string kPropUseMipmap = "useMipmap";
 const std::string kPropRenderBackground = "renderBackground";
 const std::string kPropOutputResolution = "outputResolution";
 const std::string kPropTransmittanceThreshold = "transmittanceThreshold";
+const std::string kPropAOEnabled = "aoEnabled";
+const std::string kPropAOStrength = "aoStrength";
+const std::string kPropAORadius = "aoRadius";
+const std::string kPropAOStepCount = "aoStepCount";
+const std::string kPropAODirectionSet = "aoDirectionSet";
+const std::string kPropAOContactStrength = "aoContactStrength";
+const std::string kPropAOUseStableRotation = "aoUseStableRotation";
 
 enum class RayMarchingDirectAODrawMode : uint32_t
 {
@@ -36,10 +44,17 @@ RayMarchingDirectAOPass::RayMarchingDirectAOPass(ref<Device> pDevice, const Prop
     mCheckCoverage = true;
     mUseMipmap = true;
     mRenderBackground = true;
+    mAOEnabled = true;
     mOptionsChanged = false;
+    mAOUseStableRotation = true;
     mFrameIndex = 0;
+    mAOStepCount = 3;
+    mAODirectionSet = 6;
     mSelectedResolution = 0;
     mOutputResolution = uint2(1920, 1080);
+    mAOStrength = 0.55f;
+    mAORadius = 6.0f;
+    mAOContactStrength = 0.75f;
     mTransmittanceThreshold100 = 5.0f;
 
     parseProperties(props);
@@ -63,6 +78,23 @@ void RayMarchingDirectAOPass::parseProperties(const Properties& props)
             mUseMipmap = value;
         else if (key == kPropRenderBackground)
             mRenderBackground = value;
+        else if (key == kPropAOEnabled)
+            mAOEnabled = value;
+        else if (key == kPropAOStrength)
+            mAOStrength = value;
+        else if (key == kPropAORadius)
+            mAORadius = value;
+        else if (key == kPropAOStepCount)
+            mAOStepCount = std::max(1u, uint32_t(value));
+        else if (key == kPropAODirectionSet)
+        {
+            const uint32_t directionSet = value;
+            mAODirectionSet = directionSet >= 6 ? 6u : 4u;
+        }
+        else if (key == kPropAOContactStrength)
+            mAOContactStrength = value;
+        else if (key == kPropAOUseStableRotation)
+            mAOUseStableRotation = value;
         else if (key == kPropOutputResolution)
         {
             mSelectedResolution = value;
@@ -85,6 +117,13 @@ Properties RayMarchingDirectAOPass::getProperties() const
     props[kPropCheckCoverage] = mCheckCoverage;
     props[kPropUseMipmap] = mUseMipmap;
     props[kPropRenderBackground] = mRenderBackground;
+    props[kPropAOEnabled] = mAOEnabled;
+    props[kPropAOStrength] = mAOStrength;
+    props[kPropAORadius] = mAORadius;
+    props[kPropAOStepCount] = mAOStepCount;
+    props[kPropAODirectionSet] = mAODirectionSet;
+    props[kPropAOContactStrength] = mAOContactStrength;
+    props[kPropAOUseStableRotation] = mAOUseStableRotation;
     props[kPropOutputResolution] = mSelectedResolution;
     props[kPropTransmittanceThreshold] = mTransmittanceThreshold100;
     return props;
@@ -135,6 +174,7 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
     {
         auto flags = dict.getValue(kRenderPassRefreshFlags, RenderPassRefreshFlags::None);
         dict[Falcor::kRenderPassRefreshFlags] = flags | Falcor::RenderPassRefreshFlags::RenderOptionsChanged;
+        mFrameIndex = 0;
         mOptionsChanged = false;
     }
 
@@ -179,6 +219,13 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
     cb["drawMode"] = mDrawMode;
     cb["renderBackground"] = mRenderBackground;
     cb["transmittanceThreshold"] = mTransmittanceThreshold100 / 100.0f;
+    cb["aoEnabled"] = mAOEnabled;
+    cb["aoStrength"] = mAOStrength;
+    cb["aoRadius"] = mAORadius;
+    cb["aoStepCount"] = mAOStepCount;
+    cb["aoDirectionSet"] = mAODirectionSet;
+    cb["aoContactStrength"] = mAOContactStrength;
+    cb["aoUseStableRotation"] = mAOUseStableRotation;
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
@@ -207,11 +254,29 @@ void RayMarchingDirectAOPass::renderUI(Gui::Widgets& widget)
         mOptionsChanged = true;
     if (widget.checkbox("Use Mipmap", mUseMipmap))
         mOptionsChanged = true;
+    if (widget.checkbox("AO Enabled", mAOEnabled))
+        mOptionsChanged = true;
+    if (widget.checkbox("AO Stable Rotation", mAOUseStableRotation))
+        mOptionsChanged = true;
     if (widget.checkbox("Check Ellipsoid", mCheckEllipsoid))
         mOptionsChanged = true;
     if (widget.checkbox("Check Visibility", mCheckVisibility))
         mOptionsChanged = true;
     if (widget.checkbox("Check Coverage", mCheckCoverage))
+        mOptionsChanged = true;
+    if (widget.slider("AO Strength", mAOStrength, 0.0f, 1.0f))
+        mOptionsChanged = true;
+    if (widget.slider("AO Radius", mAORadius, 0.5f, 24.0f))
+        mOptionsChanged = true;
+    if (widget.slider("AO Contact Strength", mAOContactStrength, 0.0f, 2.0f))
+        mOptionsChanged = true;
+    if (widget.slider("AO Step Count", mAOStepCount, 1u, 8u))
+        mOptionsChanged = true;
+    static const Gui::DropdownList kAODirectionSets = {
+        {4u, "4 Directions"},
+        {6u, "6 Directions"},
+    };
+    if (widget.dropdown("AO Direction Set", kAODirectionSets, mAODirectionSet))
         mOptionsChanged = true;
     if (widget.slider("Shadow Bias(x100)", mShadowBias100, 0.0f, 0.2f))
         mOptionsChanged = true;
