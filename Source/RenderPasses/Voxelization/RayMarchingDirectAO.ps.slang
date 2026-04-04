@@ -14,6 +14,10 @@
 #define USE_MIP_MAP 1
 #endif
 
+#ifndef USE_ENV_MAP
+#define USE_ENV_MAP 0
+#endif
+
 #include "Voxel/VoxelGrid.slang"
 #include "Math/VoxelizationUtility.slang"
 #include "Shading.slang"
@@ -68,6 +72,11 @@ float3 screenCoordToCell(float2 screenCoord, float ndcDepth)
 
 float4 renderMissBackground(float3 direction)
 {
+#if USE_ENV_MAP
+    if (renderBackground)
+        return float4(gScene.envMap.eval(direction), 1);
+#endif
+
     if (!renderBackground)
         return float4(0, 0, 0, 1);
 
@@ -142,8 +151,21 @@ float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDi
         result += visibility * lightColor * bsdf.eval(lightDir, viewDir, h);
     }
 
-    // 无受支持的 analytic 光时（如 CornellBox 纯 emissive 场景），用简单半球 ambient 保证可见
-    if (supportedLightCount == 0)
+    bool hasStableDirectTerm = supportedLightCount > 0;
+
+#if USE_ENV_MAP
+    float3 envDir = bsdf.surface.getMainNormal(viewDir);
+    float3 envColor = gScene.envMap.eval(envDir);
+    if (any(envColor > 0))
+    {
+        float3 envH = normalizeSafe(envDir + viewDir);
+        result += envColor * bsdf.eval(envDir, viewDir, envH);
+        hasStableDirectTerm = true;
+    }
+#endif
+
+    // 没有 analytic light，且没有 env map 时，保留最弱的 fallback，避免画面全黑
+    if (!hasStableDirectTerm)
     {
         float3 skyDir = normalize(float3(0.3f, 1.0f, 0.2f));
         float3 ambientNormal = bsdf.surface.getMainNormal(skyDir);

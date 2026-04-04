@@ -151,10 +151,12 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
         mpFullScreenPass = FullScreenPass::create(mpDevice, desc, defines);
     }
 
+    auto pEnvMap = mpScene->getEnvMap();
     mpFullScreenPass->addDefine("CHECK_ELLIPSOID", mCheckEllipsoid ? "1" : "0");
     mpFullScreenPass->addDefine("CHECK_VISIBILITY", mCheckVisibility ? "1" : "0");
     mpFullScreenPass->addDefine("CHECK_COVERAGE", mCheckCoverage ? "1" : "0");
     mpFullScreenPass->addDefine("USE_MIP_MAP", mUseMipmap ? "1" : "0");
+    mpFullScreenPass->addDefine("USE_ENV_MAP", pEnvMap ? "1" : "0");
 
     ref<Camera> pCamera = mpScene->getCamera();
     auto var = mpFullScreenPass->getRootVar();

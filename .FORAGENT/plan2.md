@@ -100,6 +100,13 @@ E:\GraduateDesign\Falcor_Cp\build\windows-vs2022\bin\Release\Mogwai.exe --script
 
 - 优先排查 scene 没加载、cache 选错、`ReadVoxelPass` 没 recompile
 
+### 3.5 画面验证与截图规则
+
+- 验证 Mogwai 实际出图时，优先使用系统级“窗口截图”工具抓取 Mogwai 窗口本身，不要把离屏导出脚本、frame capture 脚本或自动保存的 png 当成最终真值。
+- 截图目标必须只包含 Mogwai 窗口内容，不能把 Codex、浏览器、任务管理器或其他前台窗口一起截进去。
+- 如果当前前台不是 Mogwai，先把 Mogwai 切到前台，再使用活动窗口截图；如果工具支持窗口句柄，则优先按 Mogwai 的窗口句柄抓取。
+- 除非任务明确要求抓整个桌面，否则不要使用全屏截图来判断渲染是否为黑屏。
+
 ## 4. 执行顺序总览
 
 必须按下面顺序执行，不要跳步：
