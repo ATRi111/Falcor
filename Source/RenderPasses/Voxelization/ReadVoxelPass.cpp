@@ -57,6 +57,9 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
 void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     if (mComplete)
+        tryQueueAutoBinFile();
+
+    if (mComplete)
         return;
 
     auto& dict = renderData.getDictionary();
@@ -190,26 +193,34 @@ void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pS
     mpScene = pScene;
 
     // 如果脚本指定了 binFile，场景加载后自动触发读取
-    if (mpScene && !mAutoBinFile.empty() && std::filesystem::exists(mAutoBinFile))
-    {
-        std::ifstream f(mAutoBinFile, std::ios::binary | std::ios::ate);
-        if (f.is_open())
-        {
-            size_t offset = 0;
-            size_t fileSize = std::filesystem::file_size(mAutoBinFile);
-            tryRead(f, offset, sizeof(GridData), &gridData, fileSize);
-            f.close();
+    tryQueueAutoBinFile();
+}
 
-            // 把此文件加入 filePaths 并选中
-            filePaths.clear();
-            filePaths.push_back(mAutoBinFile);
-            selectedFile = 0;
+bool ReadVoxelPass::tryQueueAutoBinFile()
+{
+    if (mAutoBinFileQueued || mAutoBinFile.empty() || !std::filesystem::exists(mAutoBinFile))
+        return false;
 
-            requestRecompile();
-            mComplete = false;
-            mOptionsChanged = true;
-        }
-    }
+    std::ifstream f(mAutoBinFile, std::ios::binary | std::ios::ate);
+    if (!f.is_open())
+        return false;
+
+    size_t offset = 0;
+    size_t fileSize = std::filesystem::file_size(mAutoBinFile);
+    if (!tryRead(f, offset, sizeof(GridData), &gridData, fileSize))
+        return false;
+
+    f.close();
+
+    filePaths.clear();
+    filePaths.push_back(mAutoBinFile);
+    selectedFile = 0;
+
+    requestRecompile();
+    mComplete = false;
+    mOptionsChanged = true;
+    mAutoBinFileQueued = true;
+    return true;
 }
 
 bool ReadVoxelPass::tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize)

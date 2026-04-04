@@ -17,11 +17,13 @@ if "%~1"=="" (
 
 for %%I in ("%SCENE%") do set DIRECTAO_SCENE_HINT=%%~nI
 set DIRECTAO_SCENE_PATH=%SCENE%
+set DIRECTAO_VOXELIZATION_BACKEND=CPU
 
 echo Starting Mogwai...
 echo   Script: %SCRIPT%
 echo   Scene:  %SCENE%
 echo   Hint:   %DIRECTAO_SCENE_HINT%
+echo   Voxelization Backend: %DIRECTAO_VOXELIZATION_BACKEND%
 echo.
 
 "%MOGWAI%" --script "%SCRIPT%" --scene "%SCENE%"
