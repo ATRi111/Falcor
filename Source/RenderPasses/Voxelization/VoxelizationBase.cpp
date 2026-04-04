@@ -2,7 +2,6 @@
 #include "VoxelizationPass.h"
 #include "RayMarchingPass.h"
 #include "RayMarchingDirectAOPass.h"
-#include "VoxelDirectAOPass.h"
 #include "VoxelizationPass_CPU.h"
 #include "VoxelizationPass_GPU.h"
 #include "ReadVoxelPass.h"
@@ -11,7 +10,6 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
 {
     registry.registerClass<RenderPass, RayMarchingPass>();
     registry.registerClass<RenderPass, RayMarchingDirectAOPass>();
-    registry.registerClass<RenderPass, VoxelDirectAOPass>();
     registry.registerClass<RenderPass, VoxelizationPass_CPU>();
     registry.registerClass<RenderPass, VoxelizationPass_GPU>();
     registry.registerClass<RenderPass, ReadVoxelPass>();

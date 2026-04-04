@@ -50,12 +50,9 @@ target_sources(Voxelization PRIVATE
     RayMarchingDirectAOPass.cpp
     RayMarchingDirectAOPass.h
     RayMarchingTraversal.slang
-    VoxelDirectAOPass.cpp
-    VoxelDirectAOPass.h
     PrepareShadingData.cs.slang
     RayMarching.ps.slang
     RayMarchingDirectAO.ps.slang
-    VoxelDirectAO.ps.slang
     DisplayNDF.ps.slang
 
     ReadVoxelPass.cpp
