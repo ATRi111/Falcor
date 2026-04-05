@@ -110,6 +110,12 @@ ROUTE_NAME_MAP = {
     "voxelonly": "VoxelOnly",
 }
 
+ROUTE_MASK_BLEND = 1 << 0
+ROUTE_MASK_MESH_ONLY = 1 << 1
+ROUTE_MASK_VOXEL_ONLY = 1 << 2
+HYBRID_MESH_EXECUTION_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_MESH_ONLY
+HYBRID_VOXEL_EXECUTION_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_VOXEL_ONLY
+
 
 def resolve_output_mode():
     requested = (os.environ.get("HYBRID_OUTPUT_MODE", "Composite").strip() or "Composite").lower()
@@ -449,16 +455,16 @@ def connect_mesh_gbuffer(g, source_name, target_name):
     g.addEdge(f"{source_name}.specRough", f"{target_name}.specRough")
 
 
-def create_mesh_gbuffer():
-    return createPass(
-        "GBufferRaster",
-        {
-            "outputSize": "Default",
-            "samplePattern": "Center",
-            "useAlphaTest": True,
-            "adjustShadingNormals": True,
-        },
-    )
+def create_mesh_gbuffer(instance_route_mask=None):
+    props = {
+        "outputSize": "Default",
+        "samplePattern": "Center",
+        "useAlphaTest": True,
+        "adjustShadingNormals": True,
+    }
+    if instance_route_mask is not None:
+        props["instanceRouteMask"] = int(instance_route_mask)
+    return createPass("GBufferRaster", props)
 
 
 def create_mesh_style_pass(shadow_bias, render_background, ao_enabled, ao_strength, ao_radius, ao_step_count, ao_direction_set, ao_contact_strength, ao_use_stable_rotation):
@@ -509,6 +515,7 @@ def create_voxel_chain(scene_hint):
         {
             "drawMode": 0,
             "outputResolution": voxel_output_resolution,
+            "instanceRouteMask": HYBRID_VOXEL_EXECUTION_ROUTE_MASK,
             "checkEllipsoid": env_bool("HYBRID_VOXEL_CHECK_ELLIPSOID", True),
             "checkVisibility": env_bool("HYBRID_VOXEL_CHECK_VISIBILITY", True),
             "checkCoverage": env_bool("HYBRID_VOXEL_CHECK_COVERAGE", True),
@@ -623,7 +630,7 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
 
     g = RenderGraph("VoxelizationHybridMeshVoxelStage4")
 
-    mesh_gbuffer = create_mesh_gbuffer()
+    mesh_gbuffer = create_mesh_gbuffer(HYBRID_MESH_EXECUTION_ROUTE_MASK)
     mesh_style = create_mesh_style_pass(
         shadow_bias,
         render_background,

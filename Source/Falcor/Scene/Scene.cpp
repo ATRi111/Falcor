@@ -78,6 +78,16 @@ const std::string kProceduralPrimAABBBufferName = "proceduralPrimitiveAABBs";
 const std::string kCurveBufferName = "curves";
 const std::string kCurveIndexBufferName = "curveIndices";
 const std::string kCurveVertexBufferName = "curveVertices";
+
+uint32_t getGeometryInstanceRenderRouteBit(GeometryInstanceRenderRoute route)
+{
+    return 1u << static_cast<uint32_t>(route);
+}
+
+bool isGeometryInstanceRenderRouteEnabled(uint32_t routeMask, GeometryInstanceRenderRoute route)
+{
+    return (routeMask & getGeometryInstanceRenderRouteBit(route)) != 0u;
+}
 const std::string kPrevCurveVertexBufferName = "prevCurveVertices";
 const std::string kSDFGridsArrayName = "sdfGrids";
 const std::string kCustomPrimitiveBufferName = "customPrimitives";
@@ -309,6 +319,7 @@ void Scene::setGeometryInstanceRenderRoute(uint32_t instanceID, GeometryInstance
 {
     FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
     mGeometryInstanceData[instanceID].setRenderRoute(route);
+    clearFilteredDrawArgsCache();
 
     if (mpGeometryInstancesBuffer)
         updateGeometryInstances(true);
@@ -439,7 +450,18 @@ const ref<LightCollection>& Scene::getLightCollection(RenderContext* pRenderCont
 
 void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, ProgramVars* pVars, RasterizerState::CullMode cullMode)
 {
-    rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode]);
+    rasterize(pRenderContext, pState, pVars, cullMode, kAllGeometryInstanceRenderRoutesMask);
+}
+
+void Scene::rasterize(
+    RenderContext* pRenderContext,
+    GraphicsState* pState,
+    ProgramVars* pVars,
+    RasterizerState::CullMode cullMode,
+    uint32_t instanceRouteMask
+)
+{
+    rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode], instanceRouteMask);
 }
 
 void Scene::rasterize(
@@ -450,14 +472,27 @@ void Scene::rasterize(
     const ref<RasterizerState>& pRasterizerStateCCW
 )
 {
+    rasterize(pRenderContext, pState, pVars, pRasterizerStateCW, pRasterizerStateCCW, kAllGeometryInstanceRenderRoutesMask);
+}
+
+void Scene::rasterize(
+    RenderContext* pRenderContext,
+    GraphicsState* pState,
+    ProgramVars* pVars,
+    const ref<RasterizerState>& pRasterizerStateCW,
+    const ref<RasterizerState>& pRasterizerStateCCW,
+    uint32_t instanceRouteMask
+)
+{
     FALCOR_PROFILE(pRenderContext, "rasterizeScene");
 
     pVars->setParameterBlock(kParameterBlockName, mpSceneBlock);
 
     auto pCurrentRS = pState->getRasterizerState();
     bool isIndexed = hasIndexBuffer();
+    const auto& drawArgs = getDrawArgs(instanceRouteMask);
 
-    for (const auto& draw : mDrawArgs)
+    for (const auto& draw : drawArgs)
     {
         FALCOR_ASSERT(draw.count > 0);
 
@@ -2928,43 +2963,39 @@ void Scene::setBlasUpdateMode(UpdateMode mode)
 
 void Scene::createDrawList()
 {
+    clearFilteredDrawArgsCache();
+    mDrawArgs = createDrawArgs(kAllGeometryInstanceRenderRoutesMask);
+}
+
+std::vector<Scene::DrawArgs> Scene::createDrawArgs(uint32_t instanceRouteMask)
+{
+    std::vector<DrawArgs> drawArgs;
     if (!mpMeshVao)
-        return;
+        return drawArgs;
 
-    // This function creates argument buffers for draw indirect calls to rasterize the scene.
-    // The updateGeometryInstances() function must have been called before so that the flags are accurate.
-    //
-    // Note that we create four draw buffers to handle all combinations of:
-    // 1) mesh is using 16- or 32-bit indices,
-    // 2) mesh triangle winding is CW or CCW after transformation.
-    //
-    // TODO: Update the draw args if a mesh undergoes animation that flips the winding.
+    instanceRouteMask &= kAllGeometryInstanceRenderRoutesMask;
 
-    mDrawArgs.clear();
-
-    // Helper to create the draw-indirect buffer.
-    auto createDrawBuffer = [this](const auto& drawMeshes, bool ccw, ResourceFormat ibFormat = ResourceFormat::Unknown)
+    auto createDrawBuffer = [this, &drawArgs](const auto& drawMeshes, bool ccw, ResourceFormat ibFormat = ResourceFormat::Unknown)
     {
-        if (drawMeshes.size() > 0)
-        {
-            DrawArgs draw;
-            draw.pBuffer = mpDevice->createBuffer(
-                sizeof(drawMeshes[0]) * drawMeshes.size(), ResourceBindFlags::IndirectArg, MemoryType::DeviceLocal, drawMeshes.data()
-            );
-            draw.pBuffer->setName("Scene draw buffer");
-            FALCOR_ASSERT(drawMeshes.size() <= std::numeric_limits<uint32_t>::max());
-            draw.count = (uint32_t)drawMeshes.size();
-            draw.ccw = ccw;
-            draw.ibFormat = ibFormat;
-            mDrawArgs.push_back(draw);
-        }
+        if (drawMeshes.empty())
+            return;
+
+        DrawArgs draw;
+        draw.pBuffer =
+            mpDevice->createBuffer(sizeof(drawMeshes[0]) * drawMeshes.size(), ResourceBindFlags::IndirectArg, MemoryType::DeviceLocal, drawMeshes.data());
+        draw.pBuffer->setName("Scene draw buffer");
+        FALCOR_ASSERT(drawMeshes.size() <= std::numeric_limits<uint32_t>::max());
+        draw.count = (uint32_t)drawMeshes.size();
+        draw.ccw = ccw;
+        draw.ibFormat = ibFormat;
+        drawArgs.push_back(draw);
     };
 
     if (hasIndexBuffer())
     {
         std::vector<DrawIndexedArguments> drawClockwiseMeshes[2], drawCounterClockwiseMeshes[2];
 
-        uint32_t instanceID = 0;
+        uint32_t rasterInstanceID = 0;
         for (const auto& instance : mGeometryInstanceData)
         {
             if (instance.getType() != GeometryType::TriangleMesh)
@@ -2978,7 +3009,10 @@ void Scene::createDrawList()
             draw.InstanceCount = 1;
             draw.StartIndexLocation = mesh.ibOffset * (use16Bit ? 2 : 1);
             draw.BaseVertexLocation = mesh.vbOffset;
-            draw.StartInstanceLocation = instanceID++;
+            draw.StartInstanceLocation = rasterInstanceID++;
+
+            if (!isGeometryInstanceRenderRouteEnabled(instanceRouteMask, instance.getRenderRoute()))
+                continue;
 
             int i = use16Bit ? 0 : 1;
             (instance.isWorldFrontFaceCW()) ? drawClockwiseMeshes[i].push_back(draw) : drawCounterClockwiseMeshes[i].push_back(draw);
@@ -2993,7 +3027,7 @@ void Scene::createDrawList()
     {
         std::vector<DrawArguments> drawClockwiseMeshes, drawCounterClockwiseMeshes;
 
-        uint32_t instanceID = 0;
+        uint32_t rasterInstanceID = 0;
         for (const auto& instance : mGeometryInstanceData)
         {
             if (instance.getType() != GeometryType::TriangleMesh)
@@ -3006,7 +3040,10 @@ void Scene::createDrawList()
             draw.VertexCountPerInstance = mesh.vertexCount;
             draw.InstanceCount = 1;
             draw.StartVertexLocation = mesh.vbOffset;
-            draw.StartInstanceLocation = instanceID++;
+            draw.StartInstanceLocation = rasterInstanceID++;
+
+            if (!isGeometryInstanceRenderRouteEnabled(instanceRouteMask, instance.getRenderRoute()))
+                continue;
 
             (instance.isWorldFrontFaceCW()) ? drawClockwiseMeshes.push_back(draw) : drawCounterClockwiseMeshes.push_back(draw);
         }
@@ -3014,6 +3051,26 @@ void Scene::createDrawList()
         createDrawBuffer(drawClockwiseMeshes, false);
         createDrawBuffer(drawCounterClockwiseMeshes, true);
     }
+
+    return drawArgs;
+}
+
+const std::vector<Scene::DrawArgs>& Scene::getDrawArgs(uint32_t instanceRouteMask)
+{
+    instanceRouteMask &= kAllGeometryInstanceRenderRoutesMask;
+    if (instanceRouteMask == kAllGeometryInstanceRenderRoutesMask)
+        return mDrawArgs;
+
+    auto it = mFilteredDrawArgsCache.find(instanceRouteMask);
+    if (it == mFilteredDrawArgsCache.end())
+        it = mFilteredDrawArgsCache.emplace(instanceRouteMask, createDrawArgs(instanceRouteMask)).first;
+
+    return it->second;
+}
+
+void Scene::clearFilteredDrawArgsCache()
+{
+    mFilteredDrawArgsCache.clear();
 }
 
 void Scene::initGeomDesc(RenderContext* pRenderContext)

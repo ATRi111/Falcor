@@ -50,6 +50,7 @@ private:
     uint mAODirectionSet;
     uint mSelectedResolution;
     uint2 mOutputResolution;
+    uint32_t mInstanceRouteMask;
     float mAOStrength;
     float mAORadius;
     float mAOContactStrength;

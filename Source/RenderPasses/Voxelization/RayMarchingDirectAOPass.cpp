@@ -27,6 +27,7 @@ const std::string kPropAOStepCount = "aoStepCount";
 const std::string kPropAODirectionSet = "aoDirectionSet";
 const std::string kPropAOContactStrength = "aoContactStrength";
 const std::string kPropAOUseStableRotation = "aoUseStableRotation";
+const std::string kPropInstanceRouteMask = "instanceRouteMask";
 
 enum class RayMarchingDirectAODrawMode : uint32_t
 {
@@ -70,6 +71,7 @@ RayMarchingDirectAOPass::RayMarchingDirectAOPass(ref<Device> pDevice, const Prop
     mAODirectionSet = 6;
     mSelectedResolution = 0;
     mOutputResolution = uint2(1920, 1080);
+    mInstanceRouteMask = Scene::kAllGeometryInstanceRenderRoutesMask;
     mAOStrength = 0.55f;
     mAORadius = 6.0f;
     mAOContactStrength = 0.75f;
@@ -113,6 +115,8 @@ void RayMarchingDirectAOPass::parseProperties(const Properties& props)
             mAOContactStrength = value;
         else if (key == kPropAOUseStableRotation)
             mAOUseStableRotation = value;
+        else if (key == kPropInstanceRouteMask)
+            mInstanceRouteMask = uint32_t(value) & Scene::kAllGeometryInstanceRenderRoutesMask;
         else if (key == kPropOutputResolution)
         {
             mSelectedResolution = value;
@@ -142,6 +146,7 @@ Properties RayMarchingDirectAOPass::getProperties() const
     props[kPropAODirectionSet] = mAODirectionSet;
     props[kPropAOContactStrength] = mAOContactStrength;
     props[kPropAOUseStableRotation] = mAOUseStableRotation;
+    props[kPropInstanceRouteMask] = mInstanceRouteMask;
     props[kPropOutputResolution] = mSelectedResolution;
     props[kPropTransmittanceThreshold] = mTransmittanceThreshold100;
     return props;
@@ -286,6 +291,7 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
     cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     cb["shadowBias"] = mShadowBias100 / 100.0f / gridData.voxelSize.x;
     cb["drawMode"] = mDrawMode;
+    cb["instanceRouteMask"] = mInstanceRouteMask;
     cb["renderBackground"] = mRenderBackground;
     cb["transmittanceThreshold"] = mTransmittanceThreshold100 / 100.0f;
     cb["aoEnabled"] = mAOEnabled;

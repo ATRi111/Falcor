@@ -5,6 +5,28 @@ struct HitResult
     float3 cell;
 };
 
+uint getGeometryInstanceRenderRouteBit(GeometryInstanceRenderRoute route)
+{
+    return 1u << uint(route);
+}
+
+bool isAcceptedVoxelOffset(int offset)
+{
+    PrimitiveBSDF bsdf = gBuffer[offset];
+    if (bsdf.area <= 0)
+        return false;
+
+    if (instanceRouteMask == kAllInstanceRouteMask)
+        return true;
+
+    if (bsdf.identityConfidence <= 0.f || bsdf.dominantInstanceID == kInvalidVoxelInstanceID)
+        return true;
+
+    GeometryInstanceID instanceID = { bsdf.dominantInstanceID };
+    const GeometryInstanceRenderRoute route = gScene.getGeometryInstanceRenderRoute(instanceID);
+    return (instanceRouteMask & getGeometryInstanceRenderRouteBit(route)) != 0u;
+}
+
 bool isSolidVoxel(int3 cellInt, out int offset)
 {
     offset = vBuffer[cellInt];
@@ -73,7 +95,7 @@ HitResult rayMarching_DDA(float3 from, float3 direction, bool ignoreFirst)
         if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
             break;
         int offset;
-        if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
+        if (isSolidVoxel(cellInt, offset) && isAcceptedVoxelOffset(offset))
         {
 #if !CHECK_ELLIPSOID
             HitResult hit = { true, cellInt, cellInt + 0.5f };
@@ -111,7 +133,7 @@ HitResult rayMarching_DDA(float3 from, float3 direction, float maxDistance, bool
         if (maxDistance > 0 && distance > maxDistance) // 非正数表示不限制距离
             break;
         int offset;
-        if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
+        if (isSolidVoxel(cellInt, offset) && isAcceptedVoxelOffset(offset))
         {
 #if !CHECK_ELLIPSOID
             HitResult hit = { true, cellInt, cellInt + 0.5f };
@@ -154,7 +176,7 @@ HitResult rayMarching_Mipmap(float3 from, float3 direction, bool ignoreFirst)
                 if (any(cellInt < int3(0)) || any(cellInt >= (int3)voxelCount))
                     break;
                 int offset;
-                if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
+                if (isSolidVoxel(cellInt, offset) && isAcceptedVoxelOffset(offset))
                 {
 #if !CHECK_ELLIPSOID
                     HitResult hit = { true, cellInt, cellInt + 0.5f };
@@ -209,7 +231,7 @@ HitResult rayMarching_Mipmap(float3 from, float3 direction, float maxDistance, b
                 if (distance > maxDistance) // 非正数表示不限制距离
                     break;
                 int offset;
-                if (isSolidVoxel(cellInt, offset)) // 理论上不会出现面积为0的情况
+                if (isSolidVoxel(cellInt, offset) && isAcceptedVoxelOffset(offset))
                 {
 #if !CHECK_ELLIPSOID
                     HitResult hit = { true, cellInt, cellInt + 0.5f };
@@ -250,7 +272,7 @@ HitResult rayMarchingConservative_DDA(float3 from, float3 direction, bool ignore
             break;
 
         int offset;
-        if (isSolidVoxel(cellInt, offset))
+        if (isSolidVoxel(cellInt, offset) && isAcceptedVoxelOffset(offset))
         {
             HitResult hit = { true, cellInt, cellInt + 0.5f };
             return hit;
@@ -288,7 +310,7 @@ HitResult rayMarchingConservative_Mipmap(float3 from, float3 direction, bool ign
                     break;
 
                 int offset;
-                if (isSolidVoxel(cellInt, offset))
+                if (isSolidVoxel(cellInt, offset) && isAcceptedVoxelOffset(offset))
                 {
                     HitResult hit = { true, cellInt, cellInt + 0.5f };
                     return hit;

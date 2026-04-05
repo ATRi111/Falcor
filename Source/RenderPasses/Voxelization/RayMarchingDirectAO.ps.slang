@@ -43,6 +43,7 @@ cbuffer CB
     float4x4 invVP;
     float shadowBias;
     uint drawMode;
+    uint instanceRouteMask;
     bool renderBackground;
     float transmittanceThreshold;
     bool aoEnabled;
@@ -70,6 +71,7 @@ static const uint kDrawModeDirectOnly = 1;
 static const uint kDrawModeAOOnly = 2;
 static const uint kDrawModeNormalDebug = 3;
 static const uint kDrawModeCoverageDebug = 4;
+static const uint kAllInstanceRouteMask = 0x7u;
 
 #define MAX_ANALYTIC_LIGHTS 8
 
