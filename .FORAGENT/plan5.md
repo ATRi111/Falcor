@@ -2,8 +2,8 @@
 
 ## 1. 文档定位
 
-- 本文件是 `plan4` 之后的新主计划，专门回答“每个物体独立决定走 voxel / mesh / blend，且非 blend 物体只跑一种正式渲染”的落地路径。
-- `plan4` 的 Phase0-4 视为已完成历史阶段，用来说明当前仓库怎样走到今天；`plan4` 里剩余的最后一个阶段不再单独实施，后续工作统一以本文件为准。
+- 本文件是当前唯一有效的 hybrid 主计划，专门回答“每个物体独立决定走 voxel / mesh / blend，且非 blend 物体只跑一种正式渲染”的落地路径。
+- 截至 2026-04-05，Phase1-3 已完成；当前代码基线已经具备 `per-instance route`、`route-aware mask` 与 `voxel identity / depth / normal / confidence`。
 - 当前可验收展示基线仍然是 voxel 主线 `scripts\Voxelization_MainlineDirectAO.py`；当前 `scripts\Voxelization_HybridMeshVoxel.py` 是 plan5 的开发基线，不是最终验收口径。
 
 ## 2. 方案结论
@@ -125,7 +125,7 @@
 
 ## 5. 明确不做的路线
 
-- 不把 `plan4` 里原本的最后一个“稳定性与性能收敛”阶段原样继续做；它默认的是全局 hybrid 收敛，不是对象级 selective execution。
+- 不再继续此前那条只面向全局 hybrid 收敛的“稳定性与性能收敛”路线；当前主线目标是对象级 selective execution。
 - 第一版不做“按材质决定 route”。
 - 第一版不做“两个完整 Scene 在帧间频繁搬迁实例”的架构。
 - 第一版不做“为每个对象单独维护一整套碎片化 voxel brick/cache”的重设计。
@@ -331,17 +331,18 @@
 ## 8. 后续 Agent 的阅读顺序
 
 1. `.FORAGENT\plan5.md`
-2. `.FORAGENT\future_hyrbid_renderer_plan.md`
-3. `.FORAGENT\plan4.md`
-4. `docs\handoff\2026-04-05_plan4_phase4_hybrid_blend_handoff.md`
-5. `docs\memory\2026-04-05_plan4_object_route_analysis.md`
-6. `scripts\Voxelization_HybridMeshVoxel.py`
-7. `Source\RenderPasses\HybridVoxelMesh\*`
-8. `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-9. `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-10. `Source\RenderPasses\GBuffer\GBuffer\GBufferRaster.cpp`
-11. `Source\Falcor\Scene\SceneTypes.slang`
-12. `Source\Falcor\Scene\SceneBuilder.cpp`
+2. `docs\handoff\2026-04-05_documentation_cleanup_handoff.md`
+3. `docs\handoff\2026-04-05_plan5_phase3_identity_contract_handoff.md`
+4. `docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
+5. `docs\memory\2026-04-05_plan5_phase3_identity_contract.md`
+6. `docs\memory\2026-04-05_plan5_phase2_route_mask.md`
+7. `scripts\Voxelization_HybridMeshVoxel.py`
+8. `Source\RenderPasses\HybridVoxelMesh\*`
+9. `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+10. `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+11. `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+12. `Source\Falcor\Scene\SceneTypes.slang`
+13. `Source\Falcor\Scene\SceneBuilder.cpp`
 
 ## 9. 交付边界
 

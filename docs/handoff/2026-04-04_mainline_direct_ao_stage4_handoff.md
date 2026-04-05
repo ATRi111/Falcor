@@ -2,28 +2,34 @@
 
 ## 模块职责
 
-`RayMarchingDirectAOPass` 现在已经完成 plan3 的 Stage4：`AOOnly` 不再是占位输出，主线路径改为稳定的 `contactAO + macroAO` baseline，并继续只依赖 `ReadVoxelPass` 现有的 `vBuffer / gBuffer / pBuffer / blockMap` 四个输入。
+当前 voxel 主线的可验收基线。后续所有 hybrid 变更都要以 `scripts\Voxelization_MainlineDirectAO.py` 仍可稳定运行作为回归底线。
 
-## 本阶段关键实现
+## 当前状态
 
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-  增加了稳定 AO helper：`contactAO` 用 4 个近场面环探测补局部接触暗化，`macroAO` 用 4/6 个固定半球方向短射线做中尺度遮蔽；方向集可选稳定旋转，但只允许使用 `hit.cellInt` hash，不使用 `frameIndex`。
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-  `Combined` 现在把确定性直接光乘上 Stage4 AO，`AOOnly` 改为显示 AO 调试视图，并额外做了更强的曲线映射，避免 ToneMapper 后看起来像全白占位图。
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-  新增并下发了 `aoEnabled / aoStrength / aoRadius / aoStepCount / aoDirectionSet / aoContactStrength / aoUseStableRotation`，UI 改这些参数会继续设置 `RenderOptionsChanged`，同时把本地 `mFrameIndex` 归零。
+- `RayMarchingDirectAOPass` 已完成稳定的 `contactAO + macroAO` baseline；`Combined`、`DirectOnly` 和 `AOOnly` 都沿用当前 `ReadVoxelPass` 输入契约。
+- legacy `VoxelDirectAO*` 已退役；源码和脚本入口只保留 `RayMarchingDirectAO*` 与 `scripts\Voxelization_MainlineDirectAO.py`。
+- 主线脚本已收敛成 `ReadVoxelPass -> RayMarchingDirectAOPass -> ToneMapper`，不要再把 `RenderToViewportPass`、`AccumulatePass` 或旧 pass 名接回验收链路。
+- `AOOnly` 需要保留调试曲线映射，稳定 AO 的方向打散只能来自稳定 hash，不能重新引入逐帧随机。
+
+## 关键文件
+
 - `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py`
-  主线脚本已支持同名环境变量，命令行可以直接切 `DIRECTAO_DRAW_MODE=2` 看 `AOOnly`，不需要手动点 UI。
+- `E:\GraduateDesign\Falcor_Cp\docs\development\2026-04-05_plan4_phase0_voxel_baseline.md`
+- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+
+## 验证口径
+
+- 构建基线：
+  `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Voxelization`
+  `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Mogwai`
+- 画面基线：
+  使用 `Arcade` 的 near / mid / far 固定机位做窗口级复核，参考 `docs\development\2026-04-05_plan4_phase0_voxel_baseline.md`。
+- 任何跨 scene core、voxel contract 或 hybrid graph 的修改，都要额外 smoke 一次这条主线。
 
 ## 继续工作时优先看
 
-- 如果 `AOOnly` 又退回“几乎纯白”，先看 `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang` 里 `AOOnly` 分支是否仍保留 debug 曲线映射。
-- 如果 `Combined` 开始出现明显 temporal shimmer，先看 `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang` 里 `evalStableAO()` 是否重新引入了 `frameIndex` 或逐帧随机旋转。
-- 如果需要继续做 Stage5，不要改现有 `.bin` 读写格式；下一步应优先看 `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp` 和 `E:\GraduateDesign\Falcor_Cp\.FORAGENT\plan3.md` 里的 `aoOccupancy` 设计。
-
-## 当前验证状态
-
-- `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Voxelization` 已通过。
-- `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Mogwai` 已通过，日志里仍有 Falcor 既有 warning：`Cannot enable D3D12 Agility SDK: Calling SetSDKVersion failed.`，但插件加载正常，显示 `Loaded 39 plugin(s)`。
-- 已用窗口级截图验证 `Arcade + Voxelization_MainlineDirectAO.py` 的 `Combined` 正常打开并渲染。
-- 已用 `DIRECTAO_DRAW_MODE=2` 的窗口级截图验证 `AOOnly` 不再是 stage3 的纯白占位输出，当前能看到稳定的 AO 轮廓分布。
+- 先看 `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py` 的 graph 链路是否仍然只包含主线需要的 pass。
+- 如果要扩 cache 或读写契约，直接看 `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`，不要依赖已经删除的旧 plan 文档。
+- 如果画面回到“AOOnly 近白占位”或重新出现 temporal shimmer，先检查 `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang` 的 AOOnly 映射和稳定方向集。

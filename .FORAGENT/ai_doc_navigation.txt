@@ -1,47 +1,37 @@
 AI doc navigation
 
-Read these files by task
-- Need the current object-level hybrid routing implementation plan:
-  .FORAGENT\plan5.md
-- Need the current accepted voxel baseline or optional AO follow-up:
-  .FORAGENT\plan3.md
-- Need the historical Phase0-4 mesh + voxel hybrid plan and current prototype background:
-  .FORAGENT\plan4.md
-- Need the concise long-term hybrid renderer vision:
-  .FORAGENT\future_hyrbid_renderer_plan.md
-- Need build instructions:
-  .FORAGENT\build_any_target_brief.txt
+Current entry
+- 唯一计划文档：`.FORAGENT\plan5.md`
+- 当前文档结构说明：`docs\handoff\2026-04-05_documentation_cleanup_handoff.md`
+- 当前 hybrid 基线（plan5 Phase1-3 已完成）：`docs\handoff\2026-04-05_plan5_phase3_identity_contract_handoff.md`
+- 当前 voxel 主线基线：`docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
+- 构建说明：`.FORAGENT\build_any_target_brief.txt`
 
-Current voxel mainline entry
-- scripts\Voxelization_MainlineDirectAO.py
-- Source\RenderPasses\Voxelization\ReadVoxelPass.cpp
-- Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp
-- Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang
-- Source\RenderPasses\Voxelization\RayMarchingTraversal.slang
+Current status
+- 截至 2026-04-05，plan5 已完成 Phase1-3；下一阶段是 Phase4 object-level composite。
+- `scripts\Voxelization_HybridMeshVoxel.py` 是 hybrid 开发基线，`scripts\Voxelization_MainlineDirectAO.py` 仍是最终验收基线。
+- Phase5 selective execution 尚未开始；当前 `Composite / MeshOnly / VoxelOnly / BlendMask` 仍不代表正式成本隔离。
 
-Mesh / hybrid candidate entry for plan5
-- Source\RenderPasses\GBuffer\GBuffer\GBufferRaster.cpp
-- Source\RenderPasses\GBuffer\VBuffer\VBufferRT.cpp
-- Source\Falcor\Scene\SceneTypes.slang
-- Source\Falcor\Scene\SceneBuilder.cpp
-- Source\RenderPasses\ToneMapper\ToneMapper.cpp
-
-If docs are not enough, inspect source in this order
-- Cache-file reader and current voxel resource contract:
-  Source\RenderPasses\Voxelization\ReadVoxelPass.cpp
-  Source\RenderPasses\Voxelization\VoxelizationShared.slang
-- Current voxel shading mainline:
-  Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp
-  Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang
-  Source\RenderPasses\Voxelization\RayMarchingTraversal.slang
-- Existing mesh visibility / GBuffer options:
-  Source\RenderPasses\GBuffer\GBuffer\GBufferRaster.cpp
-  Source\RenderPasses\GBuffer\VBuffer\VBufferRT.cpp
-- Final output and tone mapping:
-  Source\RenderPasses\ToneMapper\ToneMapper.cpp
+Read source in this order if docs are insufficient
+- Hybrid script and graph wiring:
+  `scripts\Voxelization_HybridMeshVoxel.py`
+- Scene route contract:
+  `Source\Falcor\Scene\SceneTypes.slang`
+  `Source\Falcor\Scene\Scene.slang`
+  `Source\Falcor\Scene\SceneBuilder.cpp`
+- Hybrid route/composite path:
+  `Source\RenderPasses\HybridVoxelMesh\HybridBlendMaskPass.ps.slang`
+  `Source\RenderPasses\HybridVoxelMesh\HybridCompositePass.ps.slang`
+  `Source\RenderPasses\HybridVoxelMesh\HybridMeshDebugPass.ps.slang`
+- Voxel Phase3 contract:
+  `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+  `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+  `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+  `Source\RenderPasses\Voxelization\VoxelizationShared.slang`
+- Voxel mainline baseline:
+  `scripts\Voxelization_MainlineDirectAO.py`
+  `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
 
 Working rule
-- `plan3.md` 只描述 Stage4 之后的 optional AO 优化，不是当前主线必做。
-- `plan5.md` 是当前对象级 hybrid 路由主计划；先看它，再决定要不要回查 `plan4.md` 的历史阶段细节。
-- `plan4.md` 主要用于理解当前 prototype 是怎样落地到 Phase4 的，不再驱动新的最终阶段。
-- 先读计划文档，再只打开与你当前修改直接相关的源码。
+- 先读 `plan5.md` 和当前 handoff，再只打开与你修改直接相关的源码。
+- 这个工作区里的 `rg.exe` 可能触发“拒绝访问”；做全文搜索时优先用 PowerShell `Get-ChildItem` + `Select-String`。

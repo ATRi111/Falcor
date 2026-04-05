@@ -1,71 +1,62 @@
-# Plan5 Phase3 Identity Contract Handoff
+# Plan5 Phase1-3 Current Hybrid Handoff
 
 ## 模块职责
 
-本阶段把 voxel 路径补到 plan5 Phase3 所需的最小可用 contract：缓存和读取链路保留 dominant instance identity 与 confidence，ray marching 输出 depth / normal / confidence / instanceID，多张 Hybrid debug 视图和脚本接线全部打通，并保留 mainline 体素主线的可运行性。
+当前 hybrid 开发基线，覆盖 plan5 已完成的 Phase1-3：scene `per-instance route`、route-aware mask/composite，以及 voxel identity / depth / normal / confidence contract。下一阶段是 Phase4 object-level composite，不是回头重开旧 plan。
 
-## 本轮关键文件
+## 当前状态
 
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\VoxelizationShared.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\Shading.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\AnalyzePolygon.cs.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ClipMesh.cs.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\SampleMesh.cs.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\VoxelizationPass_CPU.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\VoxelizationPass_GPU.cpp`
+- Phase1 已完成：route 正式落在 `GeometryInstanceData.flags`，`Blend = 0` 作为默认值；scene runtime 与脚本 override 都能直接读写 instance route。
+- Phase2 已完成：`HybridBlendMaskPass`、`HybridCompositePass`、`HybridMeshDebugPass` 统一通过 `vbuffer + gScene` 读取 route；`MeshOnly / VoxelOnly / Blend` 已不再只是纯距离带着色。
+- Phase3 已完成：voxel 路径输出 `voxelDepth / voxelNormal / voxelConfidence / voxelInstanceID`；正式 identity 语义是 `dominant geometry instance ID`，`confidence = dominantInstanceArea / totalPolygonAreaInVoxel`，contributor tracking overflow 时必须保守失效。
+- `RayMarchingDirectAOPass` 的 `outputResolution=0` 已改为跟随 graph 默认输出尺寸，避免 hybrid 在 `1600x900` 下出现 mesh / voxel 错位。
+- 当前 `Arcade` 默认参考对象仍是 `Arch -> Blend`、`Cabinet -> MeshOnly`、`Chair -> Blend`、`poster -> VoxelOnly`；`RouteDebug` 颜色约定保持 `MeshOnly=orange`、`VoxelOnly=blue`、`Blend=green`。
+- `scripts\Voxelization_HybridMeshVoxel.py` 是当前 hybrid 入口；`scripts\Voxelization_MainlineDirectAO.py` 仍要保留 smoke。
+- Phase4 和 Phase5 都还未完成：非 blend 物体在当前 graph 下仍可能支付另一条正式路径的成本，`Composite / MeshOnly / VoxelOnly / BlendMask` 只是 correctness 调试口，不是最终 selective execution 验收结果。
+
+## 关键文件
+
+- `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_HybridMeshVoxel.py`
+- `E:\GraduateDesign\Falcor_Cp\Source\Falcor\Scene\SceneTypes.slang`
+- `E:\GraduateDesign\Falcor_Cp\Source\Falcor\Scene\Scene.slang`
+- `E:\GraduateDesign\Falcor_Cp\Source\Falcor\Scene\SceneBuilder.cpp`
+- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\HybridVoxelMesh\HybridBlendMaskPass.ps.slang`
+- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\HybridVoxelMesh\HybridCompositePass.ps.slang`
+- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\HybridVoxelMesh\HybridMeshDebugPass.ps.slang`
 - `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
 - `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
 - `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\HybridVoxelMesh\HybridCompositePass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\HybridVoxelMesh\HybridCompositePass.ps.slang`
-- `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_HybridMeshVoxel.py`
-- `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_MainlineDirectAO.py`
 
-## 当前语义与实现结论
+## 验证与证据
 
-- `voxel identity` 的正式语义是 `dominant geometry instance ID`，不是 route ID；Hybrid 的 `VoxelRouteID` 视图仍然是在 composite 里用 `instanceID -> gScene.getGeometryInstanceRenderRoute()` 现算。
-- `confidence` 的正式语义是 `dominantInstanceArea / totalPolygonAreaInVoxel`；只要 contributor tracking overflow，就要保守地让 identity / confidence 失效。
-- `ReadVoxelPass.cpp` 现在会识别 legacy cache layout，并把 legacy 读取出来的 `dominantInstanceID / identityConfidence` 归零，避免旧 cache 被误当成有效 Phase3 数据。
-- `RayMarchingDirectAOPass` 现在会输出 `voxelDepth / voxelNormal / voxelConfidence / voxelInstanceID`，并在 graph 没有连接这些资源时为它们创建 fallback RT，避免脚本或 graph 少接线时直接崩掉。
-- 本轮新增的 bugfix 在 `RayMarchingDirectAOPass.cpp`：`outputResolution=0` 不再硬编码 `1920x1080`，而是跟随 graph 的 `defaultTexDims` 和实际 color target size；否则 hybrid 在 `1600x900` 窗口下会把 voxel 图按错误分辨率读回，产生 mesh / voxel 明显错位。
-- host-side `cl` / Slang 编译路径仍然会被共享 `.slang` / `.h` 里的中文注释坑到，表现为 UTF-8 被误读后吞掉后续代码并报出看似无关的编译错误；后续继续改这些 host 参与编译的文件时，注释请保持 ASCII。
-- 已新增 `E:\GraduateDesign\Falcor_Cp\run_HybridMeshVoxel.bat` 作为当前 hybrid 基线的一键启动入口；这个脚本使用 `REM + setlocal EnableDelayedExpansion`，避免 `cmd` 在解析带括号的 Arcade cache 路径时闪退。
+- 构建已串行复核：
+  `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Voxelization`
+  `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target HybridVoxelMesh`
+  `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Mogwai`
+- 图像证据保留在：
+  `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase1\`
+  `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase2\`
+  `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\`
+- 当前应优先复核的 hybrid 调试口：
+  `RouteDebug`
+  `BlendMask`
+  `Composite`
+  `VoxelDepth`
+  `VoxelNormal`
+  `VoxelConfidence`
+  `VoxelRouteID`
+  `VoxelInstanceID`
+- mainline smoke 证据仍在 `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\arcade_near_mainline_directao_window.png`。
 
-## 验收流程与证据
+## 继续工作时优先看
 
-- 启动 smoke：先确认没有残留 `Mogwai.exe`，再用 `scripts\Voxelization_HybridMeshVoxel.py` 起窗并检查 log，没有 `fatal / exception / failed`。
-- 缓存重生成：删除 `E:\GraduateDesign\Falcor_Cp\resource\Arcade_(256, 171, 256)_256.bin_CPU` 后重新运行 hybrid，确认该 cache 重新生成。
-- 重要流程注意点：删缓存后第一轮 `HYBRID_CPU_AUTO_GENERATE=1` 只负责把新 bin 写出来，因为 `ReadVoxelPass` 的 `binFile` 在脚本启动前就确定了；正式验收截图必须在 cache 生成完成后再次启动 Mogwai。
-- 串行 build 已复核通过：
-  - `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Voxelization`
-  - `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target HybridVoxelMesh`
-  - `tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target Mogwai`
-- Phase3 window 截图证据：
-  - `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\arcade_near_hybrid_composite_window.png`
-  - `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\arcade_near_hybrid_voxeldepth_window.png`
-  - `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\arcade_near_hybrid_voxelnormal_window.png`
-  - `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\arcade_near_hybrid_voxelconfidence_window.png`
-  - `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\arcade_near_hybrid_voxelrouteid_window.png`
-  - `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\arcade_near_hybrid_voxelinstanceid_window.png`
-- Mainline smoke 证据：
-  - `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\arcade_near_mainline_directao_window.png`
-- 对截图的肉眼结论：
-  - `composite` 中 mesh / voxel 已不再出现此前的分辨率错位，`Cabinet` 保持 `MeshOnly` 行为，近景不应把它误判成需要 blend 的对象。
-  - `voxelDepth` 与 `voxelNormal` 都有稳定可视化，`voxelConfidence` 不是黑屏或随机噪声，只是 Arcade near 大部分像素都处于较高 confidence，所以图上接近高值配色。
-  - `voxelRouteID` 与 `voxelInstanceID` 都能稳定区分对象，不是全黑，也不是随机闪烁噪声。
+- 先读 `E:\GraduateDesign\Falcor_Cp\.FORAGENT\plan5.md`，再读这份 handoff。
+- 如果 route 语义异常，优先查 scene route contract 和 `HybridBlendMaskPass` / `HybridCompositePass` 的 `vbuffer + gScene` 接线。
+- 如果 voxel debug 图失效，优先查 `ReadVoxelPass.cpp`、`RayMarchingDirectAOPass.cpp` 和 `RayMarchingDirectAO.ps.slang` 的 Phase3 contract。
+- 如果删了 cache 后用 `HYBRID_CPU_AUTO_GENERATE=1` 重新验收，必须先生成 bin，再第二次启动 Mogwai 看新 cache；第一轮运行只负责写文件。
 
 ## 当前残余风险
 
-- 本阶段只补完了 Phase3 contract 和 debug 视图，没有推进 Phase4 object-level composite 闭环，也没有做 Phase5 selective execution；`Blend` 对象当前仍然可能出现预期内的 mesh / voxel 混合痕迹。
-- `HYBRID_CPU_AUTO_GENERATE=1` 的首轮运行仍是“先生成、后下次启动再验证”的工作流，如果后续想把单轮体验打通，需要额外改脚本或 `ReadVoxelPass` 的重新装载时机，但这不属于本次最小修复范围。
-
-## 后续 Agent 优先查看
-
-- `E:\GraduateDesign\Falcor_Cp\.FORAGENT\plan5.md`
-- `E:\GraduateDesign\Falcor_Cp\docs\memory\2026-04-05_plan5_phase3_identity_contract.md`
-- `E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_HybridMeshVoxel.py`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
-- `E:\GraduateDesign\Falcor_Cp\Source\RenderPasses\HybridVoxelMesh\HybridCompositePass.ps.slang`
-- `E:\GraduateDesign\Falcor_Cp\docs\images\plan5_phase3\`
+- Phase4 object-level composite 还没有把 route、mesh depth、voxel depth 和 confidence 做成完整闭环。
+- Phase5 selective execution 还没有把 `MeshOnly` / `VoxelOnly` 从另一条正式路径里真正剔除。
+- host-side 会参与编译的 `.slang` / `.h` 仍应保持 ASCII 注释，避免 Windows `cl` / Slang 路径误读 UTF-8 中文后报假错误。
