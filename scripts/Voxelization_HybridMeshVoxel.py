@@ -1,5 +1,6 @@
 import falcor
 import os
+import re
 
 
 def env_bool(name, default):
@@ -71,6 +72,101 @@ STYLE_VIEW_MODES = {
     "aoonly": "AOOnly",
 }
 
+COMPOSITE_VIEW_MODES = {
+    "composite": "Composite",
+    "meshonly": "MeshOnly",
+    "voxelonly": "VoxelOnly",
+    "blendmask": "BlendMask",
+}
+
+
+def resolve_output_mode():
+    requested = (os.environ.get("HYBRID_OUTPUT_MODE", "Composite").strip() or "Composite").lower()
+    if requested == "meshview":
+        return "MeshView", "mesh"
+    if requested in COMPOSITE_VIEW_MODES:
+        return COMPOSITE_VIEW_MODES[requested], "hybrid"
+
+    valid = sorted(list(COMPOSITE_VIEW_MODES.values()) + ["MeshView"])
+    raise RuntimeError(f"Unsupported HYBRID_OUTPUT_MODE: {requested}. Expected one of: {', '.join(valid)}")
+
+
+def resolve_voxel_backend():
+    backend = os.environ.get("HYBRID_VOXELIZATION_BACKEND", "CPU").strip().upper()
+    return backend if backend in ("CPU", "GPU") else "CPU"
+
+
+CACHE_NAME_RE = re.compile(r"^(?P<prefix>.+)_\((?P<x>\d+), (?P<y>\d+), (?P<z>\d+)\)_(?P<sample>\d+)\.bin_(?P<backend>CPU|GPU)$", re.IGNORECASE)
+
+
+def list_scene_cache_infos(scene_name_hint=""):
+    resource_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resource")
+    infos = []
+    if not os.path.isdir(resource_dir):
+        return resource_dir, infos
+
+    hint = scene_name_hint.lower()
+    for filename in sorted(os.listdir(resource_dir)):
+        match = CACHE_NAME_RE.match(filename)
+        if not match:
+            continue
+        lower = filename.lower()
+        if hint and hint not in lower:
+            continue
+        infos.append(
+            {
+                "filename": filename,
+                "path": os.path.join(resource_dir, filename),
+                "prefix": match.group("prefix"),
+                "voxel_count": (
+                    int(match.group("x")),
+                    int(match.group("y")),
+                    int(match.group("z")),
+                ),
+                "sample_frequency": int(match.group("sample")),
+                "backend": match.group("backend").upper(),
+            }
+        )
+
+    return resource_dir, infos
+
+
+def choose_cache_plan(scene_name_hint="", backend="CPU", allow_fallback=False):
+    resource_dir, infos = list_scene_cache_infos(scene_name_hint)
+    preferred = next((info for info in infos if info["backend"] == backend), None)
+    reference = preferred or (infos[0] if infos else None)
+
+    inferred_resolution = None
+    inferred_sample_frequency = None
+    desired_path = ""
+    desired_exists = False
+
+    if reference:
+        inferred_resolution = max(reference["voxel_count"])
+        inferred_sample_frequency = reference["sample_frequency"]
+        desired_filename = (
+            f'{reference["prefix"]}_({reference["voxel_count"][0]}, {reference["voxel_count"][1]}, {reference["voxel_count"][2]})_'
+            f'{reference["sample_frequency"]}.bin_{backend}'
+        )
+        desired_path = os.path.join(resource_dir, desired_filename)
+        desired_exists = os.path.exists(desired_path)
+
+    bin_file = ""
+    if preferred:
+        bin_file = preferred["path"]
+    elif backend == "CPU" and desired_path:
+        bin_file = desired_path
+    elif allow_fallback and reference:
+        bin_file = reference["path"]
+
+    return {
+        "bin_file": bin_file,
+        "desired_path": desired_path,
+        "desired_exists": desired_exists,
+        "voxel_resolution": inferred_resolution,
+        "sample_frequency": inferred_sample_frequency,
+    }
+
 
 def resolve_scene_hint():
     for key in ("HYBRID_SCENE_PATH", "HYBRID_SCENE_HINT"):
@@ -136,10 +232,11 @@ def resolve_mesh_view_mode():
     raise RuntimeError(f"Unsupported HYBRID_MESH_VIEW_MODE: {requested}. Expected one of: {', '.join(valid)}")
 
 
-def apply_renderer_overrides(camera_plan):
+def apply_renderer_overrides(camera_plan, default_framebuffer=None):
     hide_ui = env_bool("HYBRID_HIDE_UI", False)
-    framebuffer_width = env_int("HYBRID_FRAMEBUFFER_WIDTH", 0)
-    framebuffer_height = env_int("HYBRID_FRAMEBUFFER_HEIGHT", 0)
+    default_width, default_height = default_framebuffer if default_framebuffer else (0, 0)
+    framebuffer_width = env_int("HYBRID_FRAMEBUFFER_WIDTH", default_width)
+    framebuffer_height = env_int("HYBRID_FRAMEBUFFER_HEIGHT", default_height)
 
     if hide_ui:
         m.ui = False
@@ -185,9 +282,93 @@ def connect_mesh_gbuffer(g, source_name, target_name):
     g.addEdge(f"{source_name}.specRough", f"{target_name}.specRough")
 
 
-def render_graph_stage3():
-    scene_hint = resolve_scene_hint()
-    camera_plan = resolve_camera_plan(scene_hint)
+def create_mesh_gbuffer():
+    return createPass(
+        "GBufferRaster",
+        {
+            "outputSize": "Default",
+            "samplePattern": "Center",
+            "useAlphaTest": True,
+            "adjustShadingNormals": True,
+        },
+    )
+
+
+def create_mesh_style_pass(shadow_bias, render_background, ao_enabled, ao_strength, ao_radius, ao_step_count, ao_direction_set, ao_contact_strength, ao_use_stable_rotation):
+    return createPass(
+        "MeshStyleDirectAOPass",
+        {
+            "viewMode": "Combined",
+            "shadowBias": shadow_bias,
+            "renderBackground": render_background,
+            "aoEnabled": ao_enabled,
+            "aoStrength": ao_strength,
+            "aoRadius": ao_radius,
+            "aoStepCount": ao_step_count,
+            "aoDirectionSet": ao_direction_set,
+            "aoContactStrength": ao_contact_strength,
+            "aoUseStableRotation": ao_use_stable_rotation,
+        },
+    )
+
+
+def create_voxel_chain(scene_hint):
+    voxel_backend = resolve_voxel_backend()
+    allow_cache_fallback = env_bool("HYBRID_ALLOW_CACHE_FALLBACK", False)
+    cache_plan = choose_cache_plan(scene_hint, voxel_backend, allow_cache_fallback)
+    voxel_pass_name = "VoxelizationPass_CPU" if voxel_backend == "CPU" else "VoxelizationPass_GPU"
+    voxel_pass_props = {}
+
+    if voxel_backend == "CPU":
+        cpu_voxel_resolution = env_int("HYBRID_CPU_VOXEL_RESOLUTION", cache_plan["voxel_resolution"] or 128)
+        cpu_sample_frequency = env_int("HYBRID_CPU_SAMPLE_FREQUENCY", cache_plan["sample_frequency"] or 256)
+        voxel_pass_props = {
+            "sceneName": "Auto",
+            "voxelResolution": cpu_voxel_resolution,
+            "sampleFrequency": cpu_sample_frequency,
+            "polygonPerFrame": env_int("HYBRID_CPU_POLYGON_PER_FRAME", 256000),
+            "lerpNormal": env_bool("HYBRID_CPU_LERP_NORMAL", False),
+            "autoGenerate": env_bool(
+                "HYBRID_CPU_AUTO_GENERATE",
+                bool(cache_plan["desired_path"]) and not cache_plan["desired_exists"],
+            ),
+        }
+
+    voxel_output_resolution = env_int("HYBRID_VOXEL_OUTPUT_RESOLUTION", 0)
+    voxel_pass = createPass(voxel_pass_name, voxel_pass_props)
+    read_pass = createPass("ReadVoxelPass", {"binFile": cache_plan["bin_file"]} if cache_plan["bin_file"] else {})
+    marching_pass = createPass(
+        "RayMarchingDirectAOPass",
+        {
+            "drawMode": 0,
+            "outputResolution": voxel_output_resolution,
+            "checkEllipsoid": env_bool("HYBRID_VOXEL_CHECK_ELLIPSOID", True),
+            "checkVisibility": env_bool("HYBRID_VOXEL_CHECK_VISIBILITY", True),
+            "checkCoverage": env_bool("HYBRID_VOXEL_CHECK_COVERAGE", True),
+            "useMipmap": env_bool("HYBRID_VOXEL_USE_MIPMAP", True),
+            "renderBackground": env_bool("HYBRID_VOXEL_RENDER_BACKGROUND", True),
+            "transmittanceThreshold": env_float("HYBRID_VOXEL_TRANSMITTANCE_THRESHOLD", 5.0),
+            "aoEnabled": env_bool("HYBRID_VOXEL_AO_ENABLED", True),
+            "aoStrength": env_float("HYBRID_VOXEL_AO_STRENGTH", 0.55),
+            "aoRadius": env_float("HYBRID_VOXEL_AO_RADIUS", 6.0),
+            "aoStepCount": env_int("HYBRID_VOXEL_AO_STEP_COUNT", 3),
+            "aoDirectionSet": env_int("HYBRID_VOXEL_AO_DIRECTION_SET", 6),
+            "aoContactStrength": env_float("HYBRID_VOXEL_AO_CONTACT_STRENGTH", 0.75),
+            "aoUseStableRotation": env_bool("HYBRID_VOXEL_AO_USE_STABLE_ROTATION", True),
+        },
+    )
+
+    return {
+        "backend": voxel_backend,
+        "cache_plan": cache_plan,
+        "output_resolution": voxel_output_resolution,
+        "voxel_pass": voxel_pass,
+        "read_pass": read_pass,
+        "marching_pass": marching_pass,
+    }
+
+
+def render_graph_mesh_view(scene_hint, camera_plan):
     view_mode, pipeline = resolve_mesh_view_mode()
     depth_range = env_float("HYBRID_MESH_DEPTH_RANGE", 12.0)
     shadow_bias = env_float("HYBRID_MESH_SHADOW_BIAS", 0.001)
@@ -200,23 +381,12 @@ def render_graph_stage3():
     ao_contact_strength = env_float("HYBRID_MESH_AO_CONTACT_STRENGTH", 0.75)
     ao_use_stable_rotation = env_bool("HYBRID_MESH_AO_USE_STABLE_ROTATION", True)
 
-    print("[HybridMeshVoxel] scene hint:", scene_hint if scene_hint else "<empty>")
     print("[HybridMeshVoxel] pipeline:", pipeline)
     print("[HybridMeshVoxel] mesh view mode:", view_mode)
-    if os.environ.get("HYBRID_REFERENCE_VIEW", "").strip():
-        print("[HybridMeshVoxel] reference view:", os.environ["HYBRID_REFERENCE_VIEW"].strip())
 
-    g = RenderGraph("VoxelizationHybridMeshVoxelStage3")
+    g = RenderGraph("VoxelizationHybridMeshVoxelMeshView")
 
-    mesh_gbuffer = createPass(
-        "GBufferRaster",
-        {
-            "outputSize": "Default",
-            "samplePattern": "Center",
-            "useAlphaTest": True,
-            "adjustShadingNormals": True,
-        },
-    )
+    mesh_gbuffer = create_mesh_gbuffer()
     tone_mapper = createPass("ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})
 
     g.addPass(mesh_gbuffer, "MeshGBuffer")
@@ -256,12 +426,107 @@ def render_graph_stage3():
         g.addEdge("HybridMeshDebugPass.color", "ToneMapper.src")
 
     g.markOutput("ToneMapper.dst")
-
     apply_renderer_overrides(camera_plan)
     return g
 
 
-Graph = render_graph_stage3()
+def render_graph_hybrid(scene_hint, camera_plan, output_mode):
+    shadow_bias = env_float("HYBRID_MESH_SHADOW_BIAS", 0.001)
+    render_background = env_bool("HYBRID_MESH_RENDER_BACKGROUND", True)
+    ao_enabled = env_bool("HYBRID_MESH_AO_ENABLED", True)
+    ao_strength = env_float("HYBRID_MESH_AO_STRENGTH", 0.55)
+    ao_radius = env_float("HYBRID_MESH_AO_RADIUS", 0.18)
+    ao_step_count = env_int("HYBRID_MESH_AO_STEP_COUNT", 3)
+    ao_direction_set = env_int("HYBRID_MESH_AO_DIRECTION_SET", 6)
+    ao_contact_strength = env_float("HYBRID_MESH_AO_CONTACT_STRENGTH", 0.75)
+    ao_use_stable_rotation = env_bool("HYBRID_MESH_AO_USE_STABLE_ROTATION", True)
+    blend_start_distance = env_float("HYBRID_BLEND_START_DISTANCE", 1.50)
+    blend_end_distance = env_float("HYBRID_BLEND_END_DISTANCE", 3.25)
+    blend_exponent = env_float("HYBRID_BLEND_EXPONENT", 1.0)
+
+    voxel_chain = create_voxel_chain(scene_hint)
+    print("[HybridMeshVoxel] voxel backend:", voxel_chain["backend"])
+    print("[HybridMeshVoxel] voxel cache:", voxel_chain["cache_plan"]["bin_file"] if voxel_chain["cache_plan"]["bin_file"] else "<none>")
+    print(
+        "[HybridMeshVoxel] blend distances:",
+        f"{blend_start_distance:.2f} -> {blend_end_distance:.2f}",
+        f"(exp={blend_exponent:.2f})",
+    )
+
+    g = RenderGraph("VoxelizationHybridMeshVoxelStage4")
+
+    mesh_gbuffer = create_mesh_gbuffer()
+    mesh_style = create_mesh_style_pass(
+        shadow_bias,
+        render_background,
+        ao_enabled,
+        ao_strength,
+        ao_radius,
+        ao_step_count,
+        ao_direction_set,
+        ao_contact_strength,
+        ao_use_stable_rotation,
+    )
+    blend_mask = createPass(
+        "HybridBlendMaskPass",
+        {
+            "blendStartDistance": blend_start_distance,
+            "blendEndDistance": blend_end_distance,
+            "blendExponent": blend_exponent,
+        },
+    )
+    composite = createPass("HybridCompositePass", {"viewMode": output_mode})
+    tone_mapper = createPass("ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})
+
+    g.addPass(mesh_gbuffer, "MeshGBuffer")
+    g.addPass(mesh_style, "MeshStyleDirectAOPass")
+    g.addPass(blend_mask, "HybridBlendMaskPass")
+    g.addPass(voxel_chain["voxel_pass"], "VoxelizationPass")
+    g.addPass(voxel_chain["read_pass"], "ReadVoxelPass")
+    g.addPass(voxel_chain["marching_pass"], "RayMarchingDirectAOPass")
+    g.addPass(composite, "HybridCompositePass")
+    g.addPass(tone_mapper, "ToneMapper")
+
+    connect_mesh_gbuffer(g, "MeshGBuffer", "MeshStyleDirectAOPass")
+    g.addEdge("MeshGBuffer.posW", "HybridBlendMaskPass.posW")
+
+    g.addEdge("VoxelizationPass.dummy", "ReadVoxelPass.dummy")
+    g.addEdge("ReadVoxelPass.vBuffer", "RayMarchingDirectAOPass.vBuffer")
+    g.addEdge("ReadVoxelPass.gBuffer", "RayMarchingDirectAOPass.gBuffer")
+    g.addEdge("ReadVoxelPass.pBuffer", "RayMarchingDirectAOPass.pBuffer")
+    g.addEdge("ReadVoxelPass.blockMap", "RayMarchingDirectAOPass.blockMap")
+
+    g.addEdge("MeshStyleDirectAOPass.color", "HybridCompositePass.meshColor")
+    g.addEdge("RayMarchingDirectAOPass.color", "HybridCompositePass.voxelColor")
+    g.addEdge("HybridBlendMaskPass.mask", "HybridCompositePass.blendMask")
+    g.addEdge("HybridCompositePass.color", "ToneMapper.src")
+    g.markOutput("ToneMapper.dst")
+
+    if voxel_chain["output_resolution"] > 0:
+        default_framebuffer = (voxel_chain["output_resolution"], voxel_chain["output_resolution"])
+    else:
+        default_framebuffer = (1920, 1080)
+
+    apply_renderer_overrides(camera_plan, default_framebuffer)
+    return g
+
+
+def render_graph_stage4():
+    scene_hint = resolve_scene_hint()
+    camera_plan = resolve_camera_plan(scene_hint)
+    output_mode, output_pipeline = resolve_output_mode()
+
+    print("[HybridMeshVoxel] scene hint:", scene_hint if scene_hint else "<empty>")
+    print("[HybridMeshVoxel] output mode:", output_mode)
+    if os.environ.get("HYBRID_REFERENCE_VIEW", "").strip():
+        print("[HybridMeshVoxel] reference view:", os.environ["HYBRID_REFERENCE_VIEW"].strip())
+
+    if output_pipeline == "mesh":
+        return render_graph_mesh_view(scene_hint, camera_plan)
+    return render_graph_hybrid(scene_hint, camera_plan, output_mode)
+
+
+Graph = render_graph_stage4()
 try:
     m.addGraph(Graph)
 except NameError:

@@ -4,6 +4,12 @@ target_sources(HybridVoxelMesh PRIVATE
     HybridMeshDebugPass.cpp
     HybridMeshDebugPass.h
     HybridMeshDebugPass.ps.slang
+    HybridBlendMaskPass.cpp
+    HybridBlendMaskPass.h
+    HybridBlendMaskPass.ps.slang
+    HybridCompositePass.cpp
+    HybridCompositePass.h
+    HybridCompositePass.ps.slang
     MeshStyleDirectAOPass.cpp
     MeshStyleDirectAOPass.h
     MeshStyleDirectAOPass.ps.slang
