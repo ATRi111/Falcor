@@ -34,6 +34,7 @@ const char kShaderFile[] = "RenderPasses/HybridVoxelMesh/HybridCompositePass.ps.
 const char kViewMode[] = "viewMode";
 
 const char kInputMeshColor[] = "meshColor";
+const char kInputMeshPosW[] = "meshPosW";
 const char kInputVoxelColor[] = "voxelColor";
 const char kInputBlendMask[] = "blendMask";
 const char kInputVBuffer[] = "vbuffer";
@@ -71,6 +72,7 @@ RenderPassReflection HybridCompositePass::reflect(const CompileData& compileData
 {
     RenderPassReflection reflector;
     reflector.addInput(kInputMeshColor, "Mesh style color").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputMeshPosW, "Mesh world position").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputVoxelColor, "Voxel baseline color").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputBlendMask, "Mesh blend weight").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputVBuffer, "Mesh visibility buffer").bindFlags(ResourceBindFlags::ShaderResource);
@@ -105,6 +107,7 @@ void HybridCompositePass::execute(RenderContext* pRenderContext, const RenderDat
     auto var = mpPass->getRootVar();
     mpScene->bindShaderDataForRaytracing(pRenderContext, var["gScene"]);
     var["gMeshColor"] = renderData.getTexture(kInputMeshColor);
+    var["gMeshPosW"] = renderData.getTexture(kInputMeshPosW);
     var["gVoxelColor"] = renderData.getTexture(kInputVoxelColor);
     var["gBlendMask"] = renderData.getTexture(kInputBlendMask);
     var["gVBuffer"] = renderData.getTexture(kInputVBuffer);

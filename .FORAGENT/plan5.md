@@ -3,7 +3,7 @@
 ## 1. 文档定位
 
 - 本文件是当前唯一有效的 hybrid 主计划，专门回答“每个物体独立决定走 voxel / mesh / blend，且非 blend 物体只跑一种正式渲染”的落地路径。
-- 截至 2026-04-05，Phase1-3 已完成；当前代码基线已经具备 `per-instance route`、`route-aware mask` 与 `voxel identity / depth / normal / confidence`。
+- 截至 2026-04-05，Phase1-4 已完成；当前代码基线已经具备 `per-instance route`、`route-aware mask`、`voxel identity / depth / normal / confidence`，以及对象级 composite 与 `ObjectMismatch / DepthMismatch` 调试口。
 - 当前可验收展示基线仍然是 voxel 主线 `scripts\Voxelization_MainlineDirectAO.py`；当前 `scripts\Voxelization_HybridMeshVoxel.py` 是 plan5 的开发基线，不是最终验收口径。
 
 ## 2. 方案结论
@@ -41,9 +41,8 @@
 
 ### 3.2 当前缺口
 
-- 当前 hybrid graph 在 `Composite / MeshOnly / VoxelOnly / BlendMask` 下仍然会同时跑 mesh 和 voxel 两条正式出图链。
-- 当前 blend 只使用 mesh 距离带，没有 object route，也没有 voxel depth / normal / confidence。
-- 当前 voxel cache / voxel shading contract 不保留对象身份，ray march 命中后无法可靠知道“命中了哪个对象或哪个 proxy”。
+- 当前 hybrid graph 在 `Composite / MeshOnly / VoxelOnly / BlendMask / ObjectMismatch / DepthMismatch` 下仍然会同时跑 mesh 和 voxel 两条正式出图链；Phase4 只完成 correctness，没有完成 selective execution。
+- 当前 `Blend` 的最终权重已经会联合使用 route、mesh depth、voxel depth 和 voxel confidence，但仍以 `HybridBlendMaskPass` 的距离带作为 base signal；这符合 Phase4 的 correctness 目标，不代表 Phase5 的成本目标已经完成。
 - 当前 `Scene::rasterize()` 仍然按全场景 draw list 走，mesh 分支还做不到只画 `MeshOnly + Blend` 实例。
 
 ### 3.3 本计划的硬性原则
@@ -251,6 +250,12 @@
 - `MeshOnly / VoxelOnly / Blend` 三类对象在 near / mid / far 参考视角都表现正确。
 - Blend 区不再仅由屏幕空间距离单独主导。
 
+#### 当前实现结果
+
+- 已于 2026-04-05 完成第一版：`MeshOnly` 默认只取 mesh，`VoxelOnly` 默认只取 voxel，只有 `Blend` 才允许双源混合。
+- 当前 `Blend` 的实际 voxel 参与度由 `route + distance base weight + mesh depth + voxel depth + voxel confidence + object match` 共同决定；低 confidence 或对象不匹配时会保守退回 mesh。
+- 当前新增的调试口为 `ObjectMismatch` 与 `DepthMismatch`；两者都已在 `Arcade` near 机位完成窗口级 smoke。
+
 ### 6.5 Phase5：真正去掉非 blend 物体的双路径正式成本
 
 #### 目标
@@ -332,17 +337,19 @@
 
 1. `.FORAGENT\plan5.md`
 2. `docs\handoff\2026-04-05_documentation_cleanup_handoff.md`
-3. `docs\handoff\2026-04-05_plan5_phase3_identity_contract_handoff.md`
-4. `docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
-5. `docs\memory\2026-04-05_plan5_phase3_identity_contract.md`
-6. `docs\memory\2026-04-05_plan5_phase2_route_mask.md`
-7. `scripts\Voxelization_HybridMeshVoxel.py`
-8. `Source\RenderPasses\HybridVoxelMesh\*`
-9. `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
-10. `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-11. `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-12. `Source\Falcor\Scene\SceneTypes.slang`
-13. `Source\Falcor\Scene\SceneBuilder.cpp`
+3. `docs\handoff\2026-04-05_plan5_phase4_object_composite_handoff.md`
+4. `docs\handoff\2026-04-05_plan5_phase3_identity_contract_handoff.md`
+5. `docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
+6. `docs\memory\2026-04-05_plan5_phase4_object_composite.md`
+7. `docs\memory\2026-04-05_plan5_phase3_identity_contract.md`
+8. `docs\memory\2026-04-05_plan5_phase2_route_mask.md`
+9. `scripts\Voxelization_HybridMeshVoxel.py`
+10. `Source\RenderPasses\HybridVoxelMesh\*`
+11. `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+12. `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+13. `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+14. `Source\Falcor\Scene\SceneTypes.slang`
+15. `Source\Falcor\Scene\SceneBuilder.cpp`
 
 ## 9. 交付边界
 

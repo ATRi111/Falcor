@@ -49,6 +49,8 @@ public:
         VoxelConfidence,
         VoxelRouteID,
         VoxelInstanceID,
+        ObjectMismatch,
+        DepthMismatch,
     };
 
     FALCOR_ENUM_INFO(
@@ -64,6 +66,8 @@ public:
             {ViewMode::VoxelConfidence, "VoxelConfidence"},
             {ViewMode::VoxelRouteID, "VoxelRouteID"},
             {ViewMode::VoxelInstanceID, "VoxelInstanceID"},
+            {ViewMode::ObjectMismatch, "ObjectMismatch"},
+            {ViewMode::DepthMismatch, "DepthMismatch"},
         }
     );
 
