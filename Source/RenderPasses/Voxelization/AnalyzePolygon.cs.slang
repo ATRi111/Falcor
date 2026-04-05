@@ -32,6 +32,8 @@ cbuffer CB
     uint2 blockCount;
 }
 
+static const uint kMaxIdentityContributors = 16u;
+
 void Estimate(
     Ellipsoid e,
     PolygonRange range,
@@ -86,21 +88,25 @@ float4 sampleTextureArea(TextureHandle handle, float2 uv, float uvArea, float4 u
     return ms.sampleTexture(handle, sampler, uv, uniformValue, lod);
 }
 
-void sampleTexture(Polygon polygon, int3 cellInt, int offset, inout ABSDF ABSDF)
+void sampleTexture(Polygon polygon, inout ABSDF ABSDF)
 {
     TriangleRef triRef = polygon.triRef;
+    GeometryInstanceID instanceID = { triRef.instanceID };
     MaterialSystem ms = gScene.materials;
 
     float2[MAX_VERTEX_COUNT] uvs;
-    uint3 vtxIndices = gScene.getIndices(triRef.meshID, triRef.triangleID);
+    uint3 vtxIndices = gScene.getIndices(instanceID, triRef.triangleID);
+    float4x4 worldMat = gScene.getWorldMatrix(instanceID);
+    float3x3 worldInvTranspose = gScene.getInverseTransposeWorldMatrix(instanceID);
     Triangle tri = {};
     StaticVertexData[3] vertices = { gScene.getVertex(vtxIndices.x), gScene.getVertex(vtxIndices.y), gScene.getVertex(vtxIndices.z) };
     for (int i = 0; i < 3; i++)
     {
-        tri.vertices[i] = (vertices[i].position - gridMin) / voxelSize; // 体素是等大立方体，因此世界空间坐标到网格的坐标不影响TBN计算
+        float3 posW = mul(worldMat, float4(vertices[i].position, 1.f)).xyz;
+        tri.vertices[i] = (posW - gridMin) / voxelSize; // 体素是等大立方体，因此世界空间坐标到网格的坐标不影响TBN计算
         tri.uvs[i] = vertices[i].texCrd;
 #if LERP_NORMAL
-        tri.normals[i] = vertices[i].normal;
+        tri.normals[i] = normalizeSafe(mul(worldInvTranspose, vertices[i].normal));
 #endif
     }
     tri.buildTBN();
@@ -139,6 +145,77 @@ void sampleTexture(Polygon polygon, int3 cellInt, int offset, inout ABSDF ABSDF)
     ABSDF.accumulate(input);
 }
 
+void evalDominantInstanceIdentity(PolygonRange range, out uint dominantInstanceID, out float identityConfidence)
+{
+    uint contributorIDs[kMaxIdentityContributors];
+    float contributorAreas[kMaxIdentityContributors];
+    [unroll]
+    for (uint i = 0; i < kMaxIdentityContributors; ++i)
+    {
+        contributorIDs[i] = kInvalidVoxelInstanceID;
+        contributorAreas[i] = 0.f;
+    }
+
+    uint contributorCount = 0;
+    bool contributorOverflow = false;
+    float totalArea = 0.f;
+
+    for (uint i = 0; i < range.count; ++i)
+    {
+        Polygon polygon = polygonBuffer[range.localHead + i];
+        float polygonArea = polygon.calcArea();
+        if (polygonArea <= 0.f)
+            continue;
+
+        totalArea += polygonArea;
+
+        const uint instanceID = polygon.triRef.instanceID;
+        bool foundContributor = false;
+        for (uint c = 0; c < contributorCount; ++c)
+        {
+            if (contributorIDs[c] == instanceID)
+            {
+                contributorAreas[c] += polygonArea;
+                foundContributor = true;
+                break;
+            }
+        }
+
+        if (foundContributor)
+            continue;
+
+        if (contributorCount < kMaxIdentityContributors)
+        {
+            contributorIDs[contributorCount] = instanceID;
+            contributorAreas[contributorCount] = polygonArea;
+            contributorCount++;
+        }
+        else
+        {
+            contributorOverflow = true;
+        }
+    }
+
+    dominantInstanceID = kInvalidVoxelInstanceID;
+    identityConfidence = 0.f;
+
+    if (contributorOverflow || totalArea <= 0.f)
+        return;
+
+    float dominantArea = 0.f;
+    for (uint c = 0; c < contributorCount; ++c)
+    {
+        if (contributorAreas[c] > dominantArea)
+        {
+            dominantArea = contributorAreas[c];
+            dominantInstanceID = contributorIDs[c];
+        }
+    }
+
+    if (dominantArea > 0.f)
+        identityConfidence = saturate(dominantArea / totalArea);
+}
+
 void updateBlockMap(int3 cellInt)
 {
     int3 blockInt = cellInt / BLOCK_TO_VOXEL;
@@ -160,7 +237,7 @@ void calc(uint offset)
     for (uint i = range.localHead; i < range.localHead + range.count; i++)
     {
         Polygon polygon = polygonBuffer[i];
-        sampleTexture(polygon, range.cellInt, index, data.ABSDF);
+        sampleTexture(polygon, data.ABSDF);
     }
     data.ABSDF.normalizeSelf();
 
@@ -178,6 +255,7 @@ void calc(uint offset)
     data.polygonsProjAreaFunc = polyF;
     data.primitiveProjAreaFunc = primF;
     data.totalProjAreaFunc = totalF;
+    evalDominantInstanceIdentity(range, data.dominantInstanceID, data.identityConfidence);
 
     gBuffer[index] = data;
 

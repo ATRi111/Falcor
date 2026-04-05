@@ -6,6 +6,15 @@ namespace
 {
 const std::string kPrepareProgramFile = "RenderPasses/Voxelization/PrepareShadingData.cs.slang";
 
+struct LegacyVoxelData
+{
+    ABSDF ABSDF;
+    Ellipsoid ellipsoid;
+    SphericalFunc primitiveProjAreaFunc;
+    SphericalFunc polygonsProjAreaFunc;
+    SphericalFunc totalProjAreaFunc;
+};
+
 }; // namespace
 
 ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
@@ -96,16 +105,61 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     tryRead(f, offset, gridData.totalVoxelCount() * sizeof(uint), vBuffer, fileSize);
     pVBuffer->setSubresourceBlob(0, vBuffer, gridData.totalVoxelCount() * sizeof(uint));
 
+    const size_t currentVoxelDataBytes = size_t(gridData.solidVoxelCount) * sizeof(VoxelData);
+    const size_t legacyVoxelDataBytes = size_t(gridData.solidVoxelCount) * sizeof(LegacyVoxelData);
+    const size_t blockMapBytes = size_t(gridData.totalBlockCount()) * sizeof(uint4);
+    const size_t remainingBytes = fileSize - offset;
+    const bool useCurrentLayout = remainingBytes == currentVoxelDataBytes + blockMapBytes;
+    const bool useLegacyLayout = remainingBytes == legacyVoxelDataBytes + blockMapBytes;
+    if (!useCurrentLayout && !useLegacyLayout)
+    {
+        logWarning(
+            "ReadVoxelPass: incompatible cache layout '{}' (remaining={} bytes, expected current={} or legacy={} plus blockMap={}).",
+            filePaths[selectedFile].string(),
+            remainingBytes,
+            currentVoxelDataBytes,
+            legacyVoxelDataBytes,
+            blockMapBytes
+        );
+        mComplete = true;
+        return;
+    }
+
     mpVoxelDataBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
     VoxelData* voxelDataBuffer = new VoxelData[gridData.solidVoxelCount];
-    tryRead(f, offset, gridData.solidVoxelCount * sizeof(VoxelData), voxelDataBuffer, fileSize);
+    if (useCurrentLayout)
+    {
+        tryRead(f, offset, currentVoxelDataBytes, voxelDataBuffer, fileSize);
+    }
+    else
+    {
+        LegacyVoxelData* legacyVoxelDataBuffer = new LegacyVoxelData[gridData.solidVoxelCount];
+        tryRead(f, offset, legacyVoxelDataBytes, legacyVoxelDataBuffer, fileSize);
+        for (size_t i = 0; i < gridData.solidVoxelCount; ++i)
+        {
+            voxelDataBuffer[i].ABSDF = legacyVoxelDataBuffer[i].ABSDF;
+            voxelDataBuffer[i].ellipsoid = legacyVoxelDataBuffer[i].ellipsoid;
+            voxelDataBuffer[i].primitiveProjAreaFunc = legacyVoxelDataBuffer[i].primitiveProjAreaFunc;
+            voxelDataBuffer[i].polygonsProjAreaFunc = legacyVoxelDataBuffer[i].polygonsProjAreaFunc;
+            voxelDataBuffer[i].totalProjAreaFunc = legacyVoxelDataBuffer[i].totalProjAreaFunc;
+            voxelDataBuffer[i].dominantInstanceID = kInvalidVoxelInstanceID;
+            voxelDataBuffer[i].identityConfidence = 0.f;
+        }
+        delete[] legacyVoxelDataBuffer;
+        logWarning(
+            "ReadVoxelPass: cache '{}' uses the legacy voxel contract. identity/confidence were reset; regenerate this cache for Phase3 validation.",
+            filePaths[selectedFile].string()
+        );
+    }
     mpVoxelDataBuffer->setBlob(voxelDataBuffer, 0, gridData.solidVoxelCount * sizeof(VoxelData));
+    delete[] voxelDataBuffer;
     pRenderContext->submit(true);
 
     ref<Texture> pBlockMap = renderData.getTexture(kBlockMap);
     uint4* blockMap = new uint4[gridData.totalBlockCount()];
     tryRead(f, offset, gridData.totalBlockCount() * sizeof(uint4), blockMap, fileSize);
     pBlockMap->setSubresourceBlob(0, blockMap, gridData.totalBlockCount() * sizeof(uint4));
+    delete[] blockMap;
 
     // VoxelData将拆分成PrimitiveBSDF和Ellipsoid
     ref<Buffer> pGBuffer = renderData.getResource(kGBuffer)->asBuffer();

@@ -7,6 +7,10 @@ namespace
 {
 const std::string kShaderFile = "RenderPasses/Voxelization/RayMarchingDirectAO.ps.slang";
 const std::string kOutputColor = "color";
+const std::string kOutputVoxelDepth = "voxelDepth";
+const std::string kOutputVoxelNormal = "voxelNormal";
+const std::string kOutputVoxelConfidence = "voxelConfidence";
+const std::string kOutputVoxelInstanceID = "voxelInstanceID";
 const std::string kPropDrawMode = "drawMode";
 const std::string kPropShadowBias = "shadowBias";
 const std::string kPropCheckEllipsoid = "checkEllipsoid";
@@ -32,6 +36,20 @@ enum class RayMarchingDirectAODrawMode : uint32_t
     NormalDebug = 3,
     CoverageDebug = 4,
 };
+} // namespace
+
+namespace
+{
+uint2 resolveOutputResolution(uint selectedResolution, const uint2& defaultTexDims)
+{
+    if (selectedResolution != 0)
+        return uint2(selectedResolution, selectedResolution);
+
+    if (defaultTexDims.x > 0 && defaultTexDims.y > 0)
+        return defaultTexDims;
+
+    return uint2(1920, 1080);
+}
 } // namespace
 
 RayMarchingDirectAOPass::RayMarchingDirectAOPass(ref<Device> pDevice, const Properties& props)
@@ -131,6 +149,8 @@ Properties RayMarchingDirectAOPass::getProperties() const
 
 RenderPassReflection RayMarchingDirectAOPass::reflect(const CompileData& compileData)
 {
+    mOutputResolution = resolveOutputResolution(mSelectedResolution, compileData.defaultTexDims);
+
     RenderPassReflection reflector;
 
     reflector.addInput(kVBuffer, kVBuffer)
@@ -158,12 +178,61 @@ RenderPassReflection RayMarchingDirectAOPass::reflect(const CompileData& compile
         .format(ResourceFormat::RGBA32Float)
         .texture2D(mOutputResolution.x, mOutputResolution.y, 1, 1);
 
+    reflector.addOutput(kOutputVoxelDepth, "Voxel depth")
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::R32Float)
+        .texture2D(mOutputResolution.x, mOutputResolution.y, 1, 1)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
+    reflector.addOutput(kOutputVoxelNormal, "Voxel normal")
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::RGBA32Float)
+        .texture2D(mOutputResolution.x, mOutputResolution.y, 1, 1)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
+    reflector.addOutput(kOutputVoxelConfidence, "Voxel identity confidence")
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::R32Float)
+        .texture2D(mOutputResolution.x, mOutputResolution.y, 1, 1)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
+    reflector.addOutput(kOutputVoxelInstanceID, "Voxel dominant instance ID")
+        .bindFlags(ResourceBindFlags::RenderTarget)
+        .format(ResourceFormat::R32Uint)
+        .texture2D(mOutputResolution.x, mOutputResolution.y, 1, 1)
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
     return reflector;
 }
 
 void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     ref<Texture> pOutputColor = renderData.getTexture(kOutputColor);
+    const uint2 outputResolution = uint2(pOutputColor->getWidth(), pOutputColor->getHeight());
+    const auto getOrCreateFallbackTexture = [&](const ref<Texture>& pTexture, ref<Texture>& pFallback, ResourceFormat format) -> ref<Texture> {
+        if (pTexture)
+            return pTexture;
+
+        if (
+            !pFallback || pFallback->getWidth() != outputResolution.x || pFallback->getHeight() != outputResolution.y ||
+            pFallback->getFormat() != format
+        )
+        {
+            pFallback = mpDevice->createTexture2D(outputResolution.x, outputResolution.y, format, 1, 1, nullptr, ResourceBindFlags::RenderTarget);
+        }
+
+        return pFallback;
+    };
+
+    ref<Texture> pOutputVoxelDepth =
+        getOrCreateFallbackTexture(renderData.getTexture(kOutputVoxelDepth), mpFallbackVoxelDepth, ResourceFormat::R32Float);
+    ref<Texture> pOutputVoxelNormal =
+        getOrCreateFallbackTexture(renderData.getTexture(kOutputVoxelNormal), mpFallbackVoxelNormal, ResourceFormat::RGBA32Float);
+    ref<Texture> pOutputVoxelConfidence =
+        getOrCreateFallbackTexture(renderData.getTexture(kOutputVoxelConfidence), mpFallbackVoxelConfidence, ResourceFormat::R32Float);
+    ref<Texture> pOutputVoxelInstanceID =
+        getOrCreateFallbackTexture(renderData.getTexture(kOutputVoxelInstanceID), mpFallbackVoxelInstanceID, ResourceFormat::R32Uint);
+
     pRenderContext->clearRtv(pOutputColor->getRTV().get(), float4(0));
 
     if (!mpScene)
@@ -213,7 +282,7 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
     cbGridData["solidVoxelCount"] = static_cast<uint32_t>(gridData.solidVoxelCount);
 
     auto cb = var["CB"];
-    cb["pixelCount"] = mOutputResolution;
+    cb["pixelCount"] = outputResolution;
     cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     cb["shadowBias"] = mShadowBias100 / 100.0f / gridData.voxelSize.x;
     cb["drawMode"] = mDrawMode;
@@ -229,12 +298,19 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
 
     ref<Fbo> fbo = Fbo::create(mpDevice);
     fbo->attachColorTarget(pOutputColor, 0);
+    fbo->attachColorTarget(pOutputVoxelDepth, 1);
+    fbo->attachColorTarget(pOutputVoxelNormal, 2);
+    fbo->attachColorTarget(pOutputVoxelConfidence, 3);
+    fbo->attachColorTarget(pOutputVoxelInstanceID, 4);
     mpFullScreenPass->execute(pRenderContext, fbo);
     mFrameIndex++;
 }
 
 void RayMarchingDirectAOPass::compile(RenderContext* pRenderContext, const CompileData& compileData)
 {
+    mOutputResolution = resolveOutputResolution(mSelectedResolution, compileData.defaultTexDims);
+    if (const auto pCamera = mpScene ? mpScene->getCamera() : nullptr)
+        pCamera->setAspectRatio(mOutputResolution.x / static_cast<float>(mOutputResolution.y));
     mFrameIndex = 0;
 }
 

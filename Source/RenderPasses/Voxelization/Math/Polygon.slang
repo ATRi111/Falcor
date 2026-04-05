@@ -18,12 +18,14 @@ struct TriangleRef
     uint meshID;
     uint triangleID;
     uint materialID;
+    uint instanceID;
     MUTATING
     void init()
     {
         meshID = 0;
         triangleID = 0;
         materialID = 0;
+        instanceID = 0xffffffffu;
     }
 };
 

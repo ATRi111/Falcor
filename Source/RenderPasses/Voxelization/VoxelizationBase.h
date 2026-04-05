@@ -155,6 +155,19 @@ struct MeshHeader
     uint triangleOffset;
 };
 
+struct InstanceHeader
+{
+    uint instanceID;
+    uint meshID;
+    uint materialID;
+    uint vertexCount;
+    uint triangleCount;
+    uint triangleOffset;
+    bool use16BitIndices;
+    float4x4 worldMatrix;
+    float4x4 worldInvTransposeMatrix;
+};
+
 inline ref<Buffer> copyToCpu(ref<Device> pDevice, RenderContext* pRenderContext, ref<Buffer> gpuBuffer)
 {
     ref<Buffer> cpuBuffer = pDevice->createBuffer(gpuBuffer->getSize(), ResourceBindFlags::None, MemoryType::ReadBack);

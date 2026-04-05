@@ -59,6 +59,10 @@ cbuffer CB
 struct PsOut
 {
     float4 color : SV_Target0;
+    float voxelDepth : SV_Target1;
+    float4 voxelNormal : SV_Target2;
+    float voxelConfidence : SV_Target3;
+    uint voxelInstanceID : SV_Target4;
 };
 
 static const uint kDrawModeCombined = 0;
@@ -212,6 +216,11 @@ float4 renderMissBackground(float3 direction)
     return float4(color, 1);
 }
 
+float evalVoxelDepth(float3 posW)
+{
+    return length(posW - gScene.camera.getPosition());
+}
+
 // 确定性直接光照：遍历所有 analytic 光源，无随机采样
 // 若场景无 analytic 光，返回简单 ambient 使画面可见
 float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDir)
@@ -312,6 +321,10 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
     float3 delta = to - from;
     float3 direction = normalizeSafe(delta);
     psOut.color = renderMissBackground(direction);
+    psOut.voxelDepth = 0.f;
+    psOut.voxelNormal = float4(0.f, 0.f, 0.f, 0.f);
+    psOut.voxelConfidence = 0.f;
+    psOut.voxelInstanceID = kInvalidVoxelInstanceID;
 
     if (all(direction == 0))
         return psOut;
@@ -335,7 +348,13 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
     float3 mainNormal = bsdf.surface.getMainNormal(viewDir);
     float coverage = bsdf.calcCoverage(viewDir);
     float ao = evalStableAO(hit, mainNormal);
+    float3 posW = gridMin + hit.cell * voxelSize;
     float3 color = 0;
+
+    psOut.voxelDepth = evalVoxelDepth(posW);
+    psOut.voxelNormal = float4(mainNormal, 1.f);
+    psOut.voxelConfidence = saturate(bsdf.identityConfidence);
+    psOut.voxelInstanceID = bsdf.dominantInstanceID;
 
     switch (drawMode)
     {

@@ -86,19 +86,25 @@ void VoxelizationPass_GPU::voxelize(RenderContext* pRenderContext, const RenderD
     cb_grid["voxelSize"] = gridData.voxelSize;
     cb_grid["voxelCount"] = gridData.voxelCount;
 
-    uint meshCount = mpScene->getMeshCount();
-    for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
+    const uint32_t instanceCount = mpScene->getGeometryInstanceCount();
+    for (uint32_t instanceID = 0; instanceID < instanceCount; ++instanceID)
     {
-        MeshDesc meshDesc = mpScene->getMesh(meshID);
+        const auto& instanceData = mpScene->getGeometryInstance(instanceID);
+        const GeometryType type = instanceData.getType();
+        if (type != GeometryType::TriangleMesh && type != GeometryType::DisplacedTriangleMesh)
+            continue;
+
+        MeshDesc meshDesc = mpScene->getMesh(MeshID::fromSlang(instanceData.geometryID));
         uint triangleCount = meshDesc.getTriangleCount();
 
         auto cb_mesh = mSampleMeshPass->getRootVar()["MeshData"];
         cb_mesh["vertexCount"] = meshDesc.vertexCount;
-        cb_mesh["vbOffset"] = meshDesc.vbOffset;
+        cb_mesh["vbOffset"] = instanceData.vbOffset;
         cb_mesh["triangleCount"] = triangleCount;
-        cb_mesh["ibOffset"] = meshDesc.ibOffset;
-        cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
-        cb_mesh["materialID"] = meshDesc.materialID;
+        cb_mesh["ibOffset"] = instanceData.ibOffset;
+        cb_mesh["use16BitIndices"] = (instanceData.flags & (uint32_t)GeometryInstanceFlags::Use16BitIndices) != 0u;
+        cb_mesh["materialID"] = instanceData.materialID;
+        cb_mesh["instanceID"] = instanceID;
         mSampleMeshPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
         pRenderContext->uavBarrier(vBuffer.get());
         pRenderContext->uavBarrier(solidVoxelCount.get());
@@ -182,19 +188,25 @@ void VoxelizationPass_GPU::sample(RenderContext* pRenderContext, const RenderDat
     var["polygonCountBuffer"] = polygonCountBuffer;
 
     Tools::Profiler::BeginSample("Clip");
-    uint meshCount = mpScene->getMeshCount();
-    for (MeshID meshID{0}; meshID.get() < meshCount; ++meshID)
+    const uint32_t instanceCount = mpScene->getGeometryInstanceCount();
+    for (uint32_t instanceID = 0; instanceID < instanceCount; ++instanceID)
     {
-        MeshDesc meshDesc = mpScene->getMesh(meshID);
+        const auto& instanceData = mpScene->getGeometryInstance(instanceID);
+        const GeometryType type = instanceData.getType();
+        if (type != GeometryType::TriangleMesh && type != GeometryType::DisplacedTriangleMesh)
+            continue;
+
+        MeshDesc meshDesc = mpScene->getMesh(MeshID::fromSlang(instanceData.geometryID));
         uint triangleCount = meshDesc.getTriangleCount();
 
         auto cb_mesh = var["MeshData"];
         cb_mesh["vertexCount"] = meshDesc.vertexCount;
-        cb_mesh["vbOffset"] = meshDesc.vbOffset;
+        cb_mesh["vbOffset"] = instanceData.vbOffset;
         cb_mesh["triangleCount"] = triangleCount;
-        cb_mesh["ibOffset"] = meshDesc.ibOffset;
-        cb_mesh["use16BitIndices"] = meshDesc.use16BitIndices();
-        cb_mesh["materialID"] = meshDesc.materialID;
+        cb_mesh["ibOffset"] = instanceData.ibOffset;
+        cb_mesh["use16BitIndices"] = (instanceData.flags & (uint32_t)GeometryInstanceFlags::Use16BitIndices) != 0u;
+        cb_mesh["materialID"] = instanceData.materialID;
+        cb_mesh["instanceID"] = instanceID;
         mClipPolygonPass->execute(pRenderContext, uint3(triangleCount, 1, 1));
         pRenderContext->uavBarrier(polygonCountBuffer.get());
     }

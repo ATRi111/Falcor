@@ -37,6 +37,10 @@ const char kInputMeshColor[] = "meshColor";
 const char kInputVoxelColor[] = "voxelColor";
 const char kInputBlendMask[] = "blendMask";
 const char kInputVBuffer[] = "vbuffer";
+const char kInputVoxelDepth[] = "voxelDepth";
+const char kInputVoxelNormal[] = "voxelNormal";
+const char kInputVoxelConfidence[] = "voxelConfidence";
+const char kInputVoxelInstanceID[] = "voxelInstanceID";
 const char kOutputColor[] = "color";
 } // namespace
 
@@ -70,6 +74,10 @@ RenderPassReflection HybridCompositePass::reflect(const CompileData& compileData
     reflector.addInput(kInputVoxelColor, "Voxel baseline color").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputBlendMask, "Mesh blend weight").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputVBuffer, "Mesh visibility buffer").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputVoxelDepth, "Voxel depth").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputVoxelNormal, "Voxel normal").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputVoxelConfidence, "Voxel identity confidence").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputVoxelInstanceID, "Voxel dominant instance ID").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kOutputColor, "Hybrid color").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA32Float);
     return reflector;
 }
@@ -100,6 +108,10 @@ void HybridCompositePass::execute(RenderContext* pRenderContext, const RenderDat
     var["gVoxelColor"] = renderData.getTexture(kInputVoxelColor);
     var["gBlendMask"] = renderData.getTexture(kInputBlendMask);
     var["gVBuffer"] = renderData.getTexture(kInputVBuffer);
+    var["gVoxelDepth"] = renderData.getTexture(kInputVoxelDepth);
+    var["gVoxelNormal"] = renderData.getTexture(kInputVoxelNormal);
+    var["gVoxelConfidence"] = renderData.getTexture(kInputVoxelConfidence);
+    var["gVoxelInstanceID"] = renderData.getTexture(kInputVoxelInstanceID);
     var["PerFrameCB"]["gViewMode"] = uint32_t(mViewMode);
 
     mpFbo->attachColorTarget(pOutput, 0);

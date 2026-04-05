@@ -55,58 +55,59 @@ public:
         return vBuffer[index];
     }
 
-    void clip(const MeshHeader& mesh,uint triangleID, Triangle& tri)
+    void clip(const InstanceHeader& instance, uint triangleID, Triangle& tri)
     {
         AABBInt aabb = tri.calcAABBInt();
         for (int i = 0; i < aabb.count(); i++)
         {
             int3 cellInt = aabb.indexToCell(i);
             float3 minPoint = float3(cellInt);
-            Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri); // 多边形与三角形顶点顺序一致
-            polygon.normal = tri.TBN.getCol(2); // 几何法线
+            Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri); // Preserve winding from the source triangle.
+            polygon.normal = tri.TBN.getCol(2); // Geometric normal.
             if (polygon.count >= 3)
             {
                 //sampleArea(tri, polygon, cellInt);
-                polygon.triRef.meshID = mesh.meshID;
+                polygon.triRef.meshID = instance.meshID;
                 polygon.triRef.triangleID = triangleID;
-                polygon.triRef.materialID = mesh.materialID;
+                polygon.triRef.materialID = instance.materialID;
+                polygon.triRef.instanceID = instance.instanceID;
                 int offset = tryGetOffset(cellInt);
                 polygonArrays[offset].push_back(polygon);
             }
         }
     }
 
-    void clipMesh(const MeshHeader& mesh, float3* pPos, float3* pNormal, float2* pUV, uint3* pIndex)
+    void clipMesh(const InstanceHeader& instance, float3* pPos, float3* pNormal, float2* pUV, uint3* pIndex)
     {
-        for (uint tid = 0; tid < mesh.triangleCount; tid++)
+        for (uint tid = 0; tid < instance.triangleCount; tid++)
         {
             Triangle tri = {};
-            uint3 indices = pIndex[tid + mesh.triangleOffset];
-            tri.vertices[0] = pPos[indices.x];
-            tri.vertices[1] = pPos[indices.y];
-            tri.vertices[2] = pPos[indices.z];
+            uint3 indices = pIndex[tid + instance.triangleOffset];
+            tri.vertices[0] = math::transformPoint(instance.worldMatrix, pPos[indices.x]);
+            tri.vertices[1] = math::transformPoint(instance.worldMatrix, pPos[indices.y]);
+            tri.vertices[2] = math::transformPoint(instance.worldMatrix, pPos[indices.z]);
             tri.uvs[0] = pUV[indices.x];
             tri.uvs[1] = pUV[indices.y];
             tri.uvs[2] = pUV[indices.z];
-            tri.normals[0] = pNormal[indices.x];
-            tri.normals[1] = pNormal[indices.y];
-            tri.normals[2] = pNormal[indices.z];
+            tri.normals[0] = math::normalize(math::transformVector(instance.worldInvTransposeMatrix, pNormal[indices.x]));
+            tri.normals[1] = math::normalize(math::transformVector(instance.worldInvTransposeMatrix, pNormal[indices.y]));
+            tri.normals[2] = math::normalize(math::transformVector(instance.worldInvTransposeMatrix, pNormal[indices.z]));
 
-            // 世界坐标处理成网格坐标
+            // Convert world-space vertices into grid-space coordinates.
             for (int i = 0; i < 3; i++)
             {
                 tri.vertices[i] = (tri.vertices[i] - gridData.gridMin) / gridData.voxelSize;
             }
             tri.buildTBN();
-            clip(mesh, tid, tri);
+            clip(instance, tid, tri);
         }
     }
 
-    void clipAll(SceneHeader scene, std::vector<MeshHeader> meshList, float3* pPos, float3* pNormal, float2* pUV, uint3* pTri)
+    void clipAll(SceneHeader scene, const std::vector<InstanceHeader>& instanceList, float3* pPos, float3* pNormal, float2* pUV, uint3* pTri)
     {
-        for (size_t i = 0; i < meshList.size(); i++)
+        for (size_t i = 0; i < instanceList.size(); i++)
         {
-            clipMesh(meshList[i], pPos, pNormal, pUV, pTri);
+            clipMesh(instanceList[i], pPos, pNormal, pUV, pTri);
         }
         gridData.solidVoxelCount = gBuffer.size();
     }

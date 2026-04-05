@@ -91,6 +91,13 @@ COMPOSITE_VIEW_MODES = {
     "voxelonly": "VoxelOnly",
     "blendmask": "BlendMask",
     "routedebug": "RouteDebug",
+    "voxeldepth": "VoxelDepth",
+    "voxelnormal": "VoxelNormal",
+    "voxelconfidence": "VoxelConfidence",
+    "voxelroute": "VoxelRouteID",
+    "voxelrouteid": "VoxelRouteID",
+    "voxelinstance": "VoxelInstanceID",
+    "voxelinstanceid": "VoxelInstanceID",
 }
 
 ROUTE_NAME_MAP = {
@@ -658,6 +665,10 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
 
     g.addEdge("MeshStyleDirectAOPass.color", "HybridCompositePass.meshColor")
     g.addEdge("RayMarchingDirectAOPass.color", "HybridCompositePass.voxelColor")
+    g.addEdge("RayMarchingDirectAOPass.voxelDepth", "HybridCompositePass.voxelDepth")
+    g.addEdge("RayMarchingDirectAOPass.voxelNormal", "HybridCompositePass.voxelNormal")
+    g.addEdge("RayMarchingDirectAOPass.voxelConfidence", "HybridCompositePass.voxelConfidence")
+    g.addEdge("RayMarchingDirectAOPass.voxelInstanceID", "HybridCompositePass.voxelInstanceID")
     g.addEdge("HybridBlendMaskPass.mask", "HybridCompositePass.blendMask")
     g.addEdge("MeshGBuffer.vbuffer", "HybridCompositePass.vbuffer")
     g.addEdge("HybridCompositePass.color", "ToneMapper.src")

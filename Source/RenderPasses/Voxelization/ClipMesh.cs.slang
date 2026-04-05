@@ -33,6 +33,7 @@ cbuffer MeshData
     uint ibOffset;
     bool use16BitIndices;
     uint materialID;
+    uint instanceID;
 };
 
 int getOffset(int3 cellInt)
@@ -41,7 +42,7 @@ int getOffset(int3 cellInt)
     return vBuffer[index];
 }
 
-void clipTriangle(Triangle tri)
+void clipTriangle(Triangle tri, uint triangleId, uint meshID)
 {
     AABBInt aabb = tri.calcAABBInt();
     for (int i = 0; i < aabb.count(); i++)
@@ -56,6 +57,10 @@ void clipTriangle(Triangle tri)
             int offset = getOffset(cellInt);
             if (offset < gBufferOffset || offset >= gBufferOffset + groupVoxelCount)
                 continue;
+            polygon.triRef.meshID = meshID;
+            polygon.triRef.triangleID = triangleId;
+            polygon.triRef.materialID = materialID;
+            polygon.triRef.instanceID = instanceID;
             uint writeIndex;
             InterlockedAdd(polygonCountBuffer[offset], 1u, writeIndex);
             writeIndex += polygonRangeBuffer[offset].localHead;
@@ -69,6 +74,9 @@ void voxelizeTriangle(uint triangleId)
     if (triangleId >= triangleCount)
         return;
 
+    const GeometryInstanceID geometryInstanceID = { instanceID };
+    const float4x4 worldMat = gScene.getWorldMatrix(geometryInstanceID);
+    const uint meshID = gScene.getGeometryInstance(geometryInstanceID).geometryID;
     Triangle triangle = {};
     uint3 vtxIndices = gScene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     if (any(vtxIndices >= vertexCount))
@@ -78,11 +86,12 @@ void voxelizeTriangle(uint triangleId)
     // 世界坐标处理成网格坐标
     for (int i = 0; i < 3; i++)
     {
-        triangle.vertices[i] = (vertices[i].position - gridMin) / voxelSize;
+        float3 posW = mul(worldMat, float4(vertices[i].position, 1.f)).xyz;
+        triangle.vertices[i] = (posW - gridMin) / voxelSize;
         triangle.uvs[i] = vertices[i].texCrd;
     }
     triangle.buildTBN();
-    clipTriangle(triangle);
+    clipTriangle(triangle, triangleId, meshID);
 }
 
 [numthreads(256, 1, 1)]

@@ -44,6 +44,11 @@ public:
         VoxelOnly,
         BlendMask,
         RouteDebug,
+        VoxelDepth,
+        VoxelNormal,
+        VoxelConfidence,
+        VoxelRouteID,
+        VoxelInstanceID,
     };
 
     FALCOR_ENUM_INFO(
@@ -54,6 +59,11 @@ public:
             {ViewMode::VoxelOnly, "VoxelOnly"},
             {ViewMode::BlendMask, "BlendMask"},
             {ViewMode::RouteDebug, "RouteDebug"},
+            {ViewMode::VoxelDepth, "VoxelDepth"},
+            {ViewMode::VoxelNormal, "VoxelNormal"},
+            {ViewMode::VoxelConfidence, "VoxelConfidence"},
+            {ViewMode::VoxelRouteID, "VoxelRouteID"},
+            {ViewMode::VoxelInstanceID, "VoxelInstanceID"},
         }
     );
 

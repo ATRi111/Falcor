@@ -1,0 +1,8 @@
+# 2026-04-05 Plan5 Phase3 Identity Contract
+
+- Host-side `cl` / Slang compile paths in this repo can misread UTF-8 Chinese comments inside host-compiled `.slang` / `.h` files, then swallow later tokens and report unrelated compile errors; keep comments in these shared files ASCII-only around touched code.
+- After the Phase3 voxel contract/layout change, old voxel cache binaries must be deleted before acceptance; `ReadVoxelPass` can zero legacy `identity/confidence` for safety, but valid screenshots must come from a regenerated cache.
+- Phase3 contract semantics are fixed: `voxel identity = dominant geometry instance ID`, and `confidence = dominantInstanceArea / totalPolygonAreaInVoxel`; if contributor tracking overflows, invalidate identity/confidence conservatively instead of guessing.
+- `RayMarchingDirectAOPass` must treat `outputResolution=0` as “follow the graph default framebuffer size” and use the actual color target size at execute time; leaving it hardcoded at `1920x1080` while hybrid runs at `1600x900` shifts voxel results relative to mesh in composite.
+- When `HYBRID_CPU_AUTO_GENERATE=1` starts from a missing cache, that first Mogwai run only writes the new bin because `ReadVoxelPass` resolves `binFile` before generation; regenerate once, then relaunch to validate the regenerated cache contents.
+- Windows batch launchers here should prefer `REM` over `::`, and variables that expand to paths with parentheses such as `Arcade_(256, 171, 256)_256.bin_CPU` must use delayed expansion inside `if (...)` blocks; otherwise the one-click launcher can flash-exit during `cmd` parse before Mogwai starts.

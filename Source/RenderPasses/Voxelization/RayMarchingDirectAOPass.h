@@ -29,6 +29,10 @@ private:
 
     ref<Scene> mpScene;
     ref<FullScreenPass> mpFullScreenPass;
+    ref<Texture> mpFallbackVoxelDepth;
+    ref<Texture> mpFallbackVoxelNormal;
+    ref<Texture> mpFallbackVoxelConfidence;
+    ref<Texture> mpFallbackVoxelInstanceID;
 
     GridData& gridData;
     uint mDrawMode;
