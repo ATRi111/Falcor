@@ -45,6 +45,7 @@ const char kInputViewW[] = "viewW";
 const char kInputDiffuseOpacity[] = "diffuseOpacity";
 const char kInputSpecRough[] = "specRough";
 const char kInputEmissive[] = "emissive";
+const char kInputVBuffer[] = "vbuffer";
 const char kOutputColor[] = "color";
 
 void registerBindings(pybind11::module& m)
@@ -110,6 +111,7 @@ RenderPassReflection HybridMeshDebugPass::reflect(const CompileData& compileData
     reflector.addInput(kInputDiffuseOpacity, "Mesh diffuse albedo and opacity").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputSpecRough, "Mesh specular and roughness").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputEmissive, "Mesh emissive").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputVBuffer, "Mesh visibility buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kOutputColor, "Mesh debug color").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA32Float);
     return reflector;
 }
@@ -143,6 +145,7 @@ void HybridMeshDebugPass::execute(RenderContext* pRenderContext, const RenderDat
     var["gDiffuseOpacity"] = renderData.getTexture(kInputDiffuseOpacity);
     var["gSpecRough"] = renderData.getTexture(kInputSpecRough);
     var["gEmissive"] = renderData.getTexture(kInputEmissive);
+    var["gVBuffer"] = renderData.getTexture(kInputVBuffer);
 
     const auto pCamera = mpScene->getCamera();
     FALCOR_ASSERT(pCamera);

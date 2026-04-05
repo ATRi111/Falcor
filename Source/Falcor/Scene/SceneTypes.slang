@@ -103,10 +103,20 @@ enum class GeometryInstanceFlags : uint32_t
     IsWorldFrontFaceCW = 0x10,  ///< Front-facing side has clockwise winding in world space. This is the combination of the mesh winding and instance transform handedness.
 };
 
+enum class GeometryInstanceRenderRoute : uint32_t
+{
+    Blend = 0,      ///< Default route. Chosen as zero to keep older scene cache data on the hybrid path.
+    MeshOnly = 1,
+    VoxelOnly = 2,
+};
+
 struct GeometryInstanceData
 {
     static const uint kTypeBits = 3;
     static const uint kTypeOffset = 32 - kTypeBits;
+    static const uint kRouteBits = 2;
+    static const uint kRouteOffset = 5;
+    static const uint kRouteMask = ((1u << kRouteBits) - 1u) << kRouteOffset;
 
     uint flags;             ///< Upper kTypeBits bits are reserved for storing the type.
     uint globalMatrixID;    ///< This is actually CPU-side NodeID, with a confusing name.
@@ -141,6 +151,23 @@ struct GeometryInstanceData
     {
         return (flags & (uint)GeometryInstanceFlags::IsWorldFrontFaceCW) != 0;
     }
+
+    GeometryInstanceRenderRoute getRenderRoute() CONST_FUNCTION
+    {
+        return GeometryInstanceRenderRoute((flags & kRouteMask) >> kRouteOffset);
+    }
+
+#ifdef HOST_CODE
+    void setRenderRoute(GeometryInstanceRenderRoute route)
+    {
+        flags = (flags & ~kRouteMask) | ((uint(route) << kRouteOffset) & kRouteMask);
+    }
+#else
+    [mutating] void setRenderRoute(GeometryInstanceRenderRoute route)
+    {
+        flags = (flags & ~kRouteMask) | ((uint(route) << kRouteOffset) & kRouteMask);
+    }
+#endif
 };
 
 enum class MeshFlags : uint32_t

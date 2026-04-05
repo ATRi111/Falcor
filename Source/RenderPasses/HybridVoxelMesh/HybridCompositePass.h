@@ -43,6 +43,7 @@ public:
         MeshOnly,
         VoxelOnly,
         BlendMask,
+        RouteDebug,
     };
 
     FALCOR_ENUM_INFO(
@@ -52,6 +53,7 @@ public:
             {ViewMode::MeshOnly, "MeshOnly"},
             {ViewMode::VoxelOnly, "VoxelOnly"},
             {ViewMode::BlendMask, "BlendMask"},
+            {ViewMode::RouteDebug, "RouteDebug"},
         }
     );
 
@@ -63,11 +65,13 @@ public:
     RenderPassReflection reflect(const CompileData& compileData) override;
     void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     void renderUI(Gui::Widgets& widget) override;
+    void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
     ViewMode getViewMode() const { return mViewMode; }
     void setViewMode(ViewMode mode) { mViewMode = mode; }
 
 private:
+    ref<Scene> mpScene;
     ref<FullScreenPass> mpPass;
     ref<Fbo> mpFbo;
 

@@ -53,6 +53,7 @@
 #include <numeric>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 #include <execution>
 
 namespace Falcor
@@ -296,6 +297,58 @@ ref<Scene> Scene::create(ref<Device> pDevice, const std::filesystem::path& path,
 ref<Scene> Scene::create(ref<Device> pDevice, SceneData&& sceneData)
 {
     return ref<Scene>(new Scene(pDevice, std::move(sceneData)));
+}
+
+GeometryInstanceRenderRoute Scene::getGeometryInstanceRenderRoute(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    return mGeometryInstanceData[instanceID].getRenderRoute();
+}
+
+void Scene::setGeometryInstanceRenderRoute(uint32_t instanceID, GeometryInstanceRenderRoute route)
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    mGeometryInstanceData[instanceID].setRenderRoute(route);
+
+    if (mpGeometryInstancesBuffer)
+        updateGeometryInstances(true);
+}
+
+std::string Scene::getGeometryInstanceNodeName(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    const uint32_t nodeID = mGeometryInstanceData[instanceID].globalMatrixID;
+    return nodeID < mSceneGraph.size() ? mSceneGraph[nodeID].name : std::string();
+}
+
+std::string Scene::getGeometryInstanceGeometryName(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    const auto& instance = mGeometryInstanceData[instanceID];
+
+    switch (instance.getType())
+    {
+    case GeometryType::TriangleMesh:
+    case GeometryType::DisplacedTriangleMesh:
+        return instance.geometryID < mMeshNames.size() ? mMeshNames[instance.geometryID] : fmt::format("Mesh#{}", instance.geometryID);
+    case GeometryType::Curve:
+        return fmt::format("Curve#{}", instance.geometryID);
+    case GeometryType::SDFGrid:
+        return fmt::format("SDFGrid#{}", instance.geometryID);
+    case GeometryType::Custom:
+        return fmt::format("Custom#{}", instance.geometryID);
+    default:
+        return fmt::format("Geometry#{}", instance.geometryID);
+    }
+}
+
+std::string Scene::getGeometryInstanceMaterialName(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    const auto& instance = mGeometryInstanceData[instanceID];
+    if (!mpMaterials || !mpMaterials->hasMaterial(MaterialID::fromSlang(instance.materialID)))
+        return std::string();
+    return mpMaterials->getMaterial(MaterialID::fromSlang(instance.materialID))->getName();
 }
 
 void Scene::updateSceneDefines()
@@ -4419,6 +4472,82 @@ inline pybind11::dict toPython(const Scene::SceneStats& stats)
     return d;
 }
 
+inline std::string toLowerString(std::string value)
+{
+    std::transform(
+        value.begin(),
+        value.end(),
+        value.begin(),
+        [](unsigned char c)
+        {
+            return (char)std::tolower(c);
+        }
+    );
+    return value;
+}
+
+inline std::string geometryTypeToPythonString(GeometryType type)
+{
+    switch (type)
+    {
+    case GeometryType::TriangleMesh:
+        return "TriangleMesh";
+    case GeometryType::DisplacedTriangleMesh:
+        return "DisplacedTriangleMesh";
+    case GeometryType::Curve:
+        return "Curve";
+    case GeometryType::SDFGrid:
+        return "SDFGrid";
+    case GeometryType::Custom:
+        return "Custom";
+    default:
+        return "None";
+    }
+}
+
+inline std::string geometryInstanceRouteToPythonString(GeometryInstanceRenderRoute route)
+{
+    switch (route)
+    {
+    case GeometryInstanceRenderRoute::MeshOnly:
+        return "MeshOnly";
+    case GeometryInstanceRenderRoute::VoxelOnly:
+        return "VoxelOnly";
+    case GeometryInstanceRenderRoute::Blend:
+    default:
+        return "Blend";
+    }
+}
+
+inline GeometryInstanceRenderRoute parseGeometryInstanceRoutePython(const std::string& value)
+{
+    const std::string normalized = toLowerString(value);
+    if (normalized == "meshonly" || normalized == "mesh")
+        return GeometryInstanceRenderRoute::MeshOnly;
+    if (normalized == "voxelonly" || normalized == "voxel")
+        return GeometryInstanceRenderRoute::VoxelOnly;
+    if (normalized == "blend")
+        return GeometryInstanceRenderRoute::Blend;
+
+    FALCOR_THROW("Unsupported geometry instance route '{}'. Expected MeshOnly, VoxelOnly, or Blend.", value);
+}
+
+inline pybind11::dict toPythonGeometryInstanceInfo(const Scene& scene, uint32_t instanceID)
+{
+    const auto& instance = scene.getGeometryInstance(instanceID);
+
+    pybind11::dict info;
+    info["instance_id"] = instanceID;
+    info["geometry_id"] = instance.geometryID;
+    info["matrix_id"] = instance.globalMatrixID;
+    info["type"] = geometryTypeToPythonString(instance.getType());
+    info["node_name"] = scene.getGeometryInstanceNodeName(instanceID);
+    info["geometry_name"] = scene.getGeometryInstanceGeometryName(instanceID);
+    info["material_name"] = scene.getGeometryInstanceMaterialName(instanceID);
+    info["route"] = geometryInstanceRouteToPythonString(instance.getRenderRoute());
+    return info;
+}
+
 /** Get serialized material parameters for a list of materials.
  *   \param materialIDsBuffer Buffer containing material IDs
  *   \param paramsBuffer Buffer to write material parameters to
@@ -4574,6 +4703,7 @@ FALCOR_SCRIPT_BINDING(Scene)
     scene.def_property_readonly(kLights.c_str(), &Scene::getLights);
     scene.def_property_readonly(kGridVolumes.c_str(), &Scene::getGridVolumes);
     scene.def_property_readonly("volumes", &Scene::getGridVolumes); // PYTHONDEPRECATED
+    scene.def_property_readonly("path", &Scene::getPath);
     scene.def_property(kCameraSpeed.c_str(), &Scene::getCameraSpeed, &Scene::setCameraSpeed);
     scene.def_property(kAnimated.c_str(), &Scene::isAnimated, &Scene::setIsAnimated);
     scene.def_property(kLoopAnimations.c_str(), &Scene::isLooped, &Scene::setIsLooped);
@@ -4594,8 +4724,36 @@ FALCOR_SCRIPT_BINDING(Scene)
         "minPoint"_a,
         "maxPoint"_a
     );
+    scene.def_property_readonly("geometry_instance_count", &Scene::getGeometryInstanceCount);
     scene.def("getGeometryUVTiles", &Scene::getGeometryUVTiles, "geometryID"_a);
     scene.def_property_readonly("memory_usage", &Scene::getMemoryUsageInBytes);
+    scene.def(
+        "get_geometry_instance_info",
+        [](const Scene* pScene, uint32_t instanceID)
+        {
+            return toPythonGeometryInstanceInfo(*pScene, instanceID);
+        },
+        "instance_id"_a
+    );
+    scene.def(
+        "get_geometry_instance_infos",
+        [](const Scene* pScene)
+        {
+            pybind11::list infos;
+            for (uint32_t instanceID = 0; instanceID < pScene->getGeometryInstanceCount(); ++instanceID)
+                infos.append(toPythonGeometryInstanceInfo(*pScene, instanceID));
+            return infos;
+        }
+    );
+    scene.def(
+        "set_geometry_instance_route",
+        [](Scene* pScene, uint32_t instanceID, const std::string& route)
+        {
+            pScene->setGeometryInstanceRenderRoute(instanceID, parseGeometryInstanceRoutePython(route));
+        },
+        "instance_id"_a,
+        "route"_a
+    );
 
     // Materials
     scene.def_property_readonly(kMaterials.c_str(), &Scene::getMaterials);

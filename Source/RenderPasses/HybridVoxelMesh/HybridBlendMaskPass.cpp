@@ -36,6 +36,7 @@ const char kBlendEndDistance[] = "blendEndDistance";
 const char kBlendExponent[] = "blendExponent";
 
 const char kInputPosW[] = "posW";
+const char kInputVBuffer[] = "vbuffer";
 const char kOutputMask[] = "mask";
 } // namespace
 
@@ -72,6 +73,7 @@ RenderPassReflection HybridBlendMaskPass::reflect(const CompileData& compileData
 {
     RenderPassReflection reflector;
     reflector.addInput(kInputPosW, "Mesh world position").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputVBuffer, "Mesh visibility buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kOutputMask, "Mesh weight mask").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA32Float);
     return reflector;
 }
@@ -89,16 +91,20 @@ void HybridBlendMaskPass::execute(RenderContext* pRenderContext, const RenderDat
     if (!mpPass)
     {
         ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderFile).psEntry("main");
+        desc.addTypeConformances(mpScene->getTypeConformances());
         desc.setShaderModel(ShaderModel::SM6_5);
-        mpPass = FullScreenPass::create(mpDevice, desc);
+        mpPass = FullScreenPass::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
     const auto pCamera = mpScene->getCamera();
     FALCOR_ASSERT(pCamera);
 
     auto var = mpPass->getRootVar();
+    mpScene->bindShaderDataForRaytracing(pRenderContext, var["gScene"]);
     var["gPosW"] = renderData.getTexture(kInputPosW);
+    var["gVBuffer"] = renderData.getTexture(kInputVBuffer);
     var["PerFrameCB"]["gCameraPosW"] = pCamera->getPosition();
     var["PerFrameCB"]["gBlendStartDistance"] = mBlendStartDistance;
     var["PerFrameCB"]["gBlendEndDistance"] = mBlendEndDistance;
@@ -119,4 +125,5 @@ void HybridBlendMaskPass::renderUI(Gui::Widgets& widget)
 void HybridBlendMaskPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
+    mpPass = nullptr;
 }

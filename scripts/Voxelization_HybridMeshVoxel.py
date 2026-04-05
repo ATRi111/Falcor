@@ -56,6 +56,17 @@ REFERENCE_VIEWS_BY_SCENE = {
     "arcade": ARCADE_REFERENCE_VIEWS,
 }
 
+ARCADE_REFERENCE_ROUTES = [
+    {"label": "Arch", "match": "Arch", "route": "Blend"},
+    {"label": "Cabinet", "match": "Cabinet", "route": "MeshOnly"},
+    {"label": "Chair", "match": "Chair", "route": "Blend"},
+    {"label": "poster", "match": "poster", "route": "VoxelOnly"},
+]
+
+REFERENCE_ROUTES_BY_SCENE = {
+    "arcade": ARCADE_REFERENCE_ROUTES,
+}
+
 DEBUG_VIEW_MODES = {
     "baseshading": "BaseShading",
     "albedo": "Albedo",
@@ -64,6 +75,8 @@ DEBUG_VIEW_MODES = {
     "emissive": "Emissive",
     "specular": "Specular",
     "roughness": "Roughness",
+    "route": "RouteDebug",
+    "routedebug": "RouteDebug",
 }
 
 STYLE_VIEW_MODES = {
@@ -77,6 +90,15 @@ COMPOSITE_VIEW_MODES = {
     "meshonly": "MeshOnly",
     "voxelonly": "VoxelOnly",
     "blendmask": "BlendMask",
+    "routedebug": "RouteDebug",
+}
+
+ROUTE_NAME_MAP = {
+    "blend": "Blend",
+    "mesh": "MeshOnly",
+    "meshonly": "MeshOnly",
+    "voxel": "VoxelOnly",
+    "voxelonly": "VoxelOnly",
 }
 
 
@@ -232,7 +254,121 @@ def resolve_mesh_view_mode():
     raise RuntimeError(f"Unsupported HYBRID_MESH_VIEW_MODE: {requested}. Expected one of: {', '.join(valid)}")
 
 
-def apply_renderer_overrides(camera_plan, default_framebuffer=None):
+def normalize_route_name(route_name):
+    key = (route_name or "").strip().lower()
+    if key in ROUTE_NAME_MAP:
+        return ROUTE_NAME_MAP[key]
+    raise RuntimeError(f"Unsupported route name: {route_name}. Expected one of: Blend, MeshOnly, VoxelOnly")
+
+
+def parse_route_overrides():
+    raw_value = os.environ.get("HYBRID_ROUTE_OVERRIDES", "").strip()
+    if not raw_value:
+        return {}
+
+    overrides = {}
+    entries = [entry.strip() for entry in raw_value.replace(";", ",").split(",") if entry.strip()]
+    for entry in entries:
+        if ":" not in entry:
+            raise RuntimeError(f"Invalid HYBRID_ROUTE_OVERRIDES entry: {entry}. Expected Name:Route")
+        match_name, route_name = [part.strip() for part in entry.split(":", 1)]
+        if not match_name:
+            raise RuntimeError(f"Invalid HYBRID_ROUTE_OVERRIDES entry: {entry}. Missing object name")
+        overrides[match_name.lower()] = {"label": match_name, "match": match_name, "route": normalize_route_name(route_name)}
+
+    return overrides
+
+
+def resolve_reference_routes(scene_hint):
+    route_specs = [dict(spec) for spec in REFERENCE_ROUTES_BY_SCENE.get(scene_hint.lower(), [])]
+    overrides = parse_route_overrides()
+    if not overrides:
+        return route_specs
+
+    consumed = set()
+    for spec in route_specs:
+        override = overrides.get(spec["match"].lower())
+        if not override:
+            continue
+        spec["label"] = override["label"]
+        spec["match"] = override["match"]
+        spec["route"] = override["route"]
+        consumed.add(spec["match"].lower())
+
+    for match_name, override in overrides.items():
+        if match_name not in consumed:
+            route_specs.append(dict(override))
+
+    return route_specs
+
+
+def try_match_reference_instances(instance_infos, match_name):
+    needle = match_name.lower()
+
+    node_matches = [info["instance_id"] for info in instance_infos if (info.get("node_name") or "").lower() == needle]
+    if node_matches:
+        return node_matches, "node"
+
+    geometry_matches = [info["instance_id"] for info in instance_infos if (info.get("geometry_name") or "").lower() == needle]
+    if geometry_matches:
+        return geometry_matches, "geometry"
+
+    fuzzy_matches = [
+        info["instance_id"]
+        for info in instance_infos
+        if needle in (info.get("node_name") or "").lower() or needle in (info.get("geometry_name") or "").lower()
+    ]
+    if fuzzy_matches:
+        return fuzzy_matches, "fuzzy"
+
+    return [], "none"
+
+
+def apply_reference_routes(scene, scene_hint):
+    route_specs = resolve_reference_routes(scene_hint)
+    if scene is None or not route_specs:
+        return True
+
+    instance_infos = list(scene.get_geometry_instance_infos())
+    applied = []
+    unresolved = []
+
+    for spec in route_specs:
+        instance_ids, match_mode = try_match_reference_instances(instance_infos, spec["match"])
+        if not instance_ids:
+            unresolved.append(spec["match"])
+            continue
+
+        for instance_id in instance_ids:
+            scene.set_geometry_instance_route(instance_id, spec["route"])
+
+        applied.append(
+            {
+                "label": spec["label"],
+                "route": spec["route"],
+                "instance_ids": instance_ids,
+                "match_mode": match_mode,
+            }
+        )
+
+    if applied:
+        print("[HybridMeshVoxel] reference routes:")
+        for item in applied:
+            print(
+                "  -",
+                item["label"],
+                "->",
+                item["route"],
+                f"(ids={item['instance_ids']}, match={item['match_mode']})",
+            )
+
+    if unresolved:
+        print("[HybridMeshVoxel] unresolved route refs:", ", ".join(unresolved))
+
+    return True
+
+
+def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None):
     hide_ui = env_bool("HYBRID_HIDE_UI", False)
     default_width, default_height = default_framebuffer if default_framebuffer else (0, 0)
     framebuffer_width = env_int("HYBRID_FRAMEBUFFER_WIDTH", default_width)
@@ -244,33 +380,55 @@ def apply_renderer_overrides(camera_plan, default_framebuffer=None):
     if framebuffer_width > 0 and framebuffer_height > 0:
         m.resizeFrameBuffer(framebuffer_width, framebuffer_height)
 
-    if not camera_plan:
+    route_specs = resolve_reference_routes(scene_hint)
+    wait_for_scene_hint = not bool(scene_hint)
+    if not camera_plan and not route_specs and not wait_for_scene_hint:
         return
 
-    camera_applied = {"done": False}
+    setup_state = {
+        "camera_done": camera_plan is None,
+        "routes_done": not route_specs and not wait_for_scene_hint,
+    }
 
-    def apply_camera_once(scene, current_time):
-        if camera_applied["done"] or scene is None or scene.camera is None:
+    def apply_scene_setup_once(scene, current_time):
+        if scene is None:
             return
 
-        camera = scene.camera
-        if camera_plan["position"] is not None:
-            camera.position = falcor.float3(*camera_plan["position"])
-        if camera_plan["target"] is not None:
-            camera.target = falcor.float3(*camera_plan["target"])
-        if camera_plan["up"] is not None:
-            camera.up = falcor.float3(*camera_plan["up"])
-        if camera_plan["focal_length"] > 0.0:
-            camera.focalLength = camera_plan["focal_length"]
+        if not setup_state["routes_done"]:
+            effective_scene_hint = scene_hint or resolve_scene_hint()
+            effective_route_specs = resolve_reference_routes(effective_scene_hint)
+            if effective_route_specs:
+                setup_state["routes_done"] = apply_reference_routes(scene, effective_scene_hint)
+            elif effective_scene_hint:
+                setup_state["routes_done"] = True
 
-        camera_applied["done"] = True
-        m.sceneUpdateCallback = None
-        print(
-            "[HybridMeshVoxel] camera:",
-            camera_plan["reference_view"] if camera_plan["reference_view"] else "<explicit>",
-        )
+        if not setup_state["camera_done"] and scene.camera is not None:
+            camera = scene.camera
+            if camera_plan["position"] is not None:
+                camera.position = falcor.float3(*camera_plan["position"])
+            if camera_plan["target"] is not None:
+                camera.target = falcor.float3(*camera_plan["target"])
+            if camera_plan["up"] is not None:
+                camera.up = falcor.float3(*camera_plan["up"])
+            if camera_plan["focal_length"] > 0.0:
+                camera.focalLength = camera_plan["focal_length"]
 
-    m.sceneUpdateCallback = apply_camera_once
+            setup_state["camera_done"] = True
+            print(
+                "[HybridMeshVoxel] camera:",
+                camera_plan["reference_view"] if camera_plan["reference_view"] else "<explicit>",
+            )
+
+        if setup_state["camera_done"] and setup_state["routes_done"]:
+            m.sceneUpdateCallback = None
+
+    try:
+        apply_scene_setup_once(m.scene, 0.0)
+    except Exception:
+        pass
+
+    if not (setup_state["camera_done"] and setup_state["routes_done"]):
+        m.sceneUpdateCallback = apply_scene_setup_once
 
 
 def connect_mesh_gbuffer(g, source_name, target_name):
@@ -423,10 +581,11 @@ def render_graph_mesh_view(scene_hint, camera_plan):
         g.addPass(mesh_debug, "HybridMeshDebugPass")
         connect_mesh_gbuffer(g, "MeshGBuffer", "HybridMeshDebugPass")
         g.addEdge("MeshGBuffer.emissive", "HybridMeshDebugPass.emissive")
+        g.addEdge("MeshGBuffer.vbuffer", "HybridMeshDebugPass.vbuffer")
         g.addEdge("HybridMeshDebugPass.color", "ToneMapper.src")
 
     g.markOutput("ToneMapper.dst")
-    apply_renderer_overrides(camera_plan)
+    apply_renderer_overrides(scene_hint, camera_plan)
     return g
 
 
@@ -489,6 +648,7 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
 
     connect_mesh_gbuffer(g, "MeshGBuffer", "MeshStyleDirectAOPass")
     g.addEdge("MeshGBuffer.posW", "HybridBlendMaskPass.posW")
+    g.addEdge("MeshGBuffer.vbuffer", "HybridBlendMaskPass.vbuffer")
 
     g.addEdge("VoxelizationPass.dummy", "ReadVoxelPass.dummy")
     g.addEdge("ReadVoxelPass.vBuffer", "RayMarchingDirectAOPass.vBuffer")
@@ -499,6 +659,7 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
     g.addEdge("MeshStyleDirectAOPass.color", "HybridCompositePass.meshColor")
     g.addEdge("RayMarchingDirectAOPass.color", "HybridCompositePass.voxelColor")
     g.addEdge("HybridBlendMaskPass.mask", "HybridCompositePass.blendMask")
+    g.addEdge("MeshGBuffer.vbuffer", "HybridCompositePass.vbuffer")
     g.addEdge("HybridCompositePass.color", "ToneMapper.src")
     g.markOutput("ToneMapper.dst")
 
@@ -507,7 +668,7 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
     else:
         default_framebuffer = (1920, 1080)
 
-    apply_renderer_overrides(camera_plan, default_framebuffer)
+    apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer)
     return g
 
 

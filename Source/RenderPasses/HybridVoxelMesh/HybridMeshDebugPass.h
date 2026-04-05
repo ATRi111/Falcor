@@ -46,6 +46,7 @@ public:
         Emissive,
         Specular,
         Roughness,
+        RouteDebug,
     };
 
     FALCOR_ENUM_INFO(
@@ -58,6 +59,7 @@ public:
             {ViewMode::Emissive, "Emissive"},
             {ViewMode::Specular, "Specular"},
             {ViewMode::Roughness, "Roughness"},
+            {ViewMode::RouteDebug, "RouteDebug"},
         }
     );
 

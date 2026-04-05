@@ -36,6 +36,7 @@ const char kViewMode[] = "viewMode";
 const char kInputMeshColor[] = "meshColor";
 const char kInputVoxelColor[] = "voxelColor";
 const char kInputBlendMask[] = "blendMask";
+const char kInputVBuffer[] = "vbuffer";
 const char kOutputColor[] = "color";
 } // namespace
 
@@ -68,6 +69,7 @@ RenderPassReflection HybridCompositePass::reflect(const CompileData& compileData
     reflector.addInput(kInputMeshColor, "Mesh style color").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputVoxelColor, "Voxel baseline color").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputBlendMask, "Mesh blend weight").bindFlags(ResourceBindFlags::ShaderResource);
+    reflector.addInput(kInputVBuffer, "Mesh visibility buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addOutput(kOutputColor, "Hybrid color").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA32Float);
     return reflector;
 }
@@ -79,18 +81,25 @@ void HybridCompositePass::execute(RenderContext* pRenderContext, const RenderDat
 
     pRenderContext->clearRtv(pOutput->getRTV().get(), float4(0.f, 0.f, 0.f, 1.f));
 
+    if (!mpScene)
+        return;
+
     if (!mpPass)
     {
         ProgramDesc desc;
+        desc.addShaderModules(mpScene->getShaderModules());
         desc.addShaderLibrary(kShaderFile).psEntry("main");
+        desc.addTypeConformances(mpScene->getTypeConformances());
         desc.setShaderModel(ShaderModel::SM6_5);
-        mpPass = FullScreenPass::create(mpDevice, desc);
+        mpPass = FullScreenPass::create(mpDevice, desc, mpScene->getSceneDefines());
     }
 
     auto var = mpPass->getRootVar();
+    mpScene->bindShaderDataForRaytracing(pRenderContext, var["gScene"]);
     var["gMeshColor"] = renderData.getTexture(kInputMeshColor);
     var["gVoxelColor"] = renderData.getTexture(kInputVoxelColor);
     var["gBlendMask"] = renderData.getTexture(kInputBlendMask);
+    var["gVBuffer"] = renderData.getTexture(kInputVBuffer);
     var["PerFrameCB"]["gViewMode"] = uint32_t(mViewMode);
 
     mpFbo->attachColorTarget(pOutput, 0);
@@ -101,4 +110,10 @@ void HybridCompositePass::execute(RenderContext* pRenderContext, const RenderDat
 void HybridCompositePass::renderUI(Gui::Widgets& widget)
 {
     widget.dropdown("View", mViewMode);
+}
+
+void HybridCompositePass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
+{
+    mpScene = pScene;
+    mpPass = nullptr;
 }

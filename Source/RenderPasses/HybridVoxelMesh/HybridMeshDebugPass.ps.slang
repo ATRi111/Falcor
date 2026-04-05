@@ -5,6 +5,7 @@
 #endif
 
 import Scene.Scene;
+import Scene.HitInfo;
 import Scene.SceneTypes;
 import Utils.Math.MathHelpers;
 
@@ -15,6 +16,7 @@ Texture2D<float4> gViewW;
 Texture2D<float4> gDiffuseOpacity;
 Texture2D<float4> gSpecRough;
 Texture2D<float4> gEmissive;
+Texture2D<PackedHitInfo> gVBuffer;
 
 cbuffer PerFrameCB
 {
@@ -33,6 +35,7 @@ static const uint kViewModeDepth = 3;
 static const uint kViewModeEmissive = 4;
 static const uint kViewModeSpecular = 5;
 static const uint kViewModeRoughness = 6;
+static const uint kViewModeRouteDebug = 7;
 
 static const float kPi = 3.14159265359f;
 
@@ -106,6 +109,29 @@ float3 evalDepth(float3 posW)
     return depth01.xxx;
 }
 
+float3 getRouteDebugColor(GeometryInstanceRenderRoute route)
+{
+    switch (route)
+    {
+    case GeometryInstanceRenderRoute::MeshOnly:
+        return float3(1.00f, 0.36f, 0.12f);
+    case GeometryInstanceRenderRoute::VoxelOnly:
+        return float3(0.12f, 0.68f, 1.00f);
+    case GeometryInstanceRenderRoute::Blend:
+    default:
+        return float3(0.22f, 0.94f, 0.38f);
+    }
+}
+
+float3 evalRouteDebug(int2 pixelPos)
+{
+    const HitInfo hit = HitInfo(gVBuffer.Load(int3(pixelPos, 0)));
+    if (!hit.isValid())
+        return 0.f;
+
+    return getRouteDebugColor(gScene.getGeometryInstanceRenderRoute(hit.getInstanceID()));
+}
+
 float4 main(float2 texCoord : TEXCOORD, float4 pos : SV_Position) : SV_Target0
 {
     const int2 pixelPos = int2(pos.xy);
@@ -143,6 +169,9 @@ float4 main(float2 texCoord : TEXCOORD, float4 pos : SV_Position) : SV_Target0
         break;
     case kViewModeRoughness:
         color = specRough.www;
+        break;
+    case kViewModeRouteDebug:
+        color = evalRouteDebug(pixelPos);
         break;
     case kViewModeBaseShading:
     default:

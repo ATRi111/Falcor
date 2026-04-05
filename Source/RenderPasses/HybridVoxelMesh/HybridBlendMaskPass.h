@@ -35,7 +35,7 @@ using namespace Falcor;
 class HybridBlendMaskPass : public RenderPass
 {
 public:
-    FALCOR_PLUGIN_CLASS(HybridBlendMaskPass, "HybridBlendMaskPass", "Distance-based mesh/voxel hybrid blend mask.");
+    FALCOR_PLUGIN_CLASS(HybridBlendMaskPass, "HybridBlendMaskPass", "Route-aware mesh/voxel hybrid blend mask.");
 
     static ref<HybridBlendMaskPass> create(ref<Device> pDevice, const Properties& props) { return make_ref<HybridBlendMaskPass>(pDevice, props); }
 

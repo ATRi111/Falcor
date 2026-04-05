@@ -608,6 +608,36 @@ namespace Falcor
         */
         const GeometryInstanceData &getGeometryInstance(uint32_t instanceID) const { return mGeometryInstanceData[instanceID]; }
 
+        /** Get the render route of a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return Render route stored in GeometryInstanceData.flags.
+        */
+        GeometryInstanceRenderRoute getGeometryInstanceRenderRoute(uint32_t instanceID) const;
+
+        /** Set the render route of a geometry instance and upload the updated instance buffer.
+            \param[in] instanceID Global geometry instance ID.
+            \param[in] route New render route.
+        */
+        void setGeometryInstanceRenderRoute(uint32_t instanceID, GeometryInstanceRenderRoute route);
+
+        /** Get the scene-graph node name backing a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return Node name or empty string if unavailable.
+        */
+        std::string getGeometryInstanceNodeName(uint32_t instanceID) const;
+
+        /** Get a human-readable geometry name for a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return Geometry name or a synthetic fallback.
+        */
+        std::string getGeometryInstanceGeometryName(uint32_t instanceID) const;
+
+        /** Get the material name bound to a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return Material name or empty string if unavailable.
+        */
+        std::string getGeometryInstanceMaterialName(uint32_t instanceID) const;
+
         /** Get a list of all geometry IDs for a given geometry type.
             \param[in] geometryType The geometry type.
             \return List of geometry IDs.
