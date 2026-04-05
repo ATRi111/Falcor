@@ -55,6 +55,22 @@ REFERENCE_VIEWS_BY_SCENE = {
     "arcade": ARCADE_REFERENCE_VIEWS,
 }
 
+DEBUG_VIEW_MODES = {
+    "baseshading": "BaseShading",
+    "albedo": "Albedo",
+    "normal": "Normal",
+    "depth": "Depth",
+    "emissive": "Emissive",
+    "specular": "Specular",
+    "roughness": "Roughness",
+}
+
+STYLE_VIEW_MODES = {
+    "combined": "Combined",
+    "directonly": "DirectOnly",
+    "aoonly": "AOOnly",
+}
+
 
 def resolve_scene_hint():
     for key in ("HYBRID_SCENE_PATH", "HYBRID_SCENE_HINT"):
@@ -109,6 +125,17 @@ def resolve_camera_plan(scene_hint):
     }
 
 
+def resolve_mesh_view_mode():
+    requested = (os.environ.get("HYBRID_MESH_VIEW_MODE", "Combined").strip() or "Combined").lower()
+    if requested in STYLE_VIEW_MODES:
+        return STYLE_VIEW_MODES[requested], "style"
+    if requested in DEBUG_VIEW_MODES:
+        return DEBUG_VIEW_MODES[requested], "debug"
+
+    valid = sorted(set(STYLE_VIEW_MODES.values()) | set(DEBUG_VIEW_MODES.values()))
+    raise RuntimeError(f"Unsupported HYBRID_MESH_VIEW_MODE: {requested}. Expected one of: {', '.join(valid)}")
+
+
 def apply_renderer_overrides(camera_plan):
     hide_ui = env_bool("HYBRID_HIDE_UI", False)
     framebuffer_width = env_int("HYBRID_FRAMEBUFFER_WIDTH", 0)
@@ -149,20 +176,37 @@ def apply_renderer_overrides(camera_plan):
     m.sceneUpdateCallback = apply_camera_once
 
 
-def render_graph_phase1():
+def connect_mesh_gbuffer(g, source_name, target_name):
+    g.addEdge(f"{source_name}.posW", f"{target_name}.posW")
+    g.addEdge(f"{source_name}.normW", f"{target_name}.normW")
+    g.addEdge(f"{source_name}.faceNormalW", f"{target_name}.faceNormalW")
+    g.addEdge(f"{source_name}.viewW", f"{target_name}.viewW")
+    g.addEdge(f"{source_name}.diffuseOpacity", f"{target_name}.diffuseOpacity")
+    g.addEdge(f"{source_name}.specRough", f"{target_name}.specRough")
+
+
+def render_graph_stage3():
     scene_hint = resolve_scene_hint()
     camera_plan = resolve_camera_plan(scene_hint)
-    view_mode = os.environ.get("HYBRID_MESH_VIEW_MODE", "DirectOnly").strip() or "DirectOnly"
+    view_mode, pipeline = resolve_mesh_view_mode()
     depth_range = env_float("HYBRID_MESH_DEPTH_RANGE", 12.0)
     shadow_bias = env_float("HYBRID_MESH_SHADOW_BIAS", 0.001)
     render_background = env_bool("HYBRID_MESH_RENDER_BACKGROUND", True)
+    ao_enabled = env_bool("HYBRID_MESH_AO_ENABLED", True)
+    ao_strength = env_float("HYBRID_MESH_AO_STRENGTH", 0.55)
+    ao_radius = env_float("HYBRID_MESH_AO_RADIUS", 0.18)
+    ao_step_count = env_int("HYBRID_MESH_AO_STEP_COUNT", 3)
+    ao_direction_set = env_int("HYBRID_MESH_AO_DIRECTION_SET", 6)
+    ao_contact_strength = env_float("HYBRID_MESH_AO_CONTACT_STRENGTH", 0.75)
+    ao_use_stable_rotation = env_bool("HYBRID_MESH_AO_USE_STABLE_ROTATION", True)
 
     print("[HybridMeshVoxel] scene hint:", scene_hint if scene_hint else "<empty>")
+    print("[HybridMeshVoxel] pipeline:", pipeline)
     print("[HybridMeshVoxel] mesh view mode:", view_mode)
     if os.environ.get("HYBRID_REFERENCE_VIEW", "").strip():
         print("[HybridMeshVoxel] reference view:", os.environ["HYBRID_REFERENCE_VIEW"].strip())
 
-    g = RenderGraph("VoxelizationHybridMeshVoxelPhase1")
+    g = RenderGraph("VoxelizationHybridMeshVoxelStage3")
 
     mesh_gbuffer = createPass(
         "GBufferRaster",
@@ -173,29 +217,43 @@ def render_graph_phase1():
             "adjustShadingNormals": True,
         },
     )
-    mesh_debug = createPass(
-        "HybridMeshDebugPass",
-        {
-            "viewMode": view_mode,
-            "depthRange": depth_range,
-            "shadowBias": shadow_bias,
-            "renderBackground": render_background,
-        },
-    )
     tone_mapper = createPass("ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})
 
     g.addPass(mesh_gbuffer, "MeshGBuffer")
-    g.addPass(mesh_debug, "HybridMeshDebugPass")
     g.addPass(tone_mapper, "ToneMapper")
 
-    g.addEdge("MeshGBuffer.posW", "HybridMeshDebugPass.posW")
-    g.addEdge("MeshGBuffer.normW", "HybridMeshDebugPass.normW")
-    g.addEdge("MeshGBuffer.faceNormalW", "HybridMeshDebugPass.faceNormalW")
-    g.addEdge("MeshGBuffer.viewW", "HybridMeshDebugPass.viewW")
-    g.addEdge("MeshGBuffer.diffuseOpacity", "HybridMeshDebugPass.diffuseOpacity")
-    g.addEdge("MeshGBuffer.specRough", "HybridMeshDebugPass.specRough")
-    g.addEdge("MeshGBuffer.emissive", "HybridMeshDebugPass.emissive")
-    g.addEdge("HybridMeshDebugPass.color", "ToneMapper.src")
+    if pipeline == "style":
+        mesh_style = createPass(
+            "MeshStyleDirectAOPass",
+            {
+                "viewMode": view_mode,
+                "shadowBias": shadow_bias,
+                "renderBackground": render_background,
+                "aoEnabled": ao_enabled,
+                "aoStrength": ao_strength,
+                "aoRadius": ao_radius,
+                "aoStepCount": ao_step_count,
+                "aoDirectionSet": ao_direction_set,
+                "aoContactStrength": ao_contact_strength,
+                "aoUseStableRotation": ao_use_stable_rotation,
+            },
+        )
+        g.addPass(mesh_style, "MeshStyleDirectAOPass")
+        connect_mesh_gbuffer(g, "MeshGBuffer", "MeshStyleDirectAOPass")
+        g.addEdge("MeshStyleDirectAOPass.color", "ToneMapper.src")
+    else:
+        mesh_debug = createPass(
+            "HybridMeshDebugPass",
+            {
+                "viewMode": view_mode,
+                "depthRange": depth_range,
+                "renderBackground": render_background,
+            },
+        )
+        g.addPass(mesh_debug, "HybridMeshDebugPass")
+        connect_mesh_gbuffer(g, "MeshGBuffer", "HybridMeshDebugPass")
+        g.addEdge("MeshGBuffer.emissive", "HybridMeshDebugPass.emissive")
+        g.addEdge("HybridMeshDebugPass.color", "ToneMapper.src")
 
     g.markOutput("ToneMapper.dst")
 
@@ -203,7 +261,7 @@ def render_graph_phase1():
     return g
 
 
-Graph = render_graph_phase1()
+Graph = render_graph_stage3()
 try:
     m.addGraph(Graph)
 except NameError:

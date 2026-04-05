@@ -4,6 +4,9 @@ target_sources(HybridVoxelMesh PRIVATE
     HybridMeshDebugPass.cpp
     HybridMeshDebugPass.h
     HybridMeshDebugPass.ps.slang
+    MeshStyleDirectAOPass.cpp
+    MeshStyleDirectAOPass.h
+    MeshStyleDirectAOPass.ps.slang
 )
 
 target_copy_shaders(HybridVoxelMesh RenderPasses/HybridVoxelMesh)

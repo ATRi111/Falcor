@@ -25,16 +25,22 @@
  # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
-#include "HybridMeshDebugPass.h"
 #include "MeshStyleDirectAOPass.h"
 
 namespace
 {
-const char kShaderFile[] = "RenderPasses/HybridVoxelMesh/HybridMeshDebugPass.ps.slang";
+const char kShaderFile[] = "RenderPasses/HybridVoxelMesh/MeshStyleDirectAOPass.ps.slang";
 
 const char kViewMode[] = "viewMode";
-const char kDepthRange[] = "depthRange";
+const char kShadowBias[] = "shadowBias";
 const char kRenderBackground[] = "renderBackground";
+const char kAOEnabled[] = "aoEnabled";
+const char kAOStrength[] = "aoStrength";
+const char kAORadius[] = "aoRadius";
+const char kAOStepCount[] = "aoStepCount";
+const char kAODirectionSet[] = "aoDirectionSet";
+const char kAOContactStrength[] = "aoContactStrength";
+const char kAOUseStableRotation[] = "aoUseStableRotation";
 
 const char kInputPosW[] = "posW";
 const char kInputNormW[] = "normW";
@@ -42,61 +48,62 @@ const char kInputFaceNormalW[] = "faceNormalW";
 const char kInputViewW[] = "viewW";
 const char kInputDiffuseOpacity[] = "diffuseOpacity";
 const char kInputSpecRough[] = "specRough";
-const char kInputEmissive[] = "emissive";
 const char kOutputColor[] = "color";
-
-void registerBindings(pybind11::module& m)
-{
-    pybind11::class_<HybridMeshDebugPass, RenderPass, ref<HybridMeshDebugPass>> pass(m, "HybridMeshDebugPass");
-    pass.def_property(
-        kViewMode,
-        [](const HybridMeshDebugPass& self) { return enumToString(self.getViewMode()); },
-        [](HybridMeshDebugPass& self, const std::string& value) { self.setViewMode(stringToEnum<HybridMeshDebugPass::ViewMode>(value)); }
-    );
-    pass.def_property(kDepthRange, &HybridMeshDebugPass::getDepthRange, &HybridMeshDebugPass::setDepthRange);
-    pass.def_property(kRenderBackground, &HybridMeshDebugPass::getRenderBackground, &HybridMeshDebugPass::setRenderBackground);
-}
 } // namespace
 
-extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
-{
-    registry.registerClass<RenderPass, HybridMeshDebugPass>();
-    registry.registerClass<RenderPass, MeshStyleDirectAOPass>();
-    ScriptBindings::registerBinding(registerBindings);
-}
-
-HybridMeshDebugPass::HybridMeshDebugPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
+MeshStyleDirectAOPass::MeshStyleDirectAOPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
 {
     if (!mpDevice->isShaderModelSupported(ShaderModel::SM6_5))
-        FALCOR_THROW("HybridMeshDebugPass requires Shader Model 6.5 support.");
+        FALCOR_THROW("MeshStyleDirectAOPass requires Shader Model 6.5 support.");
     if (!mpDevice->isFeatureSupported(Device::SupportedFeatures::RaytracingTier1_1))
-        FALCOR_THROW("HybridMeshDebugPass requires Raytracing Tier 1.1 support.");
+        FALCOR_THROW("MeshStyleDirectAOPass requires Raytracing Tier 1.1 support.");
 
     for (const auto& [key, value] : props)
     {
         if (key == kViewMode)
             mViewMode = value.operator ViewMode();
-        else if (key == kDepthRange)
-            setDepthRange(value);
+        else if (key == kShadowBias)
+            setShadowBias(value);
         else if (key == kRenderBackground)
             mRenderBackground = value;
+        else if (key == kAOEnabled)
+            mAOEnabled = value;
+        else if (key == kAOStrength)
+            setAOStrength(value);
+        else if (key == kAORadius)
+            setAORadius(value);
+        else if (key == kAOStepCount)
+            setAOStepCount(uint32_t(value));
+        else if (key == kAODirectionSet)
+            setAODirectionSet(uint32_t(value));
+        else if (key == kAOContactStrength)
+            setAOContactStrength(value);
+        else if (key == kAOUseStableRotation)
+            mAOUseStableRotation = value;
         else
-            logWarning("Unknown property '{}' in a HybridMeshDebugPass properties.", key);
+            logWarning("Unknown property '{}' in a MeshStyleDirectAOPass properties.", key);
     }
 
     mpFbo = Fbo::create(mpDevice);
 }
 
-Properties HybridMeshDebugPass::getProperties() const
+Properties MeshStyleDirectAOPass::getProperties() const
 {
     Properties props;
     props[kViewMode] = mViewMode;
-    props[kDepthRange] = mDepthRange;
+    props[kShadowBias] = mShadowBias;
     props[kRenderBackground] = mRenderBackground;
+    props[kAOEnabled] = mAOEnabled;
+    props[kAOStrength] = mAOStrength;
+    props[kAORadius] = mAORadius;
+    props[kAOStepCount] = mAOStepCount;
+    props[kAODirectionSet] = mAODirectionSet;
+    props[kAOContactStrength] = mAOContactStrength;
+    props[kAOUseStableRotation] = mAOUseStableRotation;
     return props;
 }
 
-RenderPassReflection HybridMeshDebugPass::reflect(const CompileData& compileData)
+RenderPassReflection MeshStyleDirectAOPass::reflect(const CompileData& compileData)
 {
     RenderPassReflection reflector;
     reflector.addInput(kInputPosW, "Mesh world position").bindFlags(ResourceBindFlags::ShaderResource);
@@ -105,12 +112,11 @@ RenderPassReflection HybridMeshDebugPass::reflect(const CompileData& compileData
     reflector.addInput(kInputViewW, "Mesh world view direction").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputDiffuseOpacity, "Mesh diffuse albedo and opacity").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputSpecRough, "Mesh specular and roughness").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(kInputEmissive, "Mesh emissive").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addOutput(kOutputColor, "Mesh debug color").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA32Float);
+    reflector.addOutput(kOutputColor, "Mesh style color").bindFlags(ResourceBindFlags::RenderTarget).format(ResourceFormat::RGBA32Float);
     return reflector;
 }
 
-void HybridMeshDebugPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
+void MeshStyleDirectAOPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
     const auto pOutput = renderData.getTexture(kOutputColor);
     FALCOR_ASSERT(pOutput);
@@ -138,34 +144,49 @@ void HybridMeshDebugPass::execute(RenderContext* pRenderContext, const RenderDat
     var["gViewW"] = renderData.getTexture(kInputViewW);
     var["gDiffuseOpacity"] = renderData.getTexture(kInputDiffuseOpacity);
     var["gSpecRough"] = renderData.getTexture(kInputSpecRough);
-    var["gEmissive"] = renderData.getTexture(kInputEmissive);
 
     const auto pCamera = mpScene->getCamera();
     FALCOR_ASSERT(pCamera);
 
     mpPass->addDefine("USE_ENV_MAP", mpScene->getEnvMap() ? "1" : "0");
 
-    var["PerFrameCB"]["gCameraPosW"] = pCamera->getPosition();
-    var["PerFrameCB"]["gDepthRange"] = mDepthRange;
-    var["PerFrameCB"]["gKeyLightDirW"] = mKeyLightDirW;
+    var["PerFrameCB"]["gShadowBias"] = mShadowBias;
     var["PerFrameCB"]["gInvViewProj"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     var["PerFrameCB"]["gViewMode"] = uint32_t(mViewMode);
     var["PerFrameCB"]["gRenderBackground"] = mRenderBackground;
+    var["PerFrameCB"]["gAOEnabled"] = mAOEnabled;
+    var["PerFrameCB"]["gAOStrength"] = mAOStrength;
+    var["PerFrameCB"]["gAORadius"] = mAORadius;
+    var["PerFrameCB"]["gAOStepCount"] = mAOStepCount;
+    var["PerFrameCB"]["gAODirectionSet"] = mAODirectionSet;
+    var["PerFrameCB"]["gAOContactStrength"] = mAOContactStrength;
+    var["PerFrameCB"]["gAOUseStableRotation"] = mAOUseStableRotation;
 
     mpFbo->attachColorTarget(pOutput, 0);
     mpPass->getState()->setFbo(mpFbo);
     mpPass->execute(pRenderContext, mpFbo);
 }
 
-void HybridMeshDebugPass::renderUI(Gui::Widgets& widget)
+void MeshStyleDirectAOPass::renderUI(Gui::Widgets& widget)
 {
     widget.dropdown("View", mViewMode);
-    widget.var("Depth range", mDepthRange, 0.1f, 100.f, 0.1f);
-    widget.tooltip("World-space camera distance remap used by the Depth view.", true);
+    widget.var("Shadow bias", mShadowBias, 0.0f, 0.02f, 0.0001f, false, "%.4f");
     widget.checkbox("Render background", mRenderBackground);
+    widget.checkbox("AO enabled", mAOEnabled);
+    widget.slider("AO strength", mAOStrength, 0.0f, 1.0f);
+    widget.var("AO radius", mAORadius, 0.01f, 2.0f, 0.01f);
+    widget.var("AO contact strength", mAOContactStrength, 0.0f, 2.0f, 0.01f);
+    widget.var("AO step count", mAOStepCount, 1u, 8u, 1u);
+
+    static const Gui::DropdownList kAODirectionSets = {
+        {4u, "4 Directions"},
+        {6u, "6 Directions"},
+    };
+    widget.dropdown("AO direction set", kAODirectionSets, mAODirectionSet);
+    widget.checkbox("AO stable rotation", mAOUseStableRotation);
 }
 
-void HybridMeshDebugPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
+void MeshStyleDirectAOPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
     mpPass = nullptr;
