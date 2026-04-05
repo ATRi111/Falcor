@@ -14,6 +14,49 @@ def env_int(name, default):
     value = os.environ.get(name)
     return int(value) if value not in (None, "") else default
 
+
+def env_float(name, default):
+    value = os.environ.get(name)
+    return float(value) if value not in (None, "") else default
+
+
+def parse_float3(value):
+    if value in (None, ""):
+        return None
+
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 3:
+        raise ValueError(f"Expected three comma-separated values, got: {value}")
+    return tuple(float(part) for part in parts)
+
+
+ARCADE_REFERENCE_VIEWS = {
+    "near": {
+        "position": (-0.811894, 1.575547, 1.825012),
+        "target": (-0.370011, 1.218823, 1.001915),
+        "up": (-0.376237, 0.634521, 0.675103),
+        "focalLength": 21.0,
+    },
+    "mid": {
+        "position": (-1.143306, 1.843090, 2.442334),
+        "target": (-0.701423, 1.486366, 1.619238),
+        "up": (-0.376237, 0.634521, 0.675103),
+        "focalLength": 21.0,
+    },
+    "far": {
+        "position": (-1.585189, 2.199814, 3.265431),
+        "target": (-1.143306, 1.843090, 2.442334),
+        "up": (-0.376237, 0.634521, 0.675103),
+        "focalLength": 21.0,
+    },
+}
+
+
+REFERENCE_VIEWS_BY_SCENE = {
+    "arcade": ARCADE_REFERENCE_VIEWS,
+}
+
+
 def resolve_voxel_backend():
     backend = os.environ.get("DIRECTAO_VOXELIZATION_BACKEND", "CPU").strip().upper()
     return backend if backend in ("CPU", "GPU") else "CPU"
@@ -105,11 +148,91 @@ def resolve_scene_hint():
 
     return ""
 
+
+def resolve_reference_view(scene_hint, reference_view_name):
+    if not reference_view_name:
+        return None
+
+    presets = REFERENCE_VIEWS_BY_SCENE.get(scene_hint.lower())
+    if not presets:
+        return None
+
+    return presets.get(reference_view_name.lower())
+
+
+def resolve_camera_plan(scene_hint):
+    reference_view_name = os.environ.get("DIRECTAO_REFERENCE_VIEW", "").strip()
+    preset = resolve_reference_view(scene_hint, reference_view_name)
+    position = parse_float3(os.environ.get("DIRECTAO_CAMERA_POSITION"))
+    target = parse_float3(os.environ.get("DIRECTAO_CAMERA_TARGET"))
+    up = parse_float3(os.environ.get("DIRECTAO_CAMERA_UP"))
+    focal_length = env_float("DIRECTAO_CAMERA_FOCAL_LENGTH", 0.0)
+
+    if preset:
+        position = position or preset["position"]
+        target = target or preset["target"]
+        up = up or preset["up"]
+        if focal_length <= 0.0:
+            focal_length = preset["focalLength"]
+
+    if position is None and target is None and up is None and focal_length <= 0.0:
+        return None
+
+    return {
+        "reference_view": reference_view_name,
+        "position": position,
+        "target": target,
+        "up": up,
+        "focal_length": focal_length,
+    }
+
+
+def apply_renderer_overrides(camera_plan):
+    hide_ui = env_bool("DIRECTAO_HIDE_UI", False)
+    framebuffer_width = env_int("DIRECTAO_FRAMEBUFFER_WIDTH", 0)
+    framebuffer_height = env_int("DIRECTAO_FRAMEBUFFER_HEIGHT", 0)
+
+    if hide_ui:
+        m.ui = False
+
+    if framebuffer_width > 0 and framebuffer_height > 0:
+        m.resizeFrameBuffer(framebuffer_width, framebuffer_height)
+
+    if not camera_plan:
+        return
+
+    camera_applied = {"done": False}
+
+    def apply_camera_once(scene, current_time):
+        if camera_applied["done"] or scene is None or scene.camera is None:
+            return
+
+        camera = scene.camera
+        if camera_plan["position"] is not None:
+            camera.position = falcor.float3(*camera_plan["position"])
+        if camera_plan["target"] is not None:
+            camera.target = falcor.float3(*camera_plan["target"])
+        if camera_plan["up"] is not None:
+            camera.up = falcor.float3(*camera_plan["up"])
+        if camera_plan["focal_length"] > 0.0:
+            camera.focalLength = camera_plan["focal_length"]
+
+        camera_applied["done"] = True
+        m.sceneUpdateCallback = None
+        print(
+            "[MainlineDirectAO] camera:",
+            camera_plan["reference_view"] if camera_plan["reference_view"] else "<explicit>",
+        )
+
+    m.sceneUpdateCallback = apply_camera_once
+
+
 def render_graph_Pass():
     scene_hint = resolve_scene_hint()
     voxel_backend = resolve_voxel_backend()
     allow_cache_fallback = env_bool("DIRECTAO_ALLOW_CACHE_FALLBACK", False)
     cache_plan = choose_cache_plan(scene_hint, voxel_backend, allow_cache_fallback)
+    camera_plan = resolve_camera_plan(scene_hint)
     bin_file = cache_plan["bin_file"]
     draw_mode = env_int("DIRECTAO_DRAW_MODE", 0)
     output_resolution = env_int("DIRECTAO_OUTPUT_RESOLUTION", 0)
@@ -118,13 +241,13 @@ def render_graph_Pass():
     check_coverage = env_bool("DIRECTAO_CHECK_COVERAGE", True)
     use_mipmap = env_bool("DIRECTAO_USE_MIPMAP", True)
     render_background = env_bool("DIRECTAO_RENDER_BACKGROUND", True)
-    transmittance_threshold = float(os.environ.get("DIRECTAO_TRANSMITTANCE_THRESHOLD", "5.0"))
+    transmittance_threshold = env_float("DIRECTAO_TRANSMITTANCE_THRESHOLD", 5.0)
     ao_enabled = env_bool("DIRECTAO_AO_ENABLED", True)
-    ao_strength = float(os.environ.get("DIRECTAO_AO_STRENGTH", "0.55"))
-    ao_radius = float(os.environ.get("DIRECTAO_AO_RADIUS", "6.0"))
+    ao_strength = env_float("DIRECTAO_AO_STRENGTH", 0.55)
+    ao_radius = env_float("DIRECTAO_AO_RADIUS", 6.0)
     ao_step_count = env_int("DIRECTAO_AO_STEP_COUNT", 3)
     ao_direction_set = env_int("DIRECTAO_AO_DIRECTION_SET", 6)
-    ao_contact_strength = float(os.environ.get("DIRECTAO_AO_CONTACT_STRENGTH", "0.75"))
+    ao_contact_strength = env_float("DIRECTAO_AO_CONTACT_STRENGTH", 0.75)
     ao_use_stable_rotation = env_bool("DIRECTAO_AO_USE_STABLE_ROTATION", True)
     voxel_pass_name = "VoxelizationPass_CPU" if voxel_backend == "CPU" else "VoxelizationPass_GPU"
     voxel_pass_props = {}
@@ -145,6 +268,8 @@ def render_graph_Pass():
     print("[MainlineDirectAO] scene hint:", scene_hint if scene_hint else "<empty>")
     print("[MainlineDirectAO] voxel backend:", voxel_backend)
     print("[MainlineDirectAO] voxel cache:", bin_file if bin_file else "<none>")
+    if os.environ.get("DIRECTAO_REFERENCE_VIEW", "").strip():
+        print("[MainlineDirectAO] reference view:", os.environ["DIRECTAO_REFERENCE_VIEW"].strip())
 
     g = RenderGraph("VoxelizationMainlineDirectAO")
 
@@ -185,6 +310,8 @@ def render_graph_Pass():
 
     g.addEdge("RayMarchingDirectAOPass.color", "ToneMapper.src")
     g.markOutput("ToneMapper.dst")
+
+    apply_renderer_overrides(camera_plan)
 
     return g
 
