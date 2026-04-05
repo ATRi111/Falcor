@@ -1,9 +1,11 @@
 AI doc navigation
 
 Read these files by task
+- Need the current object-level hybrid routing implementation plan:
+  .FORAGENT\plan5.md
 - Need the current accepted voxel baseline or optional AO follow-up:
   .FORAGENT\plan3.md
-- Need the next-stage mesh + voxel hybrid rendering plan:
+- Need the historical Phase0-4 mesh + voxel hybrid plan and current prototype background:
   .FORAGENT\plan4.md
 - Need the concise long-term hybrid renderer vision:
   .FORAGENT\future_hyrbid_renderer_plan.md
@@ -17,9 +19,11 @@ Current voxel mainline entry
 - Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang
 - Source\RenderPasses\Voxelization\RayMarchingTraversal.slang
 
-Mesh / hybrid candidate entry for plan4
+Mesh / hybrid candidate entry for plan5
 - Source\RenderPasses\GBuffer\GBuffer\GBufferRaster.cpp
 - Source\RenderPasses\GBuffer\VBuffer\VBufferRT.cpp
+- Source\Falcor\Scene\SceneTypes.slang
+- Source\Falcor\Scene\SceneBuilder.cpp
 - Source\RenderPasses\ToneMapper\ToneMapper.cpp
 
 If docs are not enough, inspect source in this order
@@ -38,5 +42,6 @@ If docs are not enough, inspect source in this order
 
 Working rule
 - `plan3.md` 只描述 Stage4 之后的 optional AO 优化，不是当前主线必做。
-- `plan4.md` 只描述下一阶段 mesh + voxel 混合方案，不要把它误当成立刻开工的实现任务。
+- `plan5.md` 是当前对象级 hybrid 路由主计划；先看它，再决定要不要回查 `plan4.md` 的历史阶段细节。
+- `plan4.md` 主要用于理解当前 prototype 是怎样落地到 Phase4 的，不再驱动新的最终阶段。
 - 先读计划文档，再只打开与你当前修改直接相关的源码。

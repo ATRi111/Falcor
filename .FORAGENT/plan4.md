@@ -1,5 +1,7 @@
 # plan4：mesh + voxel 混合渲染设计与实施计划
 
+> 注意：`plan4` 的 Phase0-4 已作为当前仓库的历史实现阶段保留；原本剩余的最后一个阶段不再单独推进。后续对象级 hybrid 路由与 selective execution 统一按 `.FORAGENT/plan5.md` 执行。
+
 ## 1. 文档定位
 
 - 本文件是下一阶段渲染方案的设计文档和实施计划，不是“立刻开始写 mesh 渲染代码”的指令。
