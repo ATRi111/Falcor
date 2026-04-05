@@ -10,7 +10,7 @@
 - Phase2 已完成：`HybridBlendMaskPass`、`HybridCompositePass`、`HybridMeshDebugPass` 统一通过 `vbuffer + gScene` 读取 route；`MeshOnly / VoxelOnly / Blend` 已不再只是纯距离带着色。
 - Phase3 已完成：voxel 路径输出 `voxelDepth / voxelNormal / voxelConfidence / voxelInstanceID`；正式 identity 语义是 `dominant geometry instance ID`，`confidence = dominantInstanceArea / totalPolygonAreaInVoxel`，contributor tracking overflow 时必须保守失效。
 - `RayMarchingDirectAOPass` 的 `outputResolution=0` 已改为跟随 graph 默认输出尺寸，避免 hybrid 在 `1600x900` 下出现 mesh / voxel 错位。
-- 当前 `Arcade` 默认参考对象仍是 `Arch -> Blend`、`Cabinet -> MeshOnly`、`Chair -> Blend`、`poster -> VoxelOnly`；`RouteDebug` 颜色约定保持 `MeshOnly=orange`、`VoxelOnly=blue`、`Blend=green`。
+- 当前 `Arcade` 已移除脚本显式 route 覆写，默认实例都回退到 scene-builder 的 `Blend`；如果回看 phase1-3 的旧 `RouteDebug` 验收图，`Cabinet -> MeshOnly` / `poster -> VoxelOnly` 只代表当时的历史 smoke 配置。`RouteDebug` 颜色约定仍是 `MeshOnly=orange`、`VoxelOnly=blue`、`Blend=green`。
 - `scripts\Voxelization_HybridMeshVoxel.py` 是当前 hybrid 入口；`scripts\Voxelization_MainlineDirectAO.py` 仍要保留 smoke。
 - Phase4 和 Phase5 都还未完成：非 blend 物体在当前 graph 下仍可能支付另一条正式路径的成本，`Composite / MeshOnly / VoxelOnly / BlendMask` 只是 correctness 调试口，不是最终 selective execution 验收结果。
 

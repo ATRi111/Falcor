@@ -12,7 +12,7 @@
     - Press `Ctrl + O` (or click `Load Script` in the top menu bar), then navigate to `PathTracer.py` or `PathTracerNRD.py`.
     - Drag and drop  `PathTracer.py` or `PathTracerNRD.py` into the application window.
     - Load script at startup using the Mogwai `--script` command line option.
-4. Load a model or scene using one of the following methods. A sample scene is included, located at `media/Arcade/Arcade.pyscene`. Falcor can also load any format supported by Assimp as well as USD and pbrt-v4 scenes.
+4. Load a model or scene using one of the following methods. A sample scene is included, located at `Scene/Arcade/Arcade.pyscene`. Falcor can also load any format supported by Assimp as well as USD and pbrt-v4 scenes.
     - Press `Ctrl + Shift + O` (or click `Load Scene` in the top menu bar) then select a file.
     - Drag and drop a file into the application window.
     - Load scene at startup using the Mogwai `--scene` command line option.

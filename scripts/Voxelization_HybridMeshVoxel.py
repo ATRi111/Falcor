@@ -56,12 +56,7 @@ REFERENCE_VIEWS_BY_SCENE = {
     "arcade": ARCADE_REFERENCE_VIEWS,
 }
 
-ARCADE_REFERENCE_ROUTES = [
-    {"label": "Arch", "match": "Arch", "route": "Blend"},
-    {"label": "Cabinet", "match": "Cabinet", "route": "MeshOnly"},
-    {"label": "Chair", "match": "Chair", "route": "Blend"},
-    {"label": "poster", "match": "poster", "route": "VoxelOnly"},
-]
+ARCADE_REFERENCE_ROUTES = []
 
 REFERENCE_ROUTES_BY_SCENE = {
     "arcade": ARCADE_REFERENCE_ROUTES,

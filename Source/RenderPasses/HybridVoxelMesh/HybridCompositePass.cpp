@@ -43,6 +43,42 @@ const char kInputVoxelNormal[] = "voxelNormal";
 const char kInputVoxelConfidence[] = "voxelConfidence";
 const char kInputVoxelInstanceID[] = "voxelInstanceID";
 const char kOutputColor[] = "color";
+const char kHybridRequireFullMeshSource[] = "HybridMeshVoxel.requireFullMeshSource";
+const char kHybridRequireFullVoxelSource[] = "HybridMeshVoxel.requireFullVoxelSource";
+
+bool requiresFullMeshSource(HybridCompositePass::ViewMode viewMode)
+{
+    switch (viewMode)
+    {
+    case HybridCompositePass::ViewMode::MeshOnly:
+    case HybridCompositePass::ViewMode::BlendMask:
+    case HybridCompositePass::ViewMode::RouteDebug:
+    case HybridCompositePass::ViewMode::ObjectMismatch:
+    case HybridCompositePass::ViewMode::DepthMismatch:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool requiresFullVoxelSource(HybridCompositePass::ViewMode viewMode)
+{
+    switch (viewMode)
+    {
+    case HybridCompositePass::ViewMode::VoxelOnly:
+    case HybridCompositePass::ViewMode::BlendMask:
+    case HybridCompositePass::ViewMode::VoxelDepth:
+    case HybridCompositePass::ViewMode::VoxelNormal:
+    case HybridCompositePass::ViewMode::VoxelConfidence:
+    case HybridCompositePass::ViewMode::VoxelRouteID:
+    case HybridCompositePass::ViewMode::VoxelInstanceID:
+    case HybridCompositePass::ViewMode::ObjectMismatch:
+    case HybridCompositePass::ViewMode::DepthMismatch:
+        return true;
+    default:
+        return false;
+    }
+}
 } // namespace
 
 HybridCompositePass::HybridCompositePass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice)
@@ -88,6 +124,10 @@ void HybridCompositePass::execute(RenderContext* pRenderContext, const RenderDat
 {
     const auto pOutput = renderData.getTexture(kOutputColor);
     FALCOR_ASSERT(pOutput);
+
+    auto& dict = renderData.getDictionary();
+    dict[kHybridRequireFullMeshSource] = requiresFullMeshSource(mViewMode);
+    dict[kHybridRequireFullVoxelSource] = requiresFullVoxelSource(mViewMode);
 
     pRenderContext->clearRtv(pOutput->getRTV().get(), float4(0.f, 0.f, 0.f, 1.f));
 

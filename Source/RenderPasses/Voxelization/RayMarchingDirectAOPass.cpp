@@ -28,6 +28,7 @@ const std::string kPropAODirectionSet = "aoDirectionSet";
 const std::string kPropAOContactStrength = "aoContactStrength";
 const std::string kPropAOUseStableRotation = "aoUseStableRotation";
 const std::string kPropInstanceRouteMask = "instanceRouteMask";
+const char kHybridRequireFullVoxelSource[] = "HybridMeshVoxel.requireFullVoxelSource";
 
 enum class RayMarchingDirectAODrawMode : uint32_t
 {
@@ -252,6 +253,9 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
         mOptionsChanged = false;
     }
 
+    const uint32_t instanceRouteMask =
+        dict.getValue(kHybridRequireFullVoxelSource, false) ? Scene::kAllGeometryInstanceRenderRoutesMask : mInstanceRouteMask;
+
     if (!mpFullScreenPass)
     {
         ProgramDesc desc;
@@ -291,7 +295,7 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
     cb["invVP"] = math::inverse(pCamera->getViewProjMatrixNoJitter());
     cb["shadowBias"] = mShadowBias100 / 100.0f / gridData.voxelSize.x;
     cb["drawMode"] = mDrawMode;
-    cb["instanceRouteMask"] = mInstanceRouteMask;
+    cb["instanceRouteMask"] = instanceRouteMask;
     cb["renderBackground"] = mRenderBackground;
     cb["transmittanceThreshold"] = mTransmittanceThreshold100 / 100.0f;
     cb["aoEnabled"] = mAOEnabled;

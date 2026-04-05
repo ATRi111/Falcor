@@ -31,7 +31,7 @@ The recommended workflow when prototyping or implementing rendering techniques i
 3. Press `Ctrl+O`, or from the top menu bar, select `File` -> `Load Script`
 4. Select a Render Graph (.py file) in `Source/Mogwai/Data/`. Such as `ForwardRenderer.py`.
 5. Press `Ctrl+Shift+O`, or from the top menu bar, select `File` -> `Load Scene`.
-6. Select a scene or model, such as `media/Arcade/Arcade.pyscene`
+6. Select a scene or model, such as `Scene/Arcade/Arcade.pyscene`
 
 Scenes and Render Graphs can also be loaded through drag and drop.
 

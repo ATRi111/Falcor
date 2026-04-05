@@ -9,7 +9,7 @@ REM   run_HybridMeshVoxel.bat "E:\path\to\scene.pyscene" voxelrouteid far
 
 set "MOGWAI=E:\GraduateDesign\Falcor_Cp\build\windows-vs2022\bin\Release\Mogwai.exe"
 set "SCRIPT=E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_HybridMeshVoxel.py"
-set "DEFAULT_SCENE=E:\GraduateDesign\Falcor_Cp\media\Arcade\Arcade.pyscene"
+set "DEFAULT_SCENE=E:\GraduateDesign\Falcor_Cp\Scene\Arcade\Arcade.pyscene"
 set "ARCADE_CACHE=E:\GraduateDesign\Falcor_Cp\resource\Arcade_(256, 171, 256)_256.bin_CPU"
 
 if "%~1"=="" (
