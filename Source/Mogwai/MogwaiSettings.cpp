@@ -206,6 +206,7 @@ namespace Mogwai
             }
 
             if (w.button("Edit")) mpRenderer->openEditor();
+            if (w.button("Open Profiler", true)) mpRenderer->getDevice()->getProfiler()->setEnabled(true);
             if (w.button("Remove", true))
             {
                 mpRenderer->removeActiveGraph();

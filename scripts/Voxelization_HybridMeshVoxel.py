@@ -109,6 +109,7 @@ ROUTE_NAME_MAP = {
 ROUTE_MASK_BLEND = 1 << 0
 ROUTE_MASK_MESH_ONLY = 1 << 1
 ROUTE_MASK_VOXEL_ONLY = 1 << 2
+ALL_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_MESH_ONLY | ROUTE_MASK_VOXEL_ONLY
 HYBRID_MESH_EXECUTION_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_MESH_ONLY
 HYBRID_VOXEL_EXECUTION_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_VOXEL_ONLY
 
@@ -165,6 +166,17 @@ def resolve_output_mode():
 
     valid = sorted(list(COMPOSITE_VIEW_MODES.values()) + ["MeshView"])
     raise RuntimeError(f"Unsupported HYBRID_OUTPUT_MODE: {requested}. Expected one of: {', '.join(valid)}")
+
+
+def resolve_graph_pipeline(default_pipeline):
+    requested = (os.environ.get("HYBRID_PIPELINE_MODE", "").strip() or "default").lower()
+    if requested in ("default", "auto"):
+        return default_pipeline
+
+    if requested in ("mesh", "hybrid", "voxel"):
+        return requested
+
+    raise RuntimeError(f"Unsupported HYBRID_PIPELINE_MODE: {requested}. Expected one of: default, mesh, hybrid, voxel")
 
 
 def resolve_voxel_backend():
@@ -613,7 +625,7 @@ def create_mesh_style_pass(shadow_bias, render_background, ao_enabled, ao_streng
     )
 
 
-def create_voxel_chain(scene_hint):
+def create_voxel_chain(scene_hint, instance_route_mask=HYBRID_VOXEL_EXECUTION_ROUTE_MASK):
     voxel_backend = resolve_voxel_backend()
     allow_cache_fallback = env_bool("HYBRID_ALLOW_CACHE_FALLBACK", False)
     cache_plan = choose_cache_plan(scene_hint, voxel_backend, allow_cache_fallback)
@@ -654,7 +666,7 @@ def create_voxel_chain(scene_hint):
         {
             "drawMode": 0,
             "outputResolution": voxel_output_resolution,
-            "instanceRouteMask": HYBRID_VOXEL_EXECUTION_ROUTE_MASK,
+            "instanceRouteMask": instance_route_mask,
             "checkEllipsoid": env_bool("HYBRID_VOXEL_CHECK_ELLIPSOID", True),
             "checkVisibility": env_bool("HYBRID_VOXEL_CHECK_VISIBILITY", True),
             "checkCoverage": env_bool("HYBRID_VOXEL_CHECK_COVERAGE", True),
@@ -745,6 +757,38 @@ def render_graph_mesh_view(scene_hint, camera_plan):
 
     g.markOutput("ToneMapper.dst")
     apply_renderer_overrides(scene_hint, camera_plan)
+    return g
+
+
+def render_graph_voxel_view(scene_hint, camera_plan):
+    voxel_chain = create_voxel_chain(scene_hint, ALL_ROUTE_MASK)
+    print("[HybridMeshVoxel] pipeline: voxel")
+    print("[HybridMeshVoxel] voxel backend:", voxel_chain["backend"])
+    print("[HybridMeshVoxel] voxel cache:", voxel_chain["cache_plan"]["bin_file"] if voxel_chain["cache_plan"]["bin_file"] else "<none>")
+
+    g = RenderGraph("VoxelizationHybridMeshVoxelVoxelView")
+
+    tone_mapper = createPass("ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})
+
+    g.addPass(voxel_chain["voxel_pass"], "VoxelizationPass")
+    g.addPass(voxel_chain["read_pass"], "ReadVoxelPass")
+    g.addPass(voxel_chain["marching_pass"], "RayMarchingDirectAOPass")
+    g.addPass(tone_mapper, "ToneMapper")
+
+    g.addEdge("VoxelizationPass.dummy", "ReadVoxelPass.dummy")
+    g.addEdge("ReadVoxelPass.vBuffer", "RayMarchingDirectAOPass.vBuffer")
+    g.addEdge("ReadVoxelPass.gBuffer", "RayMarchingDirectAOPass.gBuffer")
+    g.addEdge("ReadVoxelPass.pBuffer", "RayMarchingDirectAOPass.pBuffer")
+    g.addEdge("ReadVoxelPass.blockMap", "RayMarchingDirectAOPass.blockMap")
+    g.addEdge("RayMarchingDirectAOPass.color", "ToneMapper.src")
+    g.markOutput("ToneMapper.dst")
+
+    if voxel_chain["output_resolution"] > 0:
+        default_framebuffer = (voxel_chain["output_resolution"], voxel_chain["output_resolution"])
+    else:
+        default_framebuffer = (1920, 1080)
+
+    apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer, voxel_chain)
     return g
 
 
@@ -840,14 +884,18 @@ def render_graph_stage4():
     scene_hint = resolve_scene_hint()
     camera_plan = resolve_camera_plan(scene_hint)
     output_mode, output_pipeline = resolve_output_mode()
+    graph_pipeline = resolve_graph_pipeline(output_pipeline)
 
     print("[HybridMeshVoxel] scene hint:", scene_hint if scene_hint else "<empty>")
     print("[HybridMeshVoxel] output mode:", output_mode)
+    print("[HybridMeshVoxel] graph pipeline:", graph_pipeline)
     if os.environ.get("HYBRID_REFERENCE_VIEW", "").strip():
         print("[HybridMeshVoxel] reference view:", os.environ["HYBRID_REFERENCE_VIEW"].strip())
 
-    if output_pipeline == "mesh":
+    if graph_pipeline == "mesh":
         return render_graph_mesh_view(scene_hint, camera_plan)
+    if graph_pipeline == "voxel":
+        return render_graph_voxel_view(scene_hint, camera_plan)
     return render_graph_hybrid(scene_hint, camera_plan, output_mode)
 
 
