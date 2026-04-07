@@ -21,9 +21,10 @@ sceneBuilder.addMeshInstance(
     floorGeometry
 )
 
-grid_rows = 10
-grid_cols = 10
-spacing = 0.34
+grid_rows = 5
+grid_cols = 5
+spacing = 0.765
+bunny_scale = 3.10
 
 for row in range(grid_rows):
     for col in range(grid_cols):
@@ -37,7 +38,7 @@ for row in range(grid_rows):
                 Transform(
                     translation=float3(x, -0.068, z),
                     rotationEulerDeg=float3(0.0, yaw, 0.0),
-                    scaling=1.55,
+                    scaling=bunny_scale,
                 ),
             ),
             bunnyGeometry,

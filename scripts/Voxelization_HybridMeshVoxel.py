@@ -618,6 +618,7 @@ def create_voxel_chain(scene_hint):
     allow_cache_fallback = env_bool("HYBRID_ALLOW_CACHE_FALLBACK", False)
     cache_plan = choose_cache_plan(scene_hint, voxel_backend, allow_cache_fallback)
     explicit_cache_file = resolve_explicit_voxel_cache_file()
+    cpu_scene_name = os.environ.get("HYBRID_CPU_SCENE_NAME", "Auto").strip() or "Auto"
     voxel_pass_name = "VoxelizationPass_CPU" if voxel_backend == "CPU" else "VoxelizationPass_GPU"
     voxel_pass_props = {}
     predicted_bin_file = ""
@@ -628,7 +629,7 @@ def create_voxel_chain(scene_hint):
         cpu_voxel_resolution = env_int("HYBRID_CPU_VOXEL_RESOLUTION", cache_plan["voxel_resolution"] or 128)
         cpu_sample_frequency = env_int("HYBRID_CPU_SAMPLE_FREQUENCY", cache_plan["sample_frequency"] or 256)
         voxel_pass_props = {
-            "sceneName": "Auto",
+            "sceneName": cpu_scene_name,
             "voxelResolution": cpu_voxel_resolution,
             "sampleFrequency": cpu_sample_frequency,
             "polygonPerFrame": env_int("HYBRID_CPU_POLYGON_PER_FRAME", 256000),

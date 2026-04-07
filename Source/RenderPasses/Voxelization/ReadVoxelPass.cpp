@@ -15,6 +15,12 @@ struct LegacyVoxelData
     SphericalFunc totalProjAreaFunc;
 };
 
+bool doesGridLayoutRequireRecompile(const GridData& current, const GridData& loaded)
+{
+    return current.voxelCount.x != loaded.voxelCount.x || current.voxelCount.y != loaded.voxelCount.y || current.voxelCount.z != loaded.voxelCount.z ||
+           current.solidVoxelCount != loaded.solidVoxelCount;
+}
+
 }; // namespace
 
 ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
@@ -261,16 +267,21 @@ bool ReadVoxelPass::tryQueueAutoBinFile()
 
     size_t offset = 0;
     size_t fileSize = std::filesystem::file_size(mAutoBinFile);
-    if (!tryRead(f, offset, sizeof(GridData), &gridData, fileSize))
+    GridData loadedGridData = {};
+    if (!tryRead(f, offset, sizeof(GridData), &loadedGridData, fileSize))
         return false;
 
     f.close();
+
+    const bool requiresRecompile = doesGridLayoutRequireRecompile(gridData, loadedGridData);
+    gridData = loadedGridData;
 
     filePaths.clear();
     filePaths.push_back(mAutoBinFile);
     selectedFile = 0;
 
-    requestRecompile();
+    if (requiresRecompile)
+        requestRecompile();
     mComplete = false;
     mOptionsChanged = true;
     mAutoBinFileQueued = true;
