@@ -38,6 +38,7 @@ namespace Mogwai
         using UniquePtr = std::unique_ptr<Extension>;
         static UniquePtr create(Renderer* pRenderer);
 
+        void beginFrame(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo) override;
         void renderUI(Gui* pGui) override;
         bool mouseEvent(const MouseEvent& e) override;
         bool keyboardEvent(const KeyboardEvent& e) override;
@@ -62,6 +63,7 @@ namespace Mogwai
         bool mShowConsole = false;
         bool mShowTime = false;
         bool mShowWinSize = false;
+        bool mPendingOpenProfiler = false;
         uint2 mMousePosition;
     };
 }
