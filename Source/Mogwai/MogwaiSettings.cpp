@@ -145,15 +145,6 @@ namespace Mogwai
         winSizeUI(w, mpRenderer);
     }
 
-    void MogwaiSettings::beginFrame(RenderContext* pRenderContext, const ref<Fbo>& pTargetFbo)
-    {
-        if (!mPendingOpenProfiler)
-            return;
-
-        mpRenderer->getDevice()->getProfiler()->setEnabled(true);
-        mPendingOpenProfiler = false;
-    }
-
     void MogwaiSettings::renderTimeSettings(Gui* pGui)
     {
         Gui::Window w(pGui, "Time", mShowTime, { 0, 0 }, { 350, 25 }, Gui::WindowFlags::AllowMove | Gui::WindowFlags::AutoResize | Gui::WindowFlags::ShowTitleBar | Gui::WindowFlags::CloseButton);
@@ -215,7 +206,7 @@ namespace Mogwai
             }
 
             if (w.button("Edit")) mpRenderer->openEditor();
-            if (w.button("Open Profiler", true)) mPendingOpenProfiler = true;
+            if (w.button("Open Profiler", true)) mpRenderer->requestProfilerState(true);
             if (w.button("Remove", true))
             {
                 mpRenderer->removeActiveGraph();
