@@ -1,4 +1,5 @@
 import falcor
+import math
 import os
 import re
 
@@ -112,6 +113,49 @@ HYBRID_MESH_EXECUTION_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_MESH_ONLY
 HYBRID_VOXEL_EXECUTION_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_VOXEL_ONLY
 
 
+def find_repo_root_from(start_path):
+    if not start_path:
+        return None
+
+    current = os.path.abspath(start_path)
+    if os.path.isfile(current):
+        current = os.path.dirname(current)
+
+    while current:
+        if os.path.isdir(os.path.join(current, "resource")) and os.path.isdir(os.path.join(current, "scripts")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+
+    return None
+
+
+def resolve_repo_root():
+    for candidate in (
+        os.environ.get("HYBRID_REPO_ROOT", "").strip(),
+        globals().get("__file__"),
+        os.getcwd(),
+    ):
+        repo_root = find_repo_root_from(candidate)
+        if repo_root:
+            return repo_root
+
+    return os.getcwd()
+
+
+REPO_ROOT = resolve_repo_root()
+
+
+def get_repo_root():
+    return REPO_ROOT
+
+
+def get_resource_dir():
+    return os.path.join(get_repo_root(), "resource")
+
+
 def resolve_output_mode():
     requested = (os.environ.get("HYBRID_OUTPUT_MODE", "Composite").strip() or "Composite").lower()
     if requested == "meshview":
@@ -132,7 +176,7 @@ CACHE_NAME_RE = re.compile(r"^(?P<prefix>.+)_\((?P<x>\d+), (?P<y>\d+), (?P<z>\d+
 
 
 def list_scene_cache_infos(scene_name_hint=""):
-    resource_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resource")
+    resource_dir = get_resource_dir()
     infos = []
     if not os.path.isdir(resource_dir):
         return resource_dir, infos
@@ -198,6 +242,45 @@ def choose_cache_plan(scene_name_hint="", backend="CPU", allow_fallback=False):
         "voxel_resolution": inferred_resolution,
         "sample_frequency": inferred_sample_frequency,
     }
+
+
+def get_scene_name_hint(scene, scene_hint):
+    if scene_hint:
+        return scene_hint
+
+    try:
+        return os.path.basename(str(scene.path)).split(".")[0]
+    except Exception:
+        return ""
+
+
+def format_cache_filename(scene_name_hint, voxel_count, sample_frequency, backend):
+    return f"{scene_name_hint}_({voxel_count[0]}, {voxel_count[1]}, {voxel_count[2]})_{sample_frequency}.bin_{backend}"
+
+
+def predict_cache_path(scene, scene_hint, voxel_resolution, sample_frequency, backend):
+    if scene is None or voxel_resolution <= 0 or sample_frequency <= 0:
+        return ""
+
+    scene_name_hint = get_scene_name_hint(scene, scene_hint)
+    if not scene_name_hint:
+        return ""
+
+    bounds = scene.bounds
+    diag_x = (bounds.maxPoint.x - bounds.minPoint.x) * 1.02
+    diag_y = (bounds.maxPoint.y - bounds.minPoint.y) * 1.02
+    diag_z = (bounds.maxPoint.z - bounds.minPoint.z) * 1.02
+    longest_axis = max(diag_x, diag_y, diag_z)
+    if longest_axis <= 0.0:
+        return ""
+
+    voxel_size = longest_axis / float(voxel_resolution)
+    voxel_count = (
+        max(1, int(math.ceil(diag_x / voxel_size))),
+        max(1, int(math.ceil(diag_y / voxel_size))),
+        max(1, int(math.ceil(diag_z / voxel_size))),
+    )
+    return os.path.join(get_resource_dir(), format_cache_filename(scene_name_hint, voxel_count, sample_frequency, backend))
 
 
 def resolve_scene_hint():
@@ -269,6 +352,17 @@ def normalize_route_name(route_name):
     if key in ROUTE_NAME_MAP:
         return ROUTE_NAME_MAP[key]
     raise RuntimeError(f"Unsupported route name: {route_name}. Expected one of: Blend, MeshOnly, VoxelOnly")
+
+
+def resolve_force_all_route():
+    raw_value = os.environ.get("HYBRID_FORCE_ALL_ROUTE", "").strip()
+    if not raw_value:
+        return None
+    return normalize_route_name(raw_value)
+
+
+def resolve_explicit_voxel_cache_file():
+    return os.environ.get("HYBRID_VOXEL_CACHE_FILE", "").strip()
 
 
 def parse_route_overrides():
@@ -378,7 +472,23 @@ def apply_reference_routes(scene, scene_hint):
     return True
 
 
-def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None):
+def apply_force_all_route(scene, route_name):
+    if scene is None or not route_name:
+        return True
+
+    instance_infos = list(scene.get_geometry_instance_infos())
+    for info in instance_infos:
+        scene.set_geometry_instance_route(info["instance_id"], route_name)
+
+    print(
+        "[HybridMeshVoxel] forced instance route:",
+        route_name,
+        f"(count={len(instance_infos)})",
+    )
+    return True
+
+
+def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None, voxel_chain=None):
     hide_ui = env_bool("HYBRID_HIDE_UI", False)
     default_width, default_height = default_framebuffer if default_framebuffer else (0, 0)
     framebuffer_width = env_int("HYBRID_FRAMEBUFFER_WIDTH", default_width)
@@ -390,26 +500,49 @@ def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None):
     if framebuffer_width > 0 and framebuffer_height > 0:
         m.resizeFrameBuffer(framebuffer_width, framebuffer_height)
 
+    forced_route = resolve_force_all_route()
     route_specs = resolve_reference_routes(scene_hint)
-    wait_for_scene_hint = not bool(scene_hint)
-    if not camera_plan and not route_specs and not wait_for_scene_hint:
+    wait_for_scene_hint = not bool(scene_hint) and bool(camera_plan or route_specs or forced_route)
+    wait_for_voxel_cache = bool(voxel_chain and voxel_chain.get("needs_scene_cache_path"))
+    if not camera_plan and not route_specs and not forced_route and not wait_for_scene_hint and not wait_for_voxel_cache:
         return
 
     setup_state = {
         "camera_done": camera_plan is None,
-        "routes_done": not route_specs and not wait_for_scene_hint,
+        "routes_done": not route_specs and not forced_route and not wait_for_scene_hint,
+        "cache_path_done": not wait_for_voxel_cache,
     }
 
     def apply_scene_setup_once(scene, current_time):
         if scene is None:
             return
 
+        effective_scene_hint = scene_hint or resolve_scene_hint()
+
+        if not setup_state["cache_path_done"] and effective_scene_hint:
+            predicted_path = predict_cache_path(
+                scene,
+                effective_scene_hint,
+                voxel_chain["voxel_resolution"],
+                voxel_chain["sample_frequency"],
+                voxel_chain["backend"],
+            )
+            if predicted_path:
+                try:
+                    m.activeGraph.updatePass("ReadVoxelPass", {"binFile": predicted_path})
+                    voxel_chain["read_bin_file"] = predicted_path
+                    print("[HybridMeshVoxel] predicted voxel cache:", predicted_path)
+                except Exception as ex:
+                    print("[HybridMeshVoxel] failed to update ReadVoxelPass binFile:", ex)
+                setup_state["cache_path_done"] = True
+
         if not setup_state["routes_done"]:
-            effective_scene_hint = scene_hint or resolve_scene_hint()
             effective_route_specs = resolve_reference_routes(effective_scene_hint)
+            if forced_route:
+                apply_force_all_route(scene, forced_route)
             if effective_route_specs:
                 setup_state["routes_done"] = apply_reference_routes(scene, effective_scene_hint)
-            elif effective_scene_hint:
+            elif forced_route or effective_scene_hint:
                 setup_state["routes_done"] = True
 
         if not setup_state["camera_done"] and scene.camera is not None:
@@ -429,7 +562,7 @@ def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None):
                 camera_plan["reference_view"] if camera_plan["reference_view"] else "<explicit>",
             )
 
-        if setup_state["camera_done"] and setup_state["routes_done"]:
+        if setup_state["camera_done"] and setup_state["routes_done"] and setup_state["cache_path_done"]:
             m.sceneUpdateCallback = None
 
     try:
@@ -437,7 +570,7 @@ def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None):
     except Exception:
         pass
 
-    if not (setup_state["camera_done"] and setup_state["routes_done"]):
+    if not (setup_state["camera_done"] and setup_state["routes_done"] and setup_state["cache_path_done"]):
         m.sceneUpdateCallback = apply_scene_setup_once
 
 
@@ -484,8 +617,12 @@ def create_voxel_chain(scene_hint):
     voxel_backend = resolve_voxel_backend()
     allow_cache_fallback = env_bool("HYBRID_ALLOW_CACHE_FALLBACK", False)
     cache_plan = choose_cache_plan(scene_hint, voxel_backend, allow_cache_fallback)
+    explicit_cache_file = resolve_explicit_voxel_cache_file()
     voxel_pass_name = "VoxelizationPass_CPU" if voxel_backend == "CPU" else "VoxelizationPass_GPU"
     voxel_pass_props = {}
+    predicted_bin_file = ""
+    cpu_voxel_resolution = 0
+    cpu_sample_frequency = 0
 
     if voxel_backend == "CPU":
         cpu_voxel_resolution = env_int("HYBRID_CPU_VOXEL_RESOLUTION", cache_plan["voxel_resolution"] or 128)
@@ -501,10 +638,16 @@ def create_voxel_chain(scene_hint):
                 bool(cache_plan["desired_path"]) and not cache_plan["desired_exists"],
             ),
         }
+        predicted_bin_file = ""
+        try:
+            predicted_bin_file = predict_cache_path(m.scene, scene_hint, cpu_voxel_resolution, cpu_sample_frequency, voxel_backend)
+        except Exception:
+            predicted_bin_file = ""
 
     voxel_output_resolution = env_int("HYBRID_VOXEL_OUTPUT_RESOLUTION", 0)
     voxel_pass = createPass(voxel_pass_name, voxel_pass_props)
-    read_pass = createPass("ReadVoxelPass", {"binFile": cache_plan["bin_file"]} if cache_plan["bin_file"] else {})
+    read_bin_file = explicit_cache_file or cache_plan["bin_file"] or predicted_bin_file
+    read_pass = createPass("ReadVoxelPass", {"binFile": read_bin_file} if read_bin_file else {})
     marching_pass = createPass(
         "RayMarchingDirectAOPass",
         {
@@ -533,7 +676,11 @@ def create_voxel_chain(scene_hint):
         "output_resolution": voxel_output_resolution,
         "voxel_pass": voxel_pass,
         "read_pass": read_pass,
+        "read_bin_file": read_bin_file,
         "marching_pass": marching_pass,
+        "voxel_resolution": cpu_voxel_resolution if voxel_backend == "CPU" else 0,
+        "sample_frequency": cpu_sample_frequency if voxel_backend == "CPU" else 0,
+        "needs_scene_cache_path": voxel_backend == "CPU" and not bool(explicit_cache_file) and not bool(read_bin_file) and bool(voxel_pass_props.get("autoGenerate", False)),
     }
 
 
@@ -684,7 +831,7 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
     else:
         default_framebuffer = (1920, 1080)
 
-    apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer)
+    apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer, voxel_chain)
     return g
 
 

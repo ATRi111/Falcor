@@ -33,3 +33,7 @@
 *.tlog
 *.bak
 *.swp
+
+# Notebook drafts.
+/docs/notebook_draft/日记/
+/docs/notebook_draft/周记/

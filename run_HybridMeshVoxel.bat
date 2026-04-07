@@ -1,48 +1,36 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-REM 一键打开 plan5 HybridMeshVoxel 调试入口
-REM 用法：
+REM MultiBunny one-click launcher.
+REM Usage:
 REM   run_HybridMeshVoxel.bat
-REM   run_HybridMeshVoxel.bat cornell
-REM   run_HybridMeshVoxel.bat "E:\path\to\scene.pyscene" voxelrouteid far
+REM   run_HybridMeshVoxel.bat mesh
+REM   run_HybridMeshVoxel.bat voxel
 
-set "MOGWAI=E:\GraduateDesign\Falcor_Cp\build\windows-vs2022\bin\Release\Mogwai.exe"
-set "SCRIPT=E:\GraduateDesign\Falcor_Cp\scripts\Voxelization_HybridMeshVoxel.py"
-set "DEFAULT_SCENE=E:\GraduateDesign\Falcor_Cp\Scene\Arcade\Arcade.pyscene"
-set "ARCADE_CACHE=E:\GraduateDesign\Falcor_Cp\resource\Arcade_(256, 171, 256)_256.bin_CPU"
+set "REPO_ROOT=E:\GraduateDesign\Falcor_Cp"
+set "MOGWAI=%REPO_ROOT%\build\windows-vs2022\bin\Release\Mogwai.exe"
+set "SCENE=%REPO_ROOT%\Scene\MultiBunny.pyscene"
+set "SCRIPT_MESH=%REPO_ROOT%\scripts\Voxelization_MultiBunny_MeshRoute.py"
+set "SCRIPT_VOXEL=%REPO_ROOT%\scripts\Voxelization_MultiBunny_VoxelRoute.py"
+set "VOXEL_CACHE=%REPO_ROOT%\resource\MultiBunny_(128, 8, 128)_128.bin_CPU"
 
 if "%~1"=="" (
-    set "SCENE=%DEFAULT_SCENE%"
+    set "MODE=mesh"
 ) else (
-    if /i "%~1"=="cornell" (
-        set "SCENE=E:\GraduateDesign\Falcor_Cp\Scene\Box\CornellBox.pyscene"
+    set "MODE=%~1"
+)
+
+if /i "%MODE%"=="mesh" (
+    set "SCRIPT=%SCRIPT_MESH%"
+) else (
+    if /i "%MODE%"=="voxel" (
+        set "SCRIPT=%SCRIPT_VOXEL%"
     ) else (
-        set "SCENE=%~1"
+        echo Usage:
+        echo   run_HybridMeshVoxel.bat [mesh^|voxel]
+        exit /b 1
     )
 )
-
-if "%~2"=="" (
-    set "HYBRID_OUTPUT_MODE=composite"
-) else (
-    set "HYBRID_OUTPUT_MODE=%~2"
-)
-
-if "%~3"=="" (
-    set "HYBRID_REFERENCE_VIEW=near"
-) else (
-    set "HYBRID_REFERENCE_VIEW=%~3"
-)
-
-for %%I in ("%SCENE%") do set "HYBRID_SCENE_HINT=%%~nI"
-set "HYBRID_SCENE_PATH=%SCENE%"
-set "HYBRID_VOXELIZATION_BACKEND=CPU"
-set "HYBRID_HIDE_UI=0"
-set "HYBRID_FRAMEBUFFER_WIDTH=1600"
-set "HYBRID_FRAMEBUFFER_HEIGHT=900"
-set "HYBRID_CPU_VOXEL_RESOLUTION=256"
-set "HYBRID_CPU_SAMPLE_FREQUENCY=256"
-set "HYBRID_CPU_AUTO_GENERATE=0"
 
 if not exist "%MOGWAI%" (
     echo Error: Mogwai executable not found:
@@ -51,7 +39,7 @@ if not exist "%MOGWAI%" (
 )
 
 if not exist "%SCRIPT%" (
-    echo Error: Hybrid script not found:
+    echo Error: Script not found:
     echo   %SCRIPT%
     exit /b 1
 )
@@ -62,25 +50,26 @@ if not exist "%SCENE%" (
     exit /b 1
 )
 
-if /i "%HYBRID_SCENE_HINT%"=="Arcade" (
-    if not exist "!ARCADE_CACHE!" (
-        set "HYBRID_CPU_AUTO_GENERATE=1"
-        echo Warning: Arcade CPU cache is missing.
-        echo          This launch will regenerate the cache at:
-        echo          !ARCADE_CACHE!
-        echo          Relaunch once after generation finishes to validate the new cache content.
+set "HYBRID_REPO_ROOT=%REPO_ROOT%"
+set "HYBRID_SCENE_PATH=%SCENE%"
+set "HYBRID_SCENE_HINT=MultiBunny"
+set "HYBRID_FRAMEBUFFER_WIDTH=1600"
+set "HYBRID_FRAMEBUFFER_HEIGHT=900"
+
+if /i "%MODE%"=="voxel" (
+    if not exist "!VOXEL_CACHE!" (
+        echo Warning: MultiBunny voxel cache is missing.
+        echo          First launch will generate:
+        echo          !VOXEL_CACHE!
+        echo          Relaunch once after generation finishes to view the generated cache.
         echo.
     )
 )
 
-echo Starting Mogwai (HybridMeshVoxel)...
+echo Starting Mogwai (MultiBunny)...
+echo   Mode:   %MODE%
 echo   Script: %SCRIPT%
 echo   Scene:  %SCENE%
-echo   Hint:   %HYBRID_SCENE_HINT%
-echo   Mode:   %HYBRID_OUTPUT_MODE%
-echo   View:   %HYBRID_REFERENCE_VIEW%
-echo   Backend: %HYBRID_VOXELIZATION_BACKEND%
-echo   AutoGenerate: %HYBRID_CPU_AUTO_GENERATE%
 echo.
 
 "%MOGWAI%" --script "%SCRIPT%" --scene "%SCENE%" --width=1600 --height=900
