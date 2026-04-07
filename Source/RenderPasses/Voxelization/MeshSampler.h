@@ -5,6 +5,7 @@
 #include "Math/Polygon.slang"
 #include "Math/Triangle.slang"
 #include "Math/SphericalHarmonics.slang"
+#include <atomic>
 #include <unordered_map>
 
 using namespace Falcor;
@@ -12,7 +13,7 @@ using namespace Falcor;
 class PolygonGenerator
 {
 private:
-    GridData& gridData;
+    GridData gridData;
 
 public:
     std::vector<VoxelData> gBuffer;
@@ -20,9 +21,11 @@ public:
     std::vector<std::vector<Polygon>> polygonArrays;
     std::vector<PolygonRange> polygonRangeBuffer;
 
-    PolygonGenerator() : gridData(VoxelizationBase::GlobalGridData)
+    explicit PolygonGenerator(const GridData& gridData = VoxelizationBase::GlobalGridData) : gridData(gridData)
     {
     }
+
+    const GridData& getGridData() const { return gridData; }
 
     void reset()
     {
@@ -30,6 +33,9 @@ public:
         vBuffer.clear();
         polygonArrays.clear();
         polygonRangeBuffer.clear();
+        gridData.solidVoxelCount = 0;
+        gridData.maxPolygonCount = 0;
+        gridData.totalPolygonCount = 0;
         vBuffer.assign(gridData.totalVoxelCount(), -1);
     }
 
@@ -77,10 +83,26 @@ public:
         }
     }
 
-    void clipMesh(const InstanceHeader& instance, float3* pPos, float3* pNormal, float2* pUV, uint3* pIndex)
+    bool clipMesh(
+        const InstanceHeader& instance,
+        float3* pPos,
+        float3* pNormal,
+        float2* pUV,
+        uint3* pIndex,
+        const std::atomic_bool* pCancelRequested = nullptr,
+        std::atomic<uint64_t>* pProcessedTriangles = nullptr
+    )
     {
+        uint64_t pendingProgress = 0;
         for (uint tid = 0; tid < instance.triangleCount; tid++)
         {
+            if (pCancelRequested && pCancelRequested->load(std::memory_order_relaxed))
+            {
+                if (pProcessedTriangles && pendingProgress > 0)
+                    pProcessedTriangles->fetch_add(pendingProgress, std::memory_order_relaxed);
+                return false;
+            }
+
             Triangle tri = {};
             uint3 indices = pIndex[tid + instance.triangleOffset];
             tri.vertices[0] = math::transformPoint(instance.worldMatrix, pPos[indices.x]);
@@ -100,15 +122,38 @@ public:
             }
             tri.buildTBN();
             clip(instance, tid, tri);
+
+            pendingProgress++;
+            if (pProcessedTriangles && pendingProgress >= 64)
+            {
+                pProcessedTriangles->fetch_add(pendingProgress, std::memory_order_relaxed);
+                pendingProgress = 0;
+            }
         }
+
+        if (pProcessedTriangles && pendingProgress > 0)
+            pProcessedTriangles->fetch_add(pendingProgress, std::memory_order_relaxed);
+
+        return true;
     }
 
-    void clipAll(SceneHeader scene, const std::vector<InstanceHeader>& instanceList, float3* pPos, float3* pNormal, float2* pUV, uint3* pTri)
+    bool clipAll(
+        SceneHeader scene,
+        const std::vector<InstanceHeader>& instanceList,
+        float3* pPos,
+        float3* pNormal,
+        float2* pUV,
+        uint3* pTri,
+        const std::atomic_bool* pCancelRequested = nullptr,
+        std::atomic<uint64_t>* pProcessedTriangles = nullptr
+    )
     {
         for (size_t i = 0; i < instanceList.size(); i++)
         {
-            clipMesh(instanceList[i], pPos, pNormal, pUV, pTri);
+            if (!clipMesh(instanceList[i], pPos, pNormal, pUV, pTri, pCancelRequested, pProcessedTriangles))
+                return false;
         }
         gridData.solidVoxelCount = gBuffer.size();
+        return true;
     }
 };

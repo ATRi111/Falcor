@@ -30,8 +30,12 @@ private:
     ref<ComputePass> mSampleMeshPass;
     ref<ComputePass> mClipPolygonPass;
 
-    ref<Buffer> vBuffer; // GPU上的vBuffer对于CPU管线来说不需要
+    ref<Buffer> vBuffer; // GPU-side vBuffer is not needed by the CPU path.
     ref<Buffer> polygonCountBuffer;
     std::vector<uint> vBuffer_CPU;
     double mSolidRate;
+
+protected:
+    virtual size_t estimatePeakWorkingSetBytes() const override;
+    virtual const char* getGenerationBackendName() const override { return "GPU voxelization"; }
 };

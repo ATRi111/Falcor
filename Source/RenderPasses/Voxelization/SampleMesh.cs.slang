@@ -17,6 +17,7 @@ RWStructuredBuffer<VoxelData> gBuffer;
 RWStructuredBuffer<uint> polygonCountBuffer;
 RWStructuredBuffer<uint> gBufferLock;
 RWStructuredBuffer<uint> solidVoxelCount; // 单元素缓冲区
+RWStructuredBuffer<uint> overflowFlag; // 单元素缓冲区
 SamplerState s;
 
 cbuffer GridData
@@ -24,6 +25,7 @@ cbuffer GridData
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
+    uint maxSolidVoxelCount;
 };
 
 cbuffer MeshData
@@ -39,11 +41,14 @@ cbuffer MeshData
 
 int tryGetOffset(int3 cellInt)
 {
+    static const int kOverflowSentinel = -3;
     int index = CellToIndex(cellInt, voxelCount);
 
     int v = vBuffer[index];
     if (v >= 0)
         return v;
+    if (v == kOverflowSentinel)
+        return -1;
 
     int original;
     InterlockedCompareExchange(vBuffer[index], -1, -2, original); //-2表示分配中
@@ -52,6 +57,14 @@ int tryGetOffset(int3 cellInt)
         uint offset;
         InterlockedAdd(solidVoxelCount[0], 1u, offset);
 
+        if (offset >= maxSolidVoxelCount)
+        {
+            uint old;
+            InterlockedExchange(overflowFlag[0], 1u, old);
+            vBuffer[index] = kOverflowSentinel;
+            return -1;
+        }
+
         vBuffer[index] = (int)offset;
         return (int)offset;
     }
@@ -59,7 +72,7 @@ int tryGetOffset(int3 cellInt)
     while ((v = vBuffer[index]) == -2)
     {
     }
-    return v;
+    return v >= 0 ? v : -1;
 }
 
 float4 sampleTextureArea(TextureHandle handle, float2 uv, float uvArea, float4 uniformValue)
@@ -104,6 +117,8 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
     ABSDFInput input = { baseColor, spec, normal, polygon.calcArea() };
 
     int offset = tryGetOffset(cellInt);
+    if (offset < 0)
+        return;
 #if !DISABLE_LOCK
     uint old;
     do

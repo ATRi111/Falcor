@@ -11,9 +11,9 @@ repo_root = Path(__file__).resolve().parent.parent
 
 set_default_env("HYBRID_REPO_ROOT", str(repo_root))
 set_default_env("HYBRID_SCENE_PATH", str(repo_root / "Scene" / "MultiBunny.pyscene"))
-set_default_env("HYBRID_SCENE_HINT", "MultiBunnySparseLerp")
-set_default_env("HYBRID_CPU_SCENE_NAME", "MultiBunnySparseLerp")
-set_default_env("HYBRID_VOXEL_CACHE_FILE", str(repo_root / "resource" / "MultiBunnySparseLerp_(128, 16, 128)_128.bin_CPU"))
+set_default_env("HYBRID_SCENE_HINT", "MultiBunnyDense1p5Lerp")
+set_default_env("HYBRID_CPU_SCENE_NAME", "MultiBunnyDense1p5Lerp")
+set_default_env("HYBRID_VOXEL_CACHE_FILE", str(repo_root / "resource" / "MultiBunnyDense1p5Lerp_(128, 16, 128)_128.bin_CPU"))
 set_default_env("HYBRID_FORCE_ALL_ROUTE", "VoxelOnly")
 set_default_env("HYBRID_PIPELINE_MODE", "voxel")
 set_default_env("HYBRID_OUTPUT_MODE", "voxelonly")

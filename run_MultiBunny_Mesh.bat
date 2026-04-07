@@ -12,7 +12,7 @@ set "MOGWAI=%REPO_ROOT%\build\windows-vs2022\bin\Release\Mogwai.exe"
 set "SCENE=%REPO_ROOT%\Scene\MultiBunny.pyscene"
 set "SCRIPT_MESH=%REPO_ROOT%\scripts\Voxelization_MultiBunny_MeshRoute.py"
 set "SCRIPT_VOXEL=%REPO_ROOT%\scripts\Voxelization_MultiBunny_VoxelRoute.py"
-set "VOXEL_CACHE=%REPO_ROOT%\resource\MultiBunnySparseLerp_(128, 16, 128)_128.bin_CPU"
+set "VOXEL_CACHE=%REPO_ROOT%\resource\MultiBunnyDense1p5Lerp_(128, 16, 128)_128.bin_CPU"
 
 if "%~1"=="" (
     set "MODE=mesh"
@@ -52,8 +52,8 @@ if not exist "%SCENE%" (
 
 set "HYBRID_REPO_ROOT=%REPO_ROOT%"
 set "HYBRID_SCENE_PATH=%SCENE%"
-set "HYBRID_SCENE_HINT=MultiBunnySparseLerp"
-set "HYBRID_CPU_SCENE_NAME=MultiBunnySparseLerp"
+set "HYBRID_SCENE_HINT=MultiBunnyDense1p5Lerp"
+set "HYBRID_CPU_SCENE_NAME=MultiBunnyDense1p5Lerp"
 set "HYBRID_VOXEL_CACHE_FILE=%VOXEL_CACHE%"
 set "HYBRID_FRAMEBUFFER_WIDTH=1600"
 set "HYBRID_FRAMEBUFFER_HEIGHT=900"

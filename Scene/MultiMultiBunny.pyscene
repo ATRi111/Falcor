@@ -23,14 +23,14 @@ sceneBuilder.addMeshInstance(
     floorGeometry
 )
 
-target_density_multiplier = 1.5
-base_grid_rows = 5
-base_grid_cols = 5
-base_spacing = 0.765
-base_bunny_scale = 3.10
+target_density_multiplier = 2.0
+base_grid_rows = 6
+base_grid_cols = 6
+base_spacing = 0.599635089033322
+base_bunny_scale = 2.4298938248409123
 
-grid_rows = 6
-grid_cols = 6
+grid_rows = 8
+grid_cols = 8
 layout_scale = math.sqrt(
     (grid_rows * grid_cols * (base_grid_rows - 1) * (base_grid_cols - 1))
     / (base_grid_rows * base_grid_cols * (grid_rows - 1) * (grid_cols - 1) * target_density_multiplier)

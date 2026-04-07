@@ -28,6 +28,15 @@ protected:
     void beginGeneration();
     std::filesystem::path getOutputFilePath();
     void write(std::string fileName, void* gBuffer, void* vBuffer, void* pBlockMap);
+    void failGeneration(const std::string& reason);
+    bool validateGenerationPlan(std::string& reason) const;
+    virtual size_t estimatePeakWorkingSetBytes() const;
+    virtual const char* getGenerationBackendName() const { return "Voxelization"; }
+    virtual bool canFinalizeVoxelizationStage() const { return true; }
+    virtual void onVoxelizationStageFinalized() {}
+    virtual bool canCancelGeneration() const { return false; }
+    virtual void cancelGeneration() {}
+    virtual std::string getGenerationStatusText() const { return {}; }
     ref<ComputePass> mAnalyzePolygonPass;
 
     ref<Device> mpDevice;
@@ -53,4 +62,7 @@ protected:
     uint mCompleteTimes;
     bool mLerpNormal;
     bool mAutoGenerate;
+    bool mHighMemoryMode;
+    bool mGenerationFailed;
+    std::string mGenerationFailureReason;
 };
