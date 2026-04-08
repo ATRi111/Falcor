@@ -37,3 +37,6 @@
 # Notebook drafts.
 /docs/notebook_draft/日记/
 /docs/notebook_draft/周记/
+
+# Agent validation captures.
+/.FORAGENT/validation/
