@@ -8,7 +8,6 @@ import Utils.Math.MathHelpers;
 Texture2D<float4> gMeshColor;
 Texture2D<float4> gMeshPosW;
 Texture2D<float4> gVoxelColor;
-Texture2D<float4> gBlendMask;
 Texture2D<PackedHitInfo> gVBuffer;
 Texture2D<float> gVoxelDepth;
 Texture2D<float4> gVoxelNormal;
@@ -23,15 +22,14 @@ cbuffer PerFrameCB
 static const uint kViewModeComposite = 0;
 static const uint kViewModeMeshOnly = 1;
 static const uint kViewModeVoxelOnly = 2;
-static const uint kViewModeBlendMask = 3;
-static const uint kViewModeRouteDebug = 4;
-static const uint kViewModeVoxelDepth = 5;
-static const uint kViewModeVoxelNormal = 6;
-static const uint kViewModeVoxelConfidence = 7;
-static const uint kViewModeVoxelRouteID = 8;
-static const uint kViewModeVoxelInstanceID = 9;
-static const uint kViewModeObjectMismatch = 10;
-static const uint kViewModeDepthMismatch = 11;
+static const uint kViewModeRouteDebug = 3;
+static const uint kViewModeVoxelDepth = 4;
+static const uint kViewModeVoxelNormal = 5;
+static const uint kViewModeVoxelConfidence = 6;
+static const uint kViewModeVoxelRouteID = 7;
+static const uint kViewModeVoxelInstanceID = 8;
+static const uint kViewModeObjectMismatch = 9;
+static const uint kViewModeDepthMismatch = 10;
 static const uint kInvalidVoxelInstanceID = 0xffffffffu;
 static const float kMinDepthTolerance = 0.20f;
 static const float kRelativeDepthTolerance = 0.05f;
@@ -49,9 +47,6 @@ struct CompositeState
     float voxelDepth;
     float voxelConfidence;
 
-    float baseMeshWeight;
-    float effectiveMeshWeight;
-    float effectiveVoxelWeight;
     float depthAgreement;
 
     bool objectMatch;
@@ -172,8 +167,7 @@ float3 evalVoxelInstanceDebugColor(int2 pixelPos)
 CompositeState evalCompositeState(int2 pixelPos)
 {
     CompositeState state = {};
-    state.route = GeometryInstanceRenderRoute::Blend;
-    state.baseMeshWeight = saturate(gBlendMask.Load(int3(pixelPos, 0)).x);
+    state.route = GeometryInstanceRenderRoute::MeshOnly;
     state.voxelDepth = gVoxelDepth.Load(int3(pixelPos, 0));
     state.voxelHitValid = state.voxelDepth > 0.f;
     state.voxelConfidence = getVoxelConfidence(pixelPos);
@@ -190,57 +184,40 @@ CompositeState evalCompositeState(int2 pixelPos)
             state.route = gScene.getGeometryInstanceRenderRoute(meshHit.getInstanceID());
         }
     }
+    else if (state.voxelIdentityValid)
+    {
+        const GeometryInstanceID geometryInstanceID = { state.voxelInstanceID };
+        state.route = gScene.getGeometryInstanceRenderRoute(geometryInstanceID);
+    }
 
     state.depthAgreement = (state.meshHitValid && state.voxelHitValid) ? evalDepthAgreement(state.meshDepth, state.voxelDepth) : 0.f;
     state.objectMatch = state.meshHitValid && state.voxelIdentityValid && state.meshInstanceID == state.voxelInstanceID;
     state.objectMismatch = state.meshHitValid && state.voxelIdentityValid && state.meshInstanceID != state.voxelInstanceID;
-
-    switch (state.route)
-    {
-    case GeometryInstanceRenderRoute::MeshOnly:
-        state.effectiveMeshWeight = 1.f;
-        state.effectiveVoxelWeight = 0.f;
-        break;
-    case GeometryInstanceRenderRoute::VoxelOnly:
-        state.effectiveMeshWeight = 0.f;
-        state.effectiveVoxelWeight = 1.f;
-        break;
-    case GeometryInstanceRenderRoute::Blend:
-    default:
-        if (!state.meshHitValid)
-        {
-            state.effectiveVoxelWeight = state.voxelHitValid ? 1.f : 0.f;
-        }
-        else if (state.voxelHitValid && state.objectMatch)
-        {
-            state.effectiveVoxelWeight = saturate((1.f - state.baseMeshWeight) * state.voxelConfidence * state.depthAgreement);
-        }
-        else
-        {
-            state.effectiveVoxelWeight = 0.f;
-        }
-        state.effectiveMeshWeight = 1.f - state.effectiveVoxelWeight;
-        break;
-    }
 
     return state;
 }
 
 float3 evalCompositeColor(float3 meshColor, float3 voxelColor, CompositeState state)
 {
-    if (!state.meshHitValid)
-        return voxelColor;
-
-    switch (state.route)
+    if (state.meshHitValid && state.voxelHitValid)
     {
-    case GeometryInstanceRenderRoute::MeshOnly:
+        if (state.meshDepth <= 0.f)
+            return voxelColor;
+        if (state.voxelDepth <= 0.f)
+            return meshColor;
+
+        const float depthTolerance = evalDepthTolerance(state.meshDepth, state.voxelDepth);
+        if (state.voxelDepth + depthTolerance < state.meshDepth)
+            return voxelColor;
+
         return meshColor;
-    case GeometryInstanceRenderRoute::VoxelOnly:
-        return voxelColor;
-    case GeometryInstanceRenderRoute::Blend:
-    default:
-        return lerp(meshColor, voxelColor, state.effectiveVoxelWeight);
     }
+
+    if (state.meshHitValid)
+        return meshColor;
+    if (state.voxelHitValid)
+        return voxelColor;
+    return 0.f;
 }
 
 float3 evalRouteDebugColor(CompositeState state, float3 compositeColor)
@@ -251,26 +228,6 @@ float3 evalRouteDebugColor(CompositeState state, float3 compositeColor)
     const float luma = dot(compositeColor, float3(0.299f, 0.587f, 0.114f));
     const float3 routeColor = getRouteDebugColor(state.route);
     return lerp(saturate(luma).xxx * 0.25f, routeColor, 0.85f);
-}
-
-float3 evalBlendMaskDebugColor(CompositeState state)
-{
-    if (!state.meshHitValid && !state.voxelHitValid)
-        return 0.f;
-
-    if (!state.meshHitValid)
-        return lerp(float3(0.05f, 0.05f, 0.05f), getRouteDebugColor(GeometryInstanceRenderRoute::VoxelOnly), state.effectiveVoxelWeight);
-
-    switch (state.route)
-    {
-    case GeometryInstanceRenderRoute::MeshOnly:
-        return getRouteDebugColor(state.route);
-    case GeometryInstanceRenderRoute::VoxelOnly:
-        return getRouteDebugColor(state.route);
-    case GeometryInstanceRenderRoute::Blend:
-    default:
-        return lerp(getRouteDebugColor(GeometryInstanceRenderRoute::VoxelOnly), getRouteDebugColor(GeometryInstanceRenderRoute::MeshOnly), state.effectiveMeshWeight);
-    }
 }
 
 float3 evalObjectMismatchDebugColor(CompositeState state)
@@ -319,9 +276,6 @@ float4 main(float2 texCoord : TEXCOORD, float4 pos : SV_Position) : SV_Target0
         break;
     case kViewModeVoxelOnly:
         color = voxelColor.rgb;
-        break;
-    case kViewModeBlendMask:
-        color = evalBlendMaskDebugColor(state);
         break;
     case kViewModeRouteDebug:
         color = evalRouteDebugColor(state, compositeColor);

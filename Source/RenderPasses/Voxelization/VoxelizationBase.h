@@ -48,6 +48,9 @@ inline std::string kPBuffer = "pBuffer";
 inline std::string kPolygonBuffer = "polygonBuffer";
 inline std::string kPolygonRangeBuffer = "polygonRangeBuffer";
 inline std::string kBlockMap = "blockMap";
+inline std::string kSolidVoxelCellBuffer = "solidVoxelCellBuffer";
+inline std::string kResolvedBlockMap = "resolvedBlockMap";
+inline std::string kSolidVoxelAcceptedRouteMask = "solidVoxelAcceptedRouteMask";
 inline bool gVoxelizationFilesUpdated = true;
 inline bool gVoxelizationLightChanged = true;
 

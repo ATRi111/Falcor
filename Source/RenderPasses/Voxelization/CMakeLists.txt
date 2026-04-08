@@ -57,6 +57,9 @@ target_sources(Voxelization PRIVATE
 
     ReadVoxelPass.cpp
     ReadVoxelPass.h
+    VoxelRoutePreparePass.cpp
+    VoxelRoutePreparePass.h
+    VoxelRoutePrepare.cs.slang
 )
 target_copy_shaders(Voxelization RenderPasses/Voxelization)
 target_source_group(Voxelization "RenderPasses")

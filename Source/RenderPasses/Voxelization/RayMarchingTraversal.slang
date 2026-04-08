@@ -19,12 +19,16 @@ bool isAcceptedVoxelOffset(int offset)
     if (instanceRouteMask == kAllInstanceRouteMask)
         return true;
 
+#if USE_ACCEPTED_ROUTE_MASK_BUFFER
+    return (solidVoxelAcceptedRouteMask[offset] & instanceRouteMask) != 0u;
+#else
     if (bsdf.identityConfidence <= 0.f || bsdf.dominantInstanceID == kInvalidVoxelInstanceID)
         return true;
 
     GeometryInstanceID instanceID = { bsdf.dominantInstanceID };
     const GeometryInstanceRenderRoute route = gScene.getGeometryInstanceRenderRoute(instanceID);
     return (instanceRouteMask & getGeometryInstanceRenderRouteBit(route)) != 0u;
+#endif
 }
 
 bool isSolidVoxel(int3 cellInt, out int offset)
@@ -39,7 +43,13 @@ bool isSolidBlock(int3 blockInt)
 {
     int component = blockInt.z / 32;
     uint value = 1 << blockInt.z % 32;
-    uint4 zMap = blockMap[blockInt.xy];
+    uint4 zMap;
+#if USE_RESOLVED_BLOCK_BUFFER
+    const uint blockCountX = (voxelCount.x + BLOCK_TO_VOXEL - 1) / BLOCK_TO_VOXEL;
+    zMap = resolvedBlockMap[blockInt.x + blockInt.y * blockCountX];
+#else
+    zMap = blockMap[blockInt.xy];
+#endif
     switch (component)
     {
     case 0:

@@ -66,6 +66,12 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Uint)
         .texture2D(gridData.blockCount().x, gridData.blockCount().y);
 
+    reflector.addOutput(kSolidVoxelCellBuffer, "Solid voxel cell coordinates")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.solidVoxelCount * sizeof(int3))
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
     return reflector;
 }
 
@@ -110,6 +116,29 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     uint* vBuffer = new uint[gridData.totalVoxelCount()];
     tryRead(f, offset, gridData.totalVoxelCount() * sizeof(uint), vBuffer, fileSize);
     pVBuffer->setSubresourceBlob(0, vBuffer, gridData.totalVoxelCount() * sizeof(uint));
+
+    ref<Buffer> pSolidVoxelCellBuffer = renderData.getResource(kSolidVoxelCellBuffer) ? renderData.getResource(kSolidVoxelCellBuffer)->asBuffer() : nullptr;
+    std::vector<int3> solidVoxelCells;
+    if (pSolidVoxelCellBuffer)
+    {
+        solidVoxelCells.resize(gridData.solidVoxelCount, int3(0));
+        const uint3 dims = gridData.voxelCount;
+        const size_t xyStride = size_t(dims.x) * size_t(dims.y);
+        for (size_t linearIndex = 0; linearIndex < voxelCount; ++linearIndex)
+        {
+            const int voxelOffset = static_cast<int>(vBuffer[linearIndex]);
+            if (voxelOffset < 0 || voxelOffset >= static_cast<int>(gridData.solidVoxelCount))
+                continue;
+
+            const uint z = uint(linearIndex / xyStride);
+            const size_t xyIndex = linearIndex - size_t(z) * xyStride;
+            const uint y = uint(xyIndex / dims.x);
+            const uint x = uint(xyIndex - size_t(y) * dims.x);
+            solidVoxelCells[size_t(voxelOffset)] = int3(int(x), int(y), int(z));
+        }
+        pSolidVoxelCellBuffer->setBlob(solidVoxelCells.data(), 0, solidVoxelCells.size() * sizeof(int3));
+    }
+    delete[] vBuffer;
 
     const size_t currentVoxelDataBytes = size_t(gridData.solidVoxelCount) * sizeof(VoxelData);
     const size_t legacyVoxelDataBytes = size_t(gridData.solidVoxelCount) * sizeof(LegacyVoxelData);

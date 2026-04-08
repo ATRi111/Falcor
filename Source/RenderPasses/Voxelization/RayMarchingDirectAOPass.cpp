@@ -60,8 +60,8 @@ RayMarchingDirectAOPass::RayMarchingDirectAOPass(ref<Device> pDevice, const Prop
     mDrawMode = static_cast<uint32_t>(RayMarchingDirectAODrawMode::Combined);
     mShadowBias100 = 0.01f;
     mCheckEllipsoid = true;
-    mCheckVisibility = true;
-    mCheckCoverage = true;
+    mCheckVisibility = false;
+    mCheckCoverage = false;
     mUseMipmap = true;
     mRenderBackground = true;
     mAOEnabled = true;
@@ -179,6 +179,18 @@ RenderPassReflection RayMarchingDirectAOPass::reflect(const CompileData& compile
         .format(ResourceFormat::RGBA32Uint)
         .texture2D(gridData.blockCount().x, gridData.blockCount().y);
 
+    reflector.addInput(kResolvedBlockMap, "Resolved voxel block map")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.totalBlockCount() * sizeof(uint4))
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
+    reflector.addInput(kSolidVoxelAcceptedRouteMask, "Accepted route mask per solid voxel")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.solidVoxelCount * sizeof(uint32_t))
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
     reflector.addOutput(kOutputColor, "Color")
         .bindFlags(ResourceBindFlags::RenderTarget)
         .format(ResourceFormat::RGBA32Float)
@@ -282,7 +294,23 @@ void RayMarchingDirectAOPass::execute(RenderContext* pRenderContext, const Rende
     var[kVBuffer] = renderData.getTexture(kVBuffer);
     var[kGBuffer] = renderData.getResource(kGBuffer)->asBuffer();
     var[kPBuffer] = renderData.getResource(kPBuffer)->asBuffer();
-    var[kBlockMap] = renderData.getTexture(kBlockMap);
+    ref<Texture> pTraversalBlockMap = renderData.getTexture(kBlockMap);
+    ref<Buffer> pResolvedBlockMap;
+    ref<Buffer> pSolidVoxelAcceptedRouteMask;
+    const bool useResolvedBlockMap = !dict.getValue(kHybridRequireFullVoxelSource, false) && renderData.getResource(kResolvedBlockMap) != nullptr;
+    const bool useAcceptedRouteMask =
+        !dict.getValue(kHybridRequireFullVoxelSource, false) && renderData.getResource(kSolidVoxelAcceptedRouteMask) != nullptr;
+    if (useResolvedBlockMap)
+        pResolvedBlockMap = renderData.getResource(kResolvedBlockMap)->asBuffer();
+    mpFullScreenPass->addDefine("USE_RESOLVED_BLOCK_BUFFER", useResolvedBlockMap ? "1" : "0");
+    mpFullScreenPass->addDefine("USE_ACCEPTED_ROUTE_MASK_BUFFER", useAcceptedRouteMask ? "1" : "0");
+    if (useAcceptedRouteMask)
+        pSolidVoxelAcceptedRouteMask = renderData.getResource(kSolidVoxelAcceptedRouteMask)->asBuffer();
+    var[kBlockMap] = pTraversalBlockMap;
+    if (pResolvedBlockMap)
+        var[kResolvedBlockMap] = pResolvedBlockMap;
+    if (pSolidVoxelAcceptedRouteMask)
+        var[kSolidVoxelAcceptedRouteMask] = pSolidVoxelAcceptedRouteMask;
 
     auto cbGridData = var["GridData"];
     cbGridData["gridMin"] = gridData.gridMin;

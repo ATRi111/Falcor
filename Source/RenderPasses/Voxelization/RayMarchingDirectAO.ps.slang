@@ -3,11 +3,11 @@
 #endif
 
 #ifndef CHECK_VISIBILITY
-#define CHECK_VISIBILITY 1
+#define CHECK_VISIBILITY 0
 #endif
 
 #ifndef CHECK_COVERAGE
-#define CHECK_COVERAGE 1
+#define CHECK_COVERAGE 0
 #endif
 
 #ifndef USE_MIP_MAP
@@ -28,6 +28,8 @@ Texture3D<int> vBuffer;
 StructuredBuffer<PrimitiveBSDF> gBuffer;
 StructuredBuffer<Ellipsoid> pBuffer;
 Texture2D<uint4> blockMap;
+StructuredBuffer<uint4> resolvedBlockMap;
+StructuredBuffer<uint> solidVoxelAcceptedRouteMask;
 
 cbuffer GridData
 {

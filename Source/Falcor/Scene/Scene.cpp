@@ -325,11 +325,65 @@ void Scene::setGeometryInstanceRenderRoute(uint32_t instanceID, GeometryInstance
         updateGeometryInstances(true);
 }
 
+void Scene::setGeometryInstanceRenderRoutes(const std::vector<std::pair<uint32_t, GeometryInstanceRenderRoute>>& updates)
+{
+    bool changed = false;
+    for (const auto& [instanceID, route] : updates)
+    {
+        FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+        auto& instance = mGeometryInstanceData[instanceID];
+        if (instance.getRenderRoute() == route)
+            continue;
+
+        instance.setRenderRoute(route);
+        changed = true;
+    }
+
+    if (!changed)
+        return;
+
+    clearFilteredDrawArgsCache();
+
+    if (mpGeometryInstancesBuffer)
+        updateGeometryInstances(true);
+}
+
 std::string Scene::getGeometryInstanceNodeName(uint32_t instanceID) const
 {
     FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
     const uint32_t nodeID = mGeometryInstanceData[instanceID].globalMatrixID;
     return nodeID < mSceneGraph.size() ? mSceneGraph[nodeID].name : std::string();
+}
+
+AABB Scene::getGeometryInstanceBounds(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+
+    const auto& instance = mGeometryInstanceData[instanceID];
+    const auto& globalMatrices = mpAnimationController->getGlobalMatrices();
+    FALCOR_CHECK(instance.globalMatrixID < globalMatrices.size(), "'globalMatrixID' ({}) is out of range.", instance.globalMatrixID);
+    const float4x4& transform = globalMatrices[instance.globalMatrixID];
+
+    switch (instance.getType())
+    {
+    case GeometryType::TriangleMesh:
+    case GeometryType::DisplacedTriangleMesh:
+        return mMeshBBs[instance.geometryID].transform(transform);
+    case GeometryType::Curve:
+        return mCurveBBs[instance.geometryID].transform(transform);
+    case GeometryType::SDFGrid:
+    {
+        float3x3 transform3x3 = float3x3(transform);
+        transform3x3[0] = abs(transform3x3[0]);
+        transform3x3[1] = abs(transform3x3[1]);
+        transform3x3[2] = abs(transform3x3[2]);
+        const float3 center = transform.getCol(3).xyz();
+        const float3 halfExtent = transformVector(transform3x3, float3(0.5f));
+        return AABB(center - halfExtent, center + halfExtent);
+    }
+    default:
+        return {};
+    }
 }
 
 std::string Scene::getGeometryInstanceGeometryName(uint32_t instanceID) const
@@ -4589,9 +4643,15 @@ inline GeometryInstanceRenderRoute parseGeometryInstanceRoutePython(const std::s
     FALCOR_THROW("Unsupported geometry instance route '{}'. Expected MeshOnly, VoxelOnly, or Blend.", value);
 }
 
+inline pybind11::tuple toPythonFloat3(const float3& value)
+{
+    return pybind11::make_tuple(value.x, value.y, value.z);
+}
+
 inline pybind11::dict toPythonGeometryInstanceInfo(const Scene& scene, uint32_t instanceID)
 {
     const auto& instance = scene.getGeometryInstance(instanceID);
+    const AABB bounds = scene.getGeometryInstanceBounds(instanceID);
 
     pybind11::dict info;
     info["instance_id"] = instanceID;
@@ -4602,6 +4662,10 @@ inline pybind11::dict toPythonGeometryInstanceInfo(const Scene& scene, uint32_t 
     info["geometry_name"] = scene.getGeometryInstanceGeometryName(instanceID);
     info["material_name"] = scene.getGeometryInstanceMaterialName(instanceID);
     info["route"] = geometryInstanceRouteToPythonString(instance.getRenderRoute());
+    info["bounds_min"] = toPythonFloat3(bounds.minPoint);
+    info["bounds_max"] = toPythonFloat3(bounds.maxPoint);
+    info["bounds_center"] = toPythonFloat3(bounds.center());
+    info["bounds_radius"] = bounds.valid() ? bounds.radius() : 0.f;
     return info;
 }
 
@@ -4810,6 +4874,22 @@ FALCOR_SCRIPT_BINDING(Scene)
         },
         "instance_id"_a,
         "route"_a
+    );
+    scene.def(
+        "set_geometry_instance_routes",
+        [](Scene* pScene, const pybind11::dict& updates)
+        {
+            std::vector<std::pair<uint32_t, GeometryInstanceRenderRoute>> parsed;
+            parsed.reserve(pybind11::len(updates));
+            for (auto item : updates)
+            {
+                const uint32_t instanceID = item.first.cast<uint32_t>();
+                const std::string route = item.second.cast<std::string>();
+                parsed.emplace_back(instanceID, parseGeometryInstanceRoutePython(route));
+            }
+            pScene->setGeometryInstanceRenderRoutes(parsed);
+        },
+        "updates"_a
     );
 
     // Materials

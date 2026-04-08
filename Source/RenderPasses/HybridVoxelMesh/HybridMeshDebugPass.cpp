@@ -26,7 +26,6 @@
  # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **************************************************************************/
 #include "HybridMeshDebugPass.h"
-#include "HybridBlendMaskPass.h"
 #include "HybridCompositePass.h"
 #include "MeshStyleDirectAOPass.h"
 
@@ -64,7 +63,6 @@ void registerBindings(pybind11::module& m)
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
     registry.registerClass<RenderPass, HybridMeshDebugPass>();
-    registry.registerClass<RenderPass, HybridBlendMaskPass>();
     registry.registerClass<RenderPass, HybridCompositePass>();
     registry.registerClass<RenderPass, MeshStyleDirectAOPass>();
     ScriptBindings::registerBinding(registerBindings);

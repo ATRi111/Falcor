@@ -85,7 +85,6 @@ COMPOSITE_VIEW_MODES = {
     "composite": "Composite",
     "meshonly": "MeshOnly",
     "voxelonly": "VoxelOnly",
-    "blendmask": "BlendMask",
     "routedebug": "RouteDebug",
     "voxeldepth": "VoxelDepth",
     "voxelnormal": "VoxelNormal",
@@ -99,7 +98,6 @@ COMPOSITE_VIEW_MODES = {
 }
 
 ROUTE_NAME_MAP = {
-    "blend": "Blend",
     "mesh": "MeshOnly",
     "meshonly": "MeshOnly",
     "voxel": "VoxelOnly",
@@ -110,8 +108,8 @@ ROUTE_MASK_BLEND = 1 << 0
 ROUTE_MASK_MESH_ONLY = 1 << 1
 ROUTE_MASK_VOXEL_ONLY = 1 << 2
 ALL_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_MESH_ONLY | ROUTE_MASK_VOXEL_ONLY
-HYBRID_MESH_EXECUTION_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_MESH_ONLY
-HYBRID_VOXEL_EXECUTION_ROUTE_MASK = ROUTE_MASK_BLEND | ROUTE_MASK_VOXEL_ONLY
+HYBRID_MESH_EXECUTION_ROUTE_MASK = ROUTE_MASK_MESH_ONLY
+HYBRID_VOXEL_EXECUTION_ROUTE_MASK = ROUTE_MASK_VOXEL_ONLY
 
 
 def find_repo_root_from(start_path):
@@ -171,6 +169,11 @@ def resolve_output_mode():
 def resolve_graph_pipeline(default_pipeline):
     requested = (os.environ.get("HYBRID_PIPELINE_MODE", "").strip() or "default").lower()
     if requested in ("default", "auto"):
+        forced_route = resolve_force_all_route()
+        if default_pipeline == "hybrid" and forced_route == "MeshOnly" and os.environ.get("HYBRID_OUTPUT_MODE", "Composite").strip().lower() == "composite":
+            return "mesh"
+        if default_pipeline == "hybrid" and forced_route == "VoxelOnly" and os.environ.get("HYBRID_OUTPUT_MODE", "Composite").strip().lower() == "composite":
+            return "voxel"
         return default_pipeline
 
     if requested in ("mesh", "hybrid", "voxel"):
@@ -363,7 +366,7 @@ def normalize_route_name(route_name):
     key = (route_name or "").strip().lower()
     if key in ROUTE_NAME_MAP:
         return ROUTE_NAME_MAP[key]
-    raise RuntimeError(f"Unsupported route name: {route_name}. Expected one of: Blend, MeshOnly, VoxelOnly")
+    raise RuntimeError(f"Unsupported route name: {route_name}. Expected one of: MeshOnly, VoxelOnly")
 
 
 def resolve_force_all_route():
@@ -371,6 +374,10 @@ def resolve_force_all_route():
     if not raw_value:
         return None
     return normalize_route_name(raw_value)
+
+
+def resolve_lod_switch_distance():
+    return env_float("HYBRID_LOD_SWITCH_DISTANCE", 2.375)
 
 
 def resolve_explicit_voxel_cache_file():
@@ -440,35 +447,39 @@ def try_match_reference_instances(instance_infos, match_name):
     return [], "none"
 
 
-def apply_reference_routes(scene, scene_hint):
-    route_specs = resolve_reference_routes(scene_hint)
-    if scene is None or not route_specs:
-        return True
-
+def capture_authoring_route_state(scene, scene_hint, forced_route):
     instance_infos = list(scene.get_geometry_instance_infos())
+    explicit_route_by_instance = {}
     applied = []
     unresolved = []
 
-    for spec in route_specs:
-        instance_ids, match_mode = try_match_reference_instances(instance_infos, spec["match"])
-        if not instance_ids:
-            unresolved.append(spec["match"])
-            continue
-
-        for instance_id in instance_ids:
-            scene.set_geometry_instance_route(instance_id, spec["route"])
-
-        applied.append(
-            {
-                "label": spec["label"],
-                "route": spec["route"],
-                "instance_ids": instance_ids,
-                "match_mode": match_mode,
-            }
+    if forced_route:
+        print(
+            "[HybridMeshVoxel] forced resolved route:",
+            forced_route,
+            f"(count={len(instance_infos)})",
         )
+    else:
+        for spec in resolve_reference_routes(scene_hint):
+            instance_ids, match_mode = try_match_reference_instances(instance_infos, spec["match"])
+            if not instance_ids:
+                unresolved.append(spec["match"])
+                continue
+
+            for instance_id in instance_ids:
+                explicit_route_by_instance[instance_id] = spec["route"]
+
+            applied.append(
+                {
+                    "label": spec["label"],
+                    "route": spec["route"],
+                    "instance_ids": instance_ids,
+                    "match_mode": match_mode,
+                }
+            )
 
     if applied:
-        print("[HybridMeshVoxel] reference routes:")
+        print("[HybridMeshVoxel] fixed route overrides:")
         for item in applied:
             print(
                 "  -",
@@ -481,26 +492,102 @@ def apply_reference_routes(scene, scene_hint):
     if unresolved:
         print("[HybridMeshVoxel] unresolved route refs:", ", ".join(unresolved))
 
-    return True
-
-
-def apply_force_all_route(scene, route_name):
-    if scene is None or not route_name:
-        return True
-
-    instance_infos = list(scene.get_geometry_instance_infos())
+    entries = []
+    auto_lod_count = 0
     for info in instance_infos:
-        scene.set_geometry_instance_route(info["instance_id"], route_name)
+        base_route = forced_route or explicit_route_by_instance.get(info["instance_id"], info["route"])
+        if base_route == "Blend":
+            auto_lod_count += 1
+
+        entries.append(
+            {
+                "instance_id": info["instance_id"],
+                "base_route": base_route,
+                "current_route": info["route"],
+                "center": tuple(info["bounds_center"]),
+                "radius": float(info["bounds_radius"]),
+            }
+        )
 
     print(
-        "[HybridMeshVoxel] forced instance route:",
-        route_name,
-        f"(count={len(instance_infos)})",
+        "[HybridMeshVoxel] LOD authoring:",
+        f"instances={len(entries)}",
+        f"auto={auto_lod_count}",
+        f"switch={resolve_lod_switch_distance():.3f}",
     )
-    return True
+
+    return {
+        "entries": entries,
+        "auto_lod_count": auto_lod_count,
+        "switch_distance": resolve_lod_switch_distance(),
+        "last_counts": None,
+    }
 
 
-def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None, voxel_chain=None):
+def resolve_lod_route(entry, camera, switch_distance):
+    base_route = entry["base_route"]
+    if base_route != "Blend":
+        return base_route
+
+    camera_position = camera.position
+    dx = entry["center"][0] - camera_position.x
+    dy = entry["center"][1] - camera_position.y
+    dz = entry["center"][2] - camera_position.z
+    view_direction = None
+    try:
+        camera_target = camera.target
+        fx = camera_target.x - camera_position.x
+        fy = camera_target.y - camera_position.y
+        fz = camera_target.z - camera_position.z
+        forward_length = math.sqrt(fx * fx + fy * fy + fz * fz)
+        if forward_length > 1e-6:
+            view_direction = (fx / forward_length, fy / forward_length, fz / forward_length)
+    except Exception:
+        view_direction = None
+
+    if view_direction is not None:
+        center_distance = dx * view_direction[0] + dy * view_direction[1] + dz * view_direction[2]
+    else:
+        center_distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    surface_distance = max(0.0, center_distance - max(0.0, entry["radius"]))
+    return "MeshOnly" if surface_distance < switch_distance else "VoxelOnly"
+
+
+def apply_resolved_lod_routes(scene, route_state):
+    if scene is None or scene.camera is None or route_state is None:
+        return
+
+    switch_distance = resolve_lod_switch_distance()
+    if abs(route_state["switch_distance"] - switch_distance) > 1e-6:
+        route_state["switch_distance"] = switch_distance
+        route_state["last_counts"] = None
+
+    updates = {}
+    counts = {"MeshOnly": 0, "VoxelOnly": 0}
+    camera = scene.camera
+
+    for entry in route_state["entries"]:
+        desired_route = resolve_lod_route(entry, camera, route_state["switch_distance"])
+        counts[desired_route] += 1
+        if desired_route != entry["current_route"]:
+            updates[entry["instance_id"]] = desired_route
+            entry["current_route"] = desired_route
+
+    if updates:
+        scene.set_geometry_instance_routes(updates)
+
+    if route_state["last_counts"] != counts:
+        print(
+            "[HybridMeshVoxel] resolved routes:",
+            f"mesh={counts['MeshOnly']}",
+            f"voxel={counts['VoxelOnly']}",
+            f"switch={route_state['switch_distance']:.3f}",
+        )
+        route_state["last_counts"] = counts
+
+
+def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None, voxel_chain=None, enable_lod_routes=False):
     hide_ui = env_bool("HYBRID_HIDE_UI", False)
     default_width, default_height = default_framebuffer if default_framebuffer else (0, 0)
     framebuffer_width = env_int("HYBRID_FRAMEBUFFER_WIDTH", default_width)
@@ -513,16 +600,15 @@ def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None, 
         m.resizeFrameBuffer(framebuffer_width, framebuffer_height)
 
     forced_route = resolve_force_all_route()
-    route_specs = resolve_reference_routes(scene_hint)
-    wait_for_scene_hint = not bool(scene_hint) and bool(camera_plan or route_specs or forced_route)
+    wait_for_scene_hint = not bool(scene_hint) and bool(camera_plan or forced_route or os.environ.get("HYBRID_ROUTE_OVERRIDES", "").strip())
     wait_for_voxel_cache = bool(voxel_chain and voxel_chain.get("needs_scene_cache_path"))
-    if not camera_plan and not route_specs and not forced_route and not wait_for_scene_hint and not wait_for_voxel_cache:
+    if not enable_lod_routes and not camera_plan and not forced_route and not os.environ.get("HYBRID_ROUTE_OVERRIDES", "").strip() and not wait_for_scene_hint and not wait_for_voxel_cache:
         return
 
     setup_state = {
         "camera_done": camera_plan is None,
-        "routes_done": not route_specs and not forced_route and not wait_for_scene_hint,
         "cache_path_done": not wait_for_voxel_cache,
+        "route_state": None,
     }
 
     def apply_scene_setup_once(scene, current_time):
@@ -548,15 +634,6 @@ def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None, 
                     print("[HybridMeshVoxel] failed to update ReadVoxelPass binFile:", ex)
                 setup_state["cache_path_done"] = True
 
-        if not setup_state["routes_done"]:
-            effective_route_specs = resolve_reference_routes(effective_scene_hint)
-            if forced_route:
-                apply_force_all_route(scene, forced_route)
-            if effective_route_specs:
-                setup_state["routes_done"] = apply_reference_routes(scene, effective_scene_hint)
-            elif forced_route or effective_scene_hint:
-                setup_state["routes_done"] = True
-
         if not setup_state["camera_done"] and scene.camera is not None:
             camera = scene.camera
             if camera_plan["position"] is not None:
@@ -574,7 +651,14 @@ def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None, 
                 camera_plan["reference_view"] if camera_plan["reference_view"] else "<explicit>",
             )
 
-        if setup_state["camera_done"] and setup_state["routes_done"] and setup_state["cache_path_done"]:
+        if (enable_lod_routes or forced_route or os.environ.get("HYBRID_ROUTE_OVERRIDES", "").strip()) and setup_state["route_state"] is None and effective_scene_hint:
+            setup_state["route_state"] = capture_authoring_route_state(scene, effective_scene_hint, forced_route)
+
+        if setup_state["route_state"] is not None:
+            apply_resolved_lod_routes(scene, setup_state["route_state"])
+
+        keep_updating_routes = enable_lod_routes and (setup_state["route_state"] is None or setup_state["route_state"]["auto_lod_count"] > 0)
+        if setup_state["camera_done"] and setup_state["cache_path_done"] and not keep_updating_routes:
             m.sceneUpdateCallback = None
 
     try:
@@ -582,7 +666,8 @@ def apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer=None, 
     except Exception:
         pass
 
-    if not (setup_state["camera_done"] and setup_state["routes_done"] and setup_state["cache_path_done"]):
+    keep_updating_routes = enable_lod_routes and (setup_state["route_state"] is None or setup_state["route_state"]["auto_lod_count"] > 0)
+    if not (setup_state["camera_done"] and setup_state["cache_path_done"] and not keep_updating_routes):
         m.sceneUpdateCallback = apply_scene_setup_once
 
 
@@ -668,8 +753,8 @@ def create_voxel_chain(scene_hint, instance_route_mask=HYBRID_VOXEL_EXECUTION_RO
             "outputResolution": voxel_output_resolution,
             "instanceRouteMask": instance_route_mask,
             "checkEllipsoid": env_bool("HYBRID_VOXEL_CHECK_ELLIPSOID", True),
-            "checkVisibility": env_bool("HYBRID_VOXEL_CHECK_VISIBILITY", True),
-            "checkCoverage": env_bool("HYBRID_VOXEL_CHECK_COVERAGE", True),
+            "checkVisibility": env_bool("HYBRID_VOXEL_CHECK_VISIBILITY", False),
+            "checkCoverage": env_bool("HYBRID_VOXEL_CHECK_COVERAGE", False),
             "useMipmap": env_bool("HYBRID_VOXEL_USE_MIPMAP", True),
             "renderBackground": env_bool("HYBRID_VOXEL_RENDER_BACKGROUND", True),
             "transmittanceThreshold": env_float("HYBRID_VOXEL_TRANSMITTANCE_THRESHOLD", 5.0),
@@ -802,20 +887,14 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
     ao_direction_set = env_int("HYBRID_MESH_AO_DIRECTION_SET", 6)
     ao_contact_strength = env_float("HYBRID_MESH_AO_CONTACT_STRENGTH", 0.75)
     ao_use_stable_rotation = env_bool("HYBRID_MESH_AO_USE_STABLE_ROTATION", True)
-    blend_start_distance = env_float("HYBRID_BLEND_START_DISTANCE", 1.50)
-    blend_end_distance = env_float("HYBRID_BLEND_END_DISTANCE", 3.25)
-    blend_exponent = env_float("HYBRID_BLEND_EXPONENT", 1.0)
 
     voxel_chain = create_voxel_chain(scene_hint)
+    print("[HybridMeshVoxel] pipeline: hybrid-lod")
     print("[HybridMeshVoxel] voxel backend:", voxel_chain["backend"])
     print("[HybridMeshVoxel] voxel cache:", voxel_chain["cache_plan"]["bin_file"] if voxel_chain["cache_plan"]["bin_file"] else "<none>")
-    print(
-        "[HybridMeshVoxel] blend distances:",
-        f"{blend_start_distance:.2f} -> {blend_end_distance:.2f}",
-        f"(exp={blend_exponent:.2f})",
-    )
+    print("[HybridMeshVoxel] lod switch distance:", f"{resolve_lod_switch_distance():.3f}")
 
-    g = RenderGraph("VoxelizationHybridMeshVoxelStage4")
+    g = RenderGraph("VoxelizationHybridMeshVoxelLod")
 
     mesh_gbuffer = create_mesh_gbuffer(HYBRID_MESH_EXECUTION_ROUTE_MASK)
     mesh_style = create_mesh_style_pass(
@@ -829,35 +908,30 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
         ao_contact_strength,
         ao_use_stable_rotation,
     )
-    blend_mask = createPass(
-        "HybridBlendMaskPass",
-        {
-            "blendStartDistance": blend_start_distance,
-            "blendEndDistance": blend_end_distance,
-            "blendExponent": blend_exponent,
-        },
-    )
+    route_prepare = createPass("VoxelRoutePreparePass", {"instanceRouteMask": int(HYBRID_VOXEL_EXECUTION_ROUTE_MASK)})
     composite = createPass("HybridCompositePass", {"viewMode": output_mode})
     tone_mapper = createPass("ToneMapper", {"autoExposure": False, "exposureCompensation": 0.0})
 
     g.addPass(mesh_gbuffer, "MeshGBuffer")
     g.addPass(mesh_style, "MeshStyleDirectAOPass")
-    g.addPass(blend_mask, "HybridBlendMaskPass")
     g.addPass(voxel_chain["voxel_pass"], "VoxelizationPass")
     g.addPass(voxel_chain["read_pass"], "ReadVoxelPass")
+    g.addPass(route_prepare, "VoxelRoutePreparePass")
     g.addPass(voxel_chain["marching_pass"], "RayMarchingDirectAOPass")
     g.addPass(composite, "HybridCompositePass")
     g.addPass(tone_mapper, "ToneMapper")
 
     connect_mesh_gbuffer(g, "MeshGBuffer", "MeshStyleDirectAOPass")
-    g.addEdge("MeshGBuffer.posW", "HybridBlendMaskPass.posW")
-    g.addEdge("MeshGBuffer.vbuffer", "HybridBlendMaskPass.vbuffer")
 
     g.addEdge("VoxelizationPass.dummy", "ReadVoxelPass.dummy")
+    g.addEdge("ReadVoxelPass.gBuffer", "VoxelRoutePreparePass.gBuffer")
+    g.addEdge("ReadVoxelPass.solidVoxelCellBuffer", "VoxelRoutePreparePass.solidVoxelCellBuffer")
     g.addEdge("ReadVoxelPass.vBuffer", "RayMarchingDirectAOPass.vBuffer")
     g.addEdge("ReadVoxelPass.gBuffer", "RayMarchingDirectAOPass.gBuffer")
     g.addEdge("ReadVoxelPass.pBuffer", "RayMarchingDirectAOPass.pBuffer")
     g.addEdge("ReadVoxelPass.blockMap", "RayMarchingDirectAOPass.blockMap")
+    g.addEdge("VoxelRoutePreparePass.resolvedBlockMap", "RayMarchingDirectAOPass.resolvedBlockMap")
+    g.addEdge("VoxelRoutePreparePass.solidVoxelAcceptedRouteMask", "RayMarchingDirectAOPass.solidVoxelAcceptedRouteMask")
 
     g.addEdge("MeshStyleDirectAOPass.color", "HybridCompositePass.meshColor")
     g.addEdge("MeshGBuffer.posW", "HybridCompositePass.meshPosW")
@@ -866,7 +940,6 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
     g.addEdge("RayMarchingDirectAOPass.voxelNormal", "HybridCompositePass.voxelNormal")
     g.addEdge("RayMarchingDirectAOPass.voxelConfidence", "HybridCompositePass.voxelConfidence")
     g.addEdge("RayMarchingDirectAOPass.voxelInstanceID", "HybridCompositePass.voxelInstanceID")
-    g.addEdge("HybridBlendMaskPass.mask", "HybridCompositePass.blendMask")
     g.addEdge("MeshGBuffer.vbuffer", "HybridCompositePass.vbuffer")
     g.addEdge("HybridCompositePass.color", "ToneMapper.src")
     g.markOutput("ToneMapper.dst")
@@ -876,7 +949,7 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
     else:
         default_framebuffer = (1920, 1080)
 
-    apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer, voxel_chain)
+    apply_renderer_overrides(scene_hint, camera_plan, default_framebuffer, voxel_chain, enable_lod_routes=True)
     return g
 
 

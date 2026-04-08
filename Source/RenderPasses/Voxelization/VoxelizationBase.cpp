@@ -5,6 +5,7 @@
 #include "VoxelizationPass_CPU.h"
 #include "VoxelizationPass_GPU.h"
 #include "ReadVoxelPass.h"
+#include "VoxelRoutePreparePass.h"
 
 extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registry)
 {
@@ -13,6 +14,7 @@ extern "C" FALCOR_API_EXPORT void registerPlugin(Falcor::PluginRegistry& registr
     registry.registerClass<RenderPass, VoxelizationPass_CPU>();
     registry.registerClass<RenderPass, VoxelizationPass_GPU>();
     registry.registerClass<RenderPass, ReadVoxelPass>();
+    registry.registerClass<RenderPass, VoxelRoutePreparePass>();
 }
 
 GridData VoxelizationBase::GlobalGridData = {};

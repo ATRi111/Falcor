@@ -620,11 +620,22 @@ namespace Falcor
         */
         void setGeometryInstanceRenderRoute(uint32_t instanceID, GeometryInstanceRenderRoute route);
 
+        /** Set render routes for multiple geometry instances and upload the updated instance buffer once.
+            \param[in] updates Pairs of instance IDs and routes to apply.
+        */
+        void setGeometryInstanceRenderRoutes(const std::vector<std::pair<uint32_t, GeometryInstanceRenderRoute>>& updates);
+
         /** Get the scene-graph node name backing a geometry instance.
             \param[in] instanceID Global geometry instance ID.
             \return Node name or empty string if unavailable.
         */
         std::string getGeometryInstanceNodeName(uint32_t instanceID) const;
+
+        /** Get the world-space bounds of a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return World-space bounds or an invalid AABB if unavailable.
+        */
+        AABB getGeometryInstanceBounds(uint32_t instanceID) const;
 
         /** Get a human-readable geometry name for a geometry instance.
             \param[in] instanceID Global geometry instance ID.

@@ -36,7 +36,6 @@ const char kViewMode[] = "viewMode";
 const char kInputMeshColor[] = "meshColor";
 const char kInputMeshPosW[] = "meshPosW";
 const char kInputVoxelColor[] = "voxelColor";
-const char kInputBlendMask[] = "blendMask";
 const char kInputVBuffer[] = "vbuffer";
 const char kInputVoxelDepth[] = "voxelDepth";
 const char kInputVoxelNormal[] = "voxelNormal";
@@ -51,7 +50,6 @@ bool requiresFullMeshSource(HybridCompositePass::ViewMode viewMode)
     switch (viewMode)
     {
     case HybridCompositePass::ViewMode::MeshOnly:
-    case HybridCompositePass::ViewMode::BlendMask:
     case HybridCompositePass::ViewMode::RouteDebug:
     case HybridCompositePass::ViewMode::ObjectMismatch:
     case HybridCompositePass::ViewMode::DepthMismatch:
@@ -66,7 +64,6 @@ bool requiresFullVoxelSource(HybridCompositePass::ViewMode viewMode)
     switch (viewMode)
     {
     case HybridCompositePass::ViewMode::VoxelOnly:
-    case HybridCompositePass::ViewMode::BlendMask:
     case HybridCompositePass::ViewMode::VoxelDepth:
     case HybridCompositePass::ViewMode::VoxelNormal:
     case HybridCompositePass::ViewMode::VoxelConfidence:
@@ -110,7 +107,6 @@ RenderPassReflection HybridCompositePass::reflect(const CompileData& compileData
     reflector.addInput(kInputMeshColor, "Mesh style color").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputMeshPosW, "Mesh world position").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputVoxelColor, "Voxel baseline color").bindFlags(ResourceBindFlags::ShaderResource);
-    reflector.addInput(kInputBlendMask, "Mesh blend weight").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputVBuffer, "Mesh visibility buffer").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputVoxelDepth, "Voxel depth").bindFlags(ResourceBindFlags::ShaderResource);
     reflector.addInput(kInputVoxelNormal, "Voxel normal").bindFlags(ResourceBindFlags::ShaderResource);
@@ -149,7 +145,6 @@ void HybridCompositePass::execute(RenderContext* pRenderContext, const RenderDat
     var["gMeshColor"] = renderData.getTexture(kInputMeshColor);
     var["gMeshPosW"] = renderData.getTexture(kInputMeshPosW);
     var["gVoxelColor"] = renderData.getTexture(kInputVoxelColor);
-    var["gBlendMask"] = renderData.getTexture(kInputBlendMask);
     var["gVBuffer"] = renderData.getTexture(kInputVBuffer);
     var["gVoxelDepth"] = renderData.getTexture(kInputVoxelDepth);
     var["gVoxelNormal"] = renderData.getTexture(kInputVoxelNormal);
