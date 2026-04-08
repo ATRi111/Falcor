@@ -229,6 +229,54 @@ float evalStableAO(HitResult hit, float3 mainNormal, float3 faceNormal)
     return lerp(1.0f, contactAO * macroAO, saturate(aoStrength));
 }
 
+float calcSceneLightVisibility(HitResult hit, float3 lightDir, float3 viewDir, float3 faceNormal, float distance, uint selfInstanceID)
+{
+    const float lightIgnoreDistance = 2.0f;
+    const float NdotL = saturate(dot(orientNormal(faceNormal, lightDir), lightDir));
+    const float NdotV = saturate(dot(orientNormal(faceNormal, viewDir), viewDir));
+    const float receiverGrazing = max(1.0f - NdotL, 1.0f - NdotV);
+    const float receiverIgnoreDistance = lerp(0.20f, 0.90f, receiverGrazing);
+    const float sameObjectIgnoreDistance = lerp(0.75f, 2.10f, receiverGrazing);
+
+    if (distance >= 0 && distance <= lightIgnoreDistance + receiverIgnoreDistance)
+        return 1.0f;
+
+    float3 from = hit.cell + shadowBias * faceNormal + receiverIgnoreDistance * lightDir;
+    float remainingDistance = distance > 0 ? distance - lightIgnoreDistance - receiverIgnoreDistance : -1.0f;
+
+    [loop]
+    for (uint skipIndex = 0; skipIndex < 4; ++skipIndex)
+    {
+        HitResult shadowHit = rayMarching(from, lightDir, remainingDistance, true);
+        if (!shadowHit.hit)
+            return 1.0f;
+
+        uint shadowOffset = vBuffer[shadowHit.cellInt];
+        if (shadowOffset >= solidVoxelCount)
+            return 0.0f;
+
+        PrimitiveBSDF shadowBsdf = gBuffer[shadowOffset];
+        const float hitDistance = length(shadowHit.cell - hit.cell);
+        const bool sameObjectNearHit = selfInstanceID != kInvalidVoxelInstanceID &&
+            shadowBsdf.dominantInstanceID == selfInstanceID &&
+            hitDistance <= sameObjectIgnoreDistance;
+
+        if (!sameObjectNearHit)
+            return 0.0f;
+
+        const float advanceDistance = max(length(shadowHit.cell - from), 0.35f) + 0.15f;
+        from = shadowHit.cell + (shadowBias + 0.05f) * lightDir;
+        if (remainingDistance > 0.0f)
+        {
+            remainingDistance -= advanceDistance;
+            if (remainingDistance <= 0.0f)
+                return 1.0f;
+        }
+    }
+
+    return 0.0f;
+}
+
 float3 screenCoordToCell(float2 screenCoord, float ndcDepth)
 {
     float4 ndc = float4(2 * screenCoord.x - 1, 1 - 2 * screenCoord.y, ndcDepth, 1);
@@ -313,8 +361,11 @@ float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDi
         supportedLightCount++;
 
         // 距离转换为体素单位（visibility 函数用体素坐标距离）
+        const float NdotV = saturate(dot(orientNormal(faceNormal, viewDir), viewDir));
         float voxelDist = lightDistance > 0 ? lightDistance / voxelSize.x : -1;
-        float visibility = calcLightVisibility(hit, lightDir, faceNormal, voxelDist);
+        float visibility = calcSceneLightVisibility(hit, lightDir, viewDir, faceNormal, voxelDist, bsdf.dominantInstanceID);
+        const float silhouetteFade = smoothstep(0.45f, 0.85f, 1.0f - NdotV);
+        visibility = max(visibility, silhouetteFade);
         if (visibility <= 0)
             continue;
 
