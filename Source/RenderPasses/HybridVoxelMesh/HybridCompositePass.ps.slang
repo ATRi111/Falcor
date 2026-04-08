@@ -33,6 +33,8 @@ static const uint kViewModeDepthMismatch = 10;
 static const uint kInvalidVoxelInstanceID = 0xffffffffu;
 static const float kMinDepthTolerance = 0.20f;
 static const float kRelativeDepthTolerance = 0.05f;
+static const float kMinCompositeDepthEpsilon = 0.01f;
+static const float kRelativeCompositeDepthEpsilon = 0.0025f;
 
 struct CompositeState
 {
@@ -98,6 +100,11 @@ float evalMeshDepth(int2 pixelPos, out bool isValid)
 float evalDepthTolerance(float meshDepth, float voxelDepth)
 {
     return max(kMinDepthTolerance, kRelativeDepthTolerance * max(meshDepth, voxelDepth));
+}
+
+float evalCompositeDepthEpsilon(float meshDepth, float voxelDepth)
+{
+    return max(kMinCompositeDepthEpsilon, kRelativeCompositeDepthEpsilon * max(meshDepth, voxelDepth));
 }
 
 float evalDepthAgreement(float meshDepth, float voxelDepth)
@@ -206,8 +213,8 @@ float3 evalCompositeColor(float3 meshColor, float3 voxelColor, CompositeState st
         if (state.voxelDepth <= 0.f)
             return meshColor;
 
-        const float depthTolerance = evalDepthTolerance(state.meshDepth, state.voxelDepth);
-        if (state.voxelDepth + depthTolerance < state.meshDepth)
+        const float depthEpsilon = evalCompositeDepthEpsilon(state.meshDepth, state.voxelDepth);
+        if (state.voxelDepth + depthEpsilon < state.meshDepth)
             return voxelColor;
 
         return meshColor;
