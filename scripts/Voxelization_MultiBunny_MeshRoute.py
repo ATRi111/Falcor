@@ -10,8 +10,8 @@ def set_default_env(name, value):
 repo_root = Path(__file__).resolve().parent.parent
 
 set_default_env("HYBRID_REPO_ROOT", str(repo_root))
-set_default_env("HYBRID_SCENE_PATH", str(repo_root / "Scene" / "MultiBunny.pyscene"))
-set_default_env("HYBRID_SCENE_HINT", "MultiBunnyDense1p5Lerp")
+set_default_env("HYBRID_SCENE_PATH", str(repo_root / "Scene" / "MultiMultiBunny.pyscene"))
+set_default_env("HYBRID_SCENE_HINT", "MultiMultiBunny")
 set_default_env("HYBRID_FORCE_ALL_ROUTE", "MeshOnly")
 set_default_env("HYBRID_OUTPUT_MODE", "meshview")
 set_default_env("HYBRID_MESH_VIEW_MODE", "combined")

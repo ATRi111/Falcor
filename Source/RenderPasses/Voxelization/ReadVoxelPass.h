@@ -38,5 +38,7 @@ private:
     bool mComplete;
     bool mOptionsChanged;
     std::filesystem::path mAutoBinFile;
+    std::filesystem::path mLastManualBinFile;
     bool mAutoBinFileQueued = false;
+    bool mSelectedFileInitialized = false;
 };

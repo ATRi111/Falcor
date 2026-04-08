@@ -18,10 +18,7 @@ bunnyMesh = TriangleMesh.createFromFile('BoxBunny/Bunny.obj', smoothNormals=True
 floorGeometry = sceneBuilder.addTriangleMesh(quadMesh, floor)
 bunnyGeometry = sceneBuilder.addTriangleMesh(bunnyMesh, bunny)
 
-sceneBuilder.addMeshInstance(
-    sceneBuilder.addNode('Floor', Transform(scaling=float3(4.8, 1.0, 4.8), translation=float3(0.0, -0.07, 0.0))),
-    floorGeometry
-)
+
 
 target_density_multiplier = 2.0
 base_grid_rows = 6

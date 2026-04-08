@@ -336,20 +336,21 @@
 ## 8. 后续 Agent 的阅读顺序
 
 1. `.FORAGENT\plan5.md`
-2. `docs\handoff\2026-04-05_documentation_cleanup_handoff.md`
-3. `docs\handoff\2026-04-05_plan5_phase4_object_composite_handoff.md`
-4. `docs\handoff\2026-04-05_plan5_phase3_identity_contract_handoff.md`
-5. `docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
-6. `docs\memory\2026-04-05_plan5_phase4_object_composite.md`
-7. `docs\memory\2026-04-05_plan5_phase3_identity_contract.md`
-8. `docs\memory\2026-04-05_plan5_phase2_route_mask.md`
-9. `scripts\Voxelization_HybridMeshVoxel.py`
-10. `Source\RenderPasses\HybridVoxelMesh\*`
-11. `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
-12. `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
-13. `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
-14. `Source\Falcor\Scene\SceneTypes.slang`
-15. `Source\Falcor\Scene\SceneBuilder.cpp`
+2. `docs\handoff\2026-04-08_readvoxel_last_manual_cache_default_handoff.md`
+3. `docs\handoff\2026-04-08_voxel_runtime_normal_rollback_handoff.md`
+4. `docs\handoff\2026-04-05_plan5_phase4_object_composite_handoff.md`
+5. `docs\handoff\2026-04-05_plan5_phase3_identity_contract_handoff.md`
+6. `docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
+7. `docs\memory\2026-04-05_plan5_phase4_object_composite.md`
+8. `docs\memory\2026-04-05_plan5_phase3_identity_contract.md`
+9. `docs\memory\2026-04-05_plan5_phase2_route_mask.md`
+10. `scripts\Voxelization_HybridMeshVoxel.py`
+11. `Source\RenderPasses\HybridVoxelMesh\*`
+12. `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+13. `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+14. `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+15. `Source\Falcor\Scene\SceneTypes.slang`
+16. `Source\Falcor\Scene\SceneBuilder.cpp`
 
 ## 9. 交付边界
 

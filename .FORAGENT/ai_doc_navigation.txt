@@ -2,7 +2,8 @@ AI doc navigation
 
 Current entry
 - 唯一计划文档：`.FORAGENT\plan5.md`
-- 当前文档结构说明：`docs\handoff\2026-04-05_documentation_cleanup_handoff.md`
+- 当前 cache 默认值基线：`docs\handoff\2026-04-08_readvoxel_last_manual_cache_default_handoff.md`
+- 当前回退说明：`docs\handoff\2026-04-08_voxel_runtime_normal_rollback_handoff.md`
 - 当前 hybrid 基线（plan5 Phase1-3 已完成）：`docs\handoff\2026-04-05_plan5_phase3_identity_contract_handoff.md`
 - 当前 voxel 主线基线：`docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
 - 构建说明：`.FORAGENT\build_any_target_brief.txt`

@@ -5,7 +5,7 @@ set "REPO_ROOT=E:\GraduateDesign\Falcor_Cp"
 set "MOGWAI=%REPO_ROOT%\build\windows-vs2022\bin\Release\Mogwai.exe"
 set "SCENE=%REPO_ROOT%\Scene\MultiMultiBunny.pyscene"
 set "SCRIPT=%REPO_ROOT%\scripts\Voxelization_VoxelBunny_Blend.py"
-set "VOXEL_CACHE=%REPO_ROOT%\resource\MultiMultiBunny_(128, 9, 128)_128.bin_CPU"
+set "VOXEL_CACHE=%REPO_ROOT%\resource\MultiMultiBunny_(512, 41, 499)_512.bin_CPU"
 
 if not exist "%MOGWAI%" (
     echo Error: Mogwai executable not found:
@@ -36,6 +36,8 @@ if not exist "!VOXEL_CACHE!" (
 set "HYBRID_SCENE_HINT=MultiMultiBunny"
 set "HYBRID_CPU_SCENE_NAME=MultiMultiBunny"
 set "HYBRID_VOXEL_CACHE_FILE=%VOXEL_CACHE%"
+set "HYBRID_CPU_VOXEL_RESOLUTION=512"
+set "HYBRID_CPU_SAMPLE_FREQUENCY=512"
 set "HYBRID_PIPELINE_MODE=hybrid"
 set "HYBRID_OUTPUT_MODE=composite"
 set "HYBRID_LOD_SWITCH_DISTANCE=5.0"

@@ -849,7 +849,7 @@ def render_graph_voxel_view(scene_hint, camera_plan):
     voxel_chain = create_voxel_chain(scene_hint, ALL_ROUTE_MASK)
     print("[HybridMeshVoxel] pipeline: voxel")
     print("[HybridMeshVoxel] voxel backend:", voxel_chain["backend"])
-    print("[HybridMeshVoxel] voxel cache:", voxel_chain["cache_plan"]["bin_file"] if voxel_chain["cache_plan"]["bin_file"] else "<none>")
+    print("[HybridMeshVoxel] voxel cache:", voxel_chain["read_bin_file"] if voxel_chain["read_bin_file"] else "<none>")
 
     g = RenderGraph("VoxelizationHybridMeshVoxelVoxelView")
 
@@ -891,7 +891,7 @@ def render_graph_hybrid(scene_hint, camera_plan, output_mode):
     voxel_chain = create_voxel_chain(scene_hint)
     print("[HybridMeshVoxel] pipeline: hybrid-lod")
     print("[HybridMeshVoxel] voxel backend:", voxel_chain["backend"])
-    print("[HybridMeshVoxel] voxel cache:", voxel_chain["cache_plan"]["bin_file"] if voxel_chain["cache_plan"]["bin_file"] else "<none>")
+    print("[HybridMeshVoxel] voxel cache:", voxel_chain["read_bin_file"] if voxel_chain["read_bin_file"] else "<none>")
     print("[HybridMeshVoxel] lod switch distance:", f"{resolve_lod_switch_distance():.3f}")
 
     g = RenderGraph("VoxelizationHybridMeshVoxelLod")

@@ -5,6 +5,7 @@
 namespace
 {
 const std::string kPrepareProgramFile = "RenderPasses/Voxelization/PrepareShadingData.cs.slang";
+const char kLastManualCacheFileName[] = ".readvoxelpass_last_manual_cache.txt";
 
 struct LegacyVoxelData
 {
@@ -21,6 +22,56 @@ bool doesGridLayoutRequireRecompile(const GridData& current, const GridData& loa
            current.solidVoxelCount != loaded.solidVoxelCount;
 }
 
+std::filesystem::path getLastManualCacheRecordPath()
+{
+    return getVoxelizationResourceFolderPath() / kLastManualCacheFileName;
+}
+
+std::filesystem::path loadLastManualCachePath()
+{
+    const auto recordPath = getLastManualCacheRecordPath();
+    if (!std::filesystem::exists(recordPath))
+        return {};
+
+    std::ifstream record(recordPath);
+    if (!record.is_open())
+        return {};
+
+    std::string fileName;
+    std::getline(record, fileName);
+    if (fileName.empty())
+        return {};
+
+    const auto cachePath = getVoxelizationResourceFolderPath() / fileName;
+    return std::filesystem::exists(cachePath) ? cachePath : std::filesystem::path{};
+}
+
+void persistLastManualCachePath(const std::filesystem::path& cachePath)
+{
+    if (cachePath.empty())
+        return;
+
+    std::ofstream record(getLastManualCacheRecordPath(), std::ios::trunc);
+    if (!record.is_open())
+        return;
+
+    record << cachePath.filename().string();
+}
+
+uint findSelectedFileIndex(const std::vector<std::filesystem::path>& filePaths, const std::filesystem::path& preferredPath)
+{
+    if (preferredPath.empty())
+        return 0;
+
+    for (uint i = 0; i < filePaths.size(); ++i)
+    {
+        if (std::filesystem::equivalent(filePaths[i], preferredPath))
+            return i;
+    }
+
+    return 0;
+}
+
 }; // namespace
 
 ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : RenderPass(pDevice), gridData(VoxelizationBase::GlobalGridData)
@@ -30,9 +81,14 @@ ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : Ren
     selectedFile = 0;
     mpDevice = pDevice;
 
-    // 支持从脚本传入 binFile 路径自动触发读取
-    if (props.has("binFile"))
+    mLastManualBinFile = loadLastManualCachePath();
+    if (!mLastManualBinFile.empty())
     {
+        mAutoBinFile = mLastManualBinFile;
+    }
+    else if (props.has("binFile"))
+    {
+        // 支持从脚本传入 binFile 路径自动触发读取
         mAutoBinFile = props["binFile"].operator std::filesystem::path();
     }
 }
@@ -230,6 +286,7 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
                 }
             }
         }
+        mSelectedFileInitialized = false;
         gVoxelizationFilesUpdated = false;
     }
 
@@ -240,6 +297,12 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
     }
 
     selectedFile = std::min(selectedFile, uint(filePaths.size() - 1));
+    if (!mSelectedFileInitialized)
+    {
+        selectedFile = findSelectedFileIndex(filePaths, mAutoBinFile);
+        mSelectedFileInitialized = true;
+    }
+
     Gui::DropdownList list;
     for (uint i = 0; i < filePaths.size(); i++)
     {
@@ -261,6 +324,9 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 
         f.close();
 
+        mAutoBinFile = filePaths[selectedFile];
+        mLastManualBinFile = mAutoBinFile;
+        persistLastManualCachePath(mAutoBinFile);
         requestRecompile();
         mComplete = false;
         mOptionsChanged = true;
@@ -304,6 +370,7 @@ bool ReadVoxelPass::tryQueueAutoBinFile()
 
     const bool requiresRecompile = doesGridLayoutRequireRecompile(gridData, loadedGridData);
     gridData = loadedGridData;
+    logInfo("ReadVoxelPass: auto-reading cache '{}'.", mAutoBinFile.string());
 
     filePaths.clear();
     filePaths.push_back(mAutoBinFile);
