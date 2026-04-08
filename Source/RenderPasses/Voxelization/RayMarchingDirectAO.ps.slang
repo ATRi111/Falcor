@@ -95,6 +95,40 @@ float hashToUnitFloat(uint seed)
     return float(seed) * (1.0f / 4294967295.0f);
 }
 
+float3 orientNormal(float3 normal, float3 direction)
+{
+    if (dot(normal, normal) <= 1e-6f)
+        return normal;
+    return dot(normal, direction) >= 0.0f ? normal : -normal;
+}
+
+bool tryEvalEllipsoidFaceNormal(HitResult hit, Ellipsoid ellipsoid, float3 direction, out float3 faceNormal)
+{
+    faceNormal = 0.f;
+
+    const float3 localPos = hit.cell - float3(hit.cellInt);
+    const float3 offset = localPos - ellipsoid.center;
+    const float3 gradient = mul(ellipsoid.B, offset);
+    const float gradientLen2 = dot(gradient, gradient);
+    if (gradientLen2 <= 1e-6f)
+        return false;
+
+    const float implicit = dot(offset, gradient);
+    if (abs(implicit - 1.0f) > 0.15f)
+        return false;
+
+    faceNormal = orientNormal(gradient * rsqrt(gradientLen2), direction);
+    return true;
+}
+
+float3 resolveHitFaceNormal(HitResult hit, Ellipsoid ellipsoid, float3 direction, float3 fallbackNormal)
+{
+    float3 faceNormal = 0.f;
+    if (tryEvalEllipsoidFaceNormal(hit, ellipsoid, direction, faceNormal))
+        return faceNormal;
+    return orientNormal(fallbackNormal, direction);
+}
+
 void buildShadingBasis(float3 mainNormal, out float3 tangent, out float3 bitangent)
 {
     float3 up = abs(mainNormal.z) < 0.999f ? float3(0, 0, 1) : float3(0, 1, 0);
@@ -114,11 +148,13 @@ void applyStableRotation(inout float3 tangent, inout float3 bitangent, float ang
     bitangent = rotatedBitangent;
 }
 
-float evalProbeOcclusion(float3 origin, float3 direction, float maxDistance)
+float evalProbeOcclusion(HitResult hit, float3 faceNormal, float3 direction, float maxDistance)
 {
     const uint stepCount = max(aoStepCount, 1u);
     const float safeRadius = max(maxDistance, 1e-3f);
     const float stepLength = safeRadius / float(stepCount);
+    const float3 offsetNormal = orientNormal(faceNormal, direction);
+    const float3 origin = hit.cell + shadowBias * offsetNormal;
     float occlusion = 0.0f;
 
     [loop]
@@ -137,9 +173,8 @@ float evalProbeOcclusion(float3 origin, float3 direction, float maxDistance)
     return occlusion;
 }
 
-float evalContactAO(HitResult hit, float3 mainNormal, float3 tangent, float3 bitangent)
+float evalContactAO(HitResult hit, float3 mainNormal, float3 faceNormal, float3 tangent, float3 bitangent)
 {
-    const float3 origin = hit.cell + shadowBias * mainNormal;
     const float contactRadius = clamp(aoRadius * 0.35f, 1.0f, 2.5f);
     float occlusion = 0.0f;
 
@@ -150,17 +185,16 @@ float evalContactAO(HitResult hit, float3 mainNormal, float3 tangent, float3 bit
         float3 lateral = cos(azimuth) * tangent + sin(azimuth) * bitangent;
         float3 probeDir = normalizeSafe(mainNormal * 1.15f + lateral);
         if (dot(probeDir, probeDir) > 0.0f)
-            occlusion += rayMarching(origin, probeDir, contactRadius, true).hit ? 1.0f : 0.0f;
+            occlusion += evalProbeOcclusion(hit, faceNormal, probeDir, contactRadius);
     }
 
     float meanOcclusion = occlusion * 0.25f;
     return saturate(1.0f - aoContactStrength * meanOcclusion);
 }
 
-float evalMacroAO(HitResult hit, float3 mainNormal, float3 tangent, float3 bitangent)
+float evalMacroAO(HitResult hit, float3 mainNormal, float3 faceNormal, float3 tangent, float3 bitangent)
 {
     const uint directionCount = aoDirectionSet >= 6 ? 6u : 4u;
-    const float3 origin = hit.cell + shadowBias * mainNormal;
     float occlusion = 0.0f;
 
     [loop]
@@ -169,13 +203,13 @@ float evalMacroAO(HitResult hit, float3 mainNormal, float3 tangent, float3 bitan
         float azimuth = (2.0f * Pi) * (float(sampleIndex) + 0.5f) / float(directionCount);
         float3 lateral = cos(azimuth) * tangent + sin(azimuth) * bitangent;
         float3 probeDir = normalizeSafe(mainNormal * 1.35f + 0.75f * lateral);
-        occlusion += evalProbeOcclusion(origin, probeDir, aoRadius);
+        occlusion += evalProbeOcclusion(hit, faceNormal, probeDir, aoRadius);
     }
 
     return saturate(1.0f - occlusion / float(directionCount));
 }
 
-float evalStableAO(HitResult hit, float3 mainNormal)
+float evalStableAO(HitResult hit, float3 mainNormal, float3 faceNormal)
 {
     if (!aoEnabled || aoStrength <= 0.0f || aoRadius <= 0.0f)
         return 1.0f;
@@ -190,8 +224,8 @@ float evalStableAO(HitResult hit, float3 mainNormal)
         applyStableRotation(tangent, bitangent, stableAngle);
     }
 
-    float contactAO = evalContactAO(hit, mainNormal, tangent, bitangent);
-    float macroAO = evalMacroAO(hit, mainNormal, tangent, bitangent);
+    float contactAO = evalContactAO(hit, mainNormal, faceNormal, tangent, bitangent);
+    float macroAO = evalMacroAO(hit, mainNormal, faceNormal, tangent, bitangent);
     return lerp(1.0f, contactAO * macroAO, saturate(aoStrength));
 }
 
@@ -227,7 +261,7 @@ float evalVoxelDepth(float3 posW)
 
 // 确定性直接光照：遍历所有 analytic 光源，无随机采样
 // 若场景无 analytic 光，返回简单 ambient 使画面可见
-float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDir)
+float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDir, float3 faceNormal)
 {
     PrimitiveBSDF bsdf = gBuffer[offset];
     bsdf.updateCoverage(viewDir, transmittanceThreshold);
@@ -279,9 +313,8 @@ float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDi
         supportedLightCount++;
 
         // 距离转换为体素单位（visibility 函数用体素坐标距离）
-        float3 shadowNormal = bsdf.surface.getMainNormal(lightDir);
         float voxelDist = lightDistance > 0 ? lightDistance / voxelSize.x : -1;
-        float visibility = calcLightVisibility(hit, lightDir, shadowNormal, voxelDist);
+        float visibility = calcLightVisibility(hit, lightDir, faceNormal, voxelDist);
         if (visibility <= 0)
             continue;
 
@@ -306,7 +339,7 @@ float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDi
     if (!hasStableDirectTerm)
     {
         float3 skyDir = normalize(float3(0.3f, 1.0f, 0.2f));
-        float3 ambientNormal = bsdf.surface.getMainNormal(skyDir);
+        float3 ambientNormal = orientNormal(faceNormal, skyDir);
         float NdotL = saturate(dot(ambientNormal, skyDir));
         float ambient = 0.05f;
         float3 h2 = normalizeSafe(skyDir + viewDir);
@@ -348,31 +381,33 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
 
     uint offset = vBuffer[hit.cellInt];
     PrimitiveBSDF bsdf = gBuffer[offset];
+    Ellipsoid ellipsoid = pBuffer[offset];
     float3 viewDir = -direction;
-    float3 mainNormal = bsdf.surface.getMainNormal(viewDir);
+    float3 bsdfMainNormal = bsdf.surface.getMainNormal(viewDir);
+    float3 faceNormal = resolveHitFaceNormal(hit, ellipsoid, viewDir, bsdfMainNormal);
     float coverage = bsdf.calcCoverage(viewDir);
-    float ao = evalStableAO(hit, mainNormal);
+    float ao = evalStableAO(hit, bsdfMainNormal, faceNormal);
     float3 posW = gridMin + hit.cell * voxelSize;
     float3 color = 0;
 
     psOut.voxelDepth = evalVoxelDepth(posW);
-    psOut.voxelNormal = float4(mainNormal, 1.f);
+    psOut.voxelNormal = float4(faceNormal, 1.f);
     psOut.voxelConfidence = saturate(bsdf.identityConfidence);
     psOut.voxelInstanceID = bsdf.dominantInstanceID;
 
     switch (drawMode)
     {
     case kDrawModeNormalDebug:
-        color = mainNormal * 0.5f + 0.5f;
+        color = faceNormal * 0.5f + 0.5f;
         break;
     case kDrawModeCoverageDebug:
         color = valueToColor(coverage);
         break;
     case kDrawModeDirectOnly:
-        color = evalDeterministicDirectLighting(hit, offset, viewDir);
+        color = evalDeterministicDirectLighting(hit, offset, viewDir, faceNormal);
         break;
     case kDrawModeCombined:
-        color = evalDeterministicDirectLighting(hit, offset, viewDir) * ao;
+        color = evalDeterministicDirectLighting(hit, offset, viewDir, faceNormal) * ao;
         break;
     case kDrawModeAOOnly:
         color = pow(saturate(ao), 12.0f).xxx;
