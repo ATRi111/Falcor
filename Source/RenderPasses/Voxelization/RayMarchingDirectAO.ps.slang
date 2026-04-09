@@ -73,20 +73,7 @@ static const uint kDrawModeDirectOnly = 1;
 static const uint kDrawModeAOOnly = 2;
 static const uint kDrawModeNormalDebug = 3;
 static const uint kDrawModeCoverageDebug = 4;
-static const uint kDrawModeFaceNormalMask = 5;
-static const uint kDrawModeLightVisibilityMask = 6;
-static const uint kDrawModeUnshadowedDirect = 7;
 static const uint kAllInstanceRouteMask = 0x7u;
-static const uint kFaceNormalMaskFallback = 0;
-static const uint kFaceNormalMaskSurface = 1;
-static const uint kFaceNormalMaskStartInside = 2;
-static const uint kLightVisibilityNoLight = 0;
-static const uint kLightVisibilityVisible = 1;
-static const uint kLightVisibilityReceiverIgnored = 2;
-static const uint kLightVisibilitySameObjectSkipped = 3;
-static const uint kLightVisibilityBlockedOther = 4;
-static const uint kLightVisibilityBlockedSameObject = 5;
-static const uint kLightVisibilitySilhouetteRescued = 6;
 
 #define MAX_ANALYTIC_LIGHTS 8
 
@@ -115,82 +102,31 @@ float3 orientNormal(float3 normal, float3 direction)
     return dot(normal, direction) >= 0.0f ? normal : -normal;
 }
 
-bool tryEvalEllipsoidFaceNormal(HitResult hit, Ellipsoid ellipsoid, float3 direction, out float3 faceNormal, out uint debugMask)
+bool tryEvalEllipsoidFaceNormal(HitResult hit, Ellipsoid ellipsoid, float3 direction, out float3 faceNormal)
 {
     faceNormal = 0.f;
-    debugMask = kFaceNormalMaskFallback;
 
     const float3 localPos = hit.cell - float3(hit.cellInt);
     const float3 offset = localPos - ellipsoid.center;
-    float3 gradient = mul(ellipsoid.B, offset);
-    float gradientLen2 = dot(gradient, gradient);
+    const float3 gradient = mul(ellipsoid.B, offset);
+    const float gradientLen2 = dot(gradient, gradient);
     if (gradientLen2 <= 1e-6f)
         return false;
 
     const float implicit = dot(offset, gradient);
-    if (implicit <= 1e-4f)
+    if (abs(implicit - 1.0f) > 0.15f)
         return false;
 
-    // Fitted ellipsoids can extend slightly outside the voxel cell, so a valid first hit may
-    // enter the cell while already being inside the ellipsoid. Reproject those interior samples
-    // onto the shell instead of falling back to the coarser BSDF main normal.
-    if (!ellipsoid.contains(localPos, 0.08f))
-        return false;
-
-    const float3 shellOffset = offset * rsqrt(implicit);
-    gradient = mul(ellipsoid.B, shellOffset);
-    gradientLen2 = dot(gradient, gradient);
-    if (gradientLen2 <= 1e-6f)
-        return false;
-
-    debugMask = implicit < 0.95f ? kFaceNormalMaskStartInside : kFaceNormalMaskSurface;
     faceNormal = orientNormal(gradient * rsqrt(gradientLen2), direction);
     return true;
 }
 
-float3 resolveHitFaceNormal(HitResult hit, Ellipsoid ellipsoid, float3 direction, float3 fallbackNormal, out uint debugMask)
+float3 resolveHitFaceNormal(HitResult hit, Ellipsoid ellipsoid, float3 direction, float3 fallbackNormal)
 {
-    debugMask = kFaceNormalMaskFallback;
     float3 faceNormal = 0.f;
-    if (tryEvalEllipsoidFaceNormal(hit, ellipsoid, direction, faceNormal, debugMask))
+    if (tryEvalEllipsoidFaceNormal(hit, ellipsoid, direction, faceNormal))
         return faceNormal;
     return orientNormal(fallbackNormal, direction);
-}
-
-float3 faceNormalDebugMaskToColor(uint debugMask)
-{
-    switch (debugMask)
-    {
-    case kFaceNormalMaskSurface:
-        return float3(0.20f, 1.00f, 0.25f);
-    case kFaceNormalMaskStartInside:
-        return float3(0.20f, 0.45f, 1.00f);
-    case kFaceNormalMaskFallback:
-    default:
-        return float3(1.00f, 0.18f, 0.18f);
-    }
-}
-
-float3 lightVisibilityDebugMaskToColor(uint debugMask)
-{
-    switch (debugMask)
-    {
-    case kLightVisibilityVisible:
-        return float3(0.20f, 1.00f, 0.25f);
-    case kLightVisibilityReceiverIgnored:
-        return float3(0.15f, 0.90f, 0.90f);
-    case kLightVisibilitySameObjectSkipped:
-        return float3(0.15f, 0.45f, 1.00f);
-    case kLightVisibilityBlockedOther:
-        return float3(1.00f, 0.18f, 0.18f);
-    case kLightVisibilityBlockedSameObject:
-        return float3(1.00f, 0.62f, 0.10f);
-    case kLightVisibilitySilhouetteRescued:
-        return float3(0.95f, 0.20f, 0.90f);
-    case kLightVisibilityNoLight:
-    default:
-        return float3(0.45f, 0.45f, 0.45f);
-    }
 }
 
 void buildShadingBasis(float3 mainNormal, out float3 tangent, out float3 bitangent)
@@ -293,9 +229,8 @@ float evalStableAO(HitResult hit, float3 mainNormal, float3 faceNormal)
     return lerp(1.0f, contactAO * macroAO, saturate(aoStrength));
 }
 
-float calcSceneLightVisibility(HitResult hit, float3 lightDir, float3 viewDir, float3 faceNormal, float distance, uint selfInstanceID, out uint debugMask)
+float calcSceneLightVisibility(HitResult hit, float3 lightDir, float3 viewDir, float3 faceNormal, float distance, uint selfInstanceID)
 {
-    debugMask = kLightVisibilityVisible;
     const float lightIgnoreDistance = 2.0f;
     const float NdotL = saturate(dot(orientNormal(faceNormal, lightDir), lightDir));
     const float NdotV = saturate(dot(orientNormal(faceNormal, viewDir), viewDir));
@@ -304,31 +239,21 @@ float calcSceneLightVisibility(HitResult hit, float3 lightDir, float3 viewDir, f
     const float sameObjectIgnoreDistance = lerp(0.75f, 2.10f, receiverGrazing);
 
     if (distance >= 0 && distance <= lightIgnoreDistance + receiverIgnoreDistance)
-    {
-        debugMask = kLightVisibilityReceiverIgnored;
         return 1.0f;
-    }
 
     float3 from = hit.cell + shadowBias * faceNormal + receiverIgnoreDistance * lightDir;
     float remainingDistance = distance > 0 ? distance - lightIgnoreDistance - receiverIgnoreDistance : -1.0f;
-    bool skippedSameObject = false;
 
     [loop]
     for (uint skipIndex = 0; skipIndex < 4; ++skipIndex)
     {
         HitResult shadowHit = rayMarching(from, lightDir, remainingDistance, true);
         if (!shadowHit.hit)
-        {
-            debugMask = skippedSameObject ? kLightVisibilitySameObjectSkipped : kLightVisibilityVisible;
             return 1.0f;
-        }
 
         uint shadowOffset = vBuffer[shadowHit.cellInt];
         if (shadowOffset >= solidVoxelCount)
-        {
-            debugMask = kLightVisibilityBlockedOther;
             return 0.0f;
-        }
 
         PrimitiveBSDF shadowBsdf = gBuffer[shadowOffset];
         const float hitDistance = length(shadowHit.cell - hit.cell);
@@ -337,26 +262,18 @@ float calcSceneLightVisibility(HitResult hit, float3 lightDir, float3 viewDir, f
             hitDistance <= sameObjectIgnoreDistance;
 
         if (!sameObjectNearHit)
-        {
-            debugMask = kLightVisibilityBlockedOther;
             return 0.0f;
-        }
 
-        skippedSameObject = true;
         const float advanceDistance = max(length(shadowHit.cell - from), 0.35f) + 0.15f;
         from = shadowHit.cell + (shadowBias + 0.05f) * lightDir;
         if (remainingDistance > 0.0f)
         {
             remainingDistance -= advanceDistance;
             if (remainingDistance <= 0.0f)
-            {
-                debugMask = kLightVisibilitySameObjectSkipped;
                 return 1.0f;
-            }
         }
     }
 
-    debugMask = kLightVisibilityBlockedSameObject;
     return 0.0f;
 }
 
@@ -392,7 +309,7 @@ float evalVoxelDepth(float3 posW)
 
 // 确定性直接光照：遍历所有 analytic 光源，无随机采样
 // 若场景无 analytic 光，返回简单 ambient 使画面可见
-float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDir, float3 faceNormal, bool applySceneVisibility)
+float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDir, float3 faceNormal)
 {
     PrimitiveBSDF bsdf = gBuffer[offset];
     bsdf.updateCoverage(viewDir, transmittanceThreshold);
@@ -443,19 +360,14 @@ float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDi
 
         supportedLightCount++;
 
-        float visibility = 1.0f;
-        if (applySceneVisibility)
-        {
-            // 距离转换为体素单位（visibility 函数用体素坐标距离）
-            const float NdotV = saturate(dot(orientNormal(faceNormal, viewDir), viewDir));
-            float voxelDist = lightDistance > 0 ? lightDistance / voxelSize.x : -1;
-            uint visibilityDebugMask = kLightVisibilityVisible;
-            visibility = calcSceneLightVisibility(hit, lightDir, viewDir, faceNormal, voxelDist, bsdf.dominantInstanceID, visibilityDebugMask);
-            const float silhouetteFade = smoothstep(0.45f, 0.85f, 1.0f - NdotV);
-            visibility = max(visibility, silhouetteFade);
-            if (visibility <= 0)
-                continue;
-        }
+        // 距离转换为体素单位（visibility 函数用体素坐标距离）
+        const float NdotV = saturate(dot(orientNormal(faceNormal, viewDir), viewDir));
+        float voxelDist = lightDistance > 0 ? lightDistance / voxelSize.x : -1;
+        float visibility = calcSceneLightVisibility(hit, lightDir, viewDir, faceNormal, voxelDist, bsdf.dominantInstanceID);
+        const float silhouetteFade = smoothstep(0.45f, 0.85f, 1.0f - NdotV);
+        visibility = max(visibility, silhouetteFade);
+        if (visibility <= 0)
+            continue;
 
         float3 h = normalizeSafe(lightDir + viewDir);
         result += visibility * lightColor * bsdf.eval(lightDir, viewDir, h);
@@ -486,73 +398,6 @@ float3 evalDeterministicDirectLighting(HitResult hit, uint offset, float3 viewDi
     }
 
     return result;
-}
-
-float3 evalLightVisibilityDebugMask(HitResult hit, uint offset, float3 viewDir, float3 faceNormal)
-{
-    PrimitiveBSDF bsdf = gBuffer[offset];
-    float3 posW = gridMin + hit.cell * voxelSize;
-    uint lightCount = min(gScene.getLightCount(), (uint)MAX_ANALYTIC_LIGHTS);
-    float bestLightStrength = -1.0f;
-    uint bestDebugMask = kLightVisibilityNoLight;
-
-    for (uint i = 0; i < lightCount; ++i)
-    {
-        LightData light = gScene.getLight(i);
-        float3 lightDir = 0.0f;
-        float3 lightColor = 0.0f;
-        float lightDistance = -1.0f;
-
-        if (light.type == LightType::Point)
-        {
-            float3 toL = light.posW - posW;
-            lightDistance = length(toL);
-            lightDir = toL / max(lightDistance, 1e-6f);
-
-            float sqrDist = max(dot(toL, toL), 1e-4f);
-            float spot = 1.0f;
-            if (light.openingAngle < Pi)
-            {
-                float cosTerm = dot(light.dirW, -lightDir);
-                float cosOuter = light.cosOpeningAngle;
-                float innerAng = max(light.openingAngle - light.penumbraAngle, 0.0f);
-                float cosInner = cos(innerAng);
-                float t2 = saturate((cosTerm - cosOuter) / max(cosInner - cosOuter, 1e-6f));
-                spot = t2 * t2 * (3.0f - 2.0f * t2);
-                if (light.penumbraAngle <= 0.0f)
-                    spot = (cosTerm >= cosOuter) ? 1.0f : 0.0f;
-            }
-            lightColor = light.intensity * spot / sqrDist;
-        }
-        else if (light.type == LightType::Directional)
-        {
-            lightDir = -light.dirW;
-            lightColor = light.intensity;
-            lightDistance = -1.0f;
-        }
-        else
-        {
-            continue;
-        }
-
-        const float lightStrength = max(lightColor.x, max(lightColor.y, lightColor.z));
-        if (lightStrength <= bestLightStrength)
-            continue;
-
-        const float NdotV = saturate(dot(orientNormal(faceNormal, viewDir), viewDir));
-        float voxelDist = lightDistance > 0 ? lightDistance / voxelSize.x : -1.0f;
-        uint debugMask = kLightVisibilityVisible;
-        float visibility = calcSceneLightVisibility(hit, lightDir, viewDir, faceNormal, voxelDist, bsdf.dominantInstanceID, debugMask);
-        const float silhouetteFade = smoothstep(0.45f, 0.85f, 1.0f - NdotV);
-        const float finalVisibility = max(visibility, silhouetteFade);
-        if (visibility <= 0.0f && finalVisibility > 0.0f)
-            debugMask = kLightVisibilitySilhouetteRescued;
-
-        bestLightStrength = lightStrength;
-        bestDebugMask = debugMask;
-    }
-
-    return lightVisibilityDebugMaskToColor(bestDebugMask);
 }
 
 PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
@@ -590,8 +435,7 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
     Ellipsoid ellipsoid = pBuffer[offset];
     float3 viewDir = -direction;
     float3 bsdfMainNormal = bsdf.surface.getMainNormal(viewDir);
-    uint faceNormalDebugMask = kFaceNormalMaskFallback;
-    float3 faceNormal = resolveHitFaceNormal(hit, ellipsoid, viewDir, bsdfMainNormal, faceNormalDebugMask);
+    float3 faceNormal = resolveHitFaceNormal(hit, ellipsoid, viewDir, bsdfMainNormal);
     float coverage = bsdf.calcCoverage(viewDir);
     float ao = evalStableAO(hit, bsdfMainNormal, faceNormal);
     float3 posW = gridMin + hit.cell * voxelSize;
@@ -607,23 +451,14 @@ PsOut main(float2 texCoord : TEXCOORD, float4 pos : SV_POSITION)
     case kDrawModeNormalDebug:
         color = faceNormal * 0.5f + 0.5f;
         break;
-    case kDrawModeFaceNormalMask:
-        color = faceNormalDebugMaskToColor(faceNormalDebugMask);
-        break;
-    case kDrawModeLightVisibilityMask:
-        color = evalLightVisibilityDebugMask(hit, offset, viewDir, faceNormal);
-        break;
     case kDrawModeCoverageDebug:
         color = valueToColor(coverage);
         break;
     case kDrawModeDirectOnly:
-        color = evalDeterministicDirectLighting(hit, offset, viewDir, faceNormal, true);
-        break;
-    case kDrawModeUnshadowedDirect:
-        color = evalDeterministicDirectLighting(hit, offset, viewDir, faceNormal, false);
+        color = evalDeterministicDirectLighting(hit, offset, viewDir, faceNormal);
         break;
     case kDrawModeCombined:
-        color = evalDeterministicDirectLighting(hit, offset, viewDir, faceNormal, true) * ao;
+        color = evalDeterministicDirectLighting(hit, offset, viewDir, faceNormal) * ao;
         break;
     case kDrawModeAOOnly:
         color = pow(saturate(ao), 12.0f).xxx;
