@@ -37,6 +37,9 @@ enum class RayMarchingDirectAODrawMode : uint32_t
     AOOnly = 2,
     NormalDebug = 3,
     CoverageDebug = 4,
+    FaceNormalMask = 5,
+    LightVisibilityMask = 6,
+    UnshadowedDirect = 7,
 };
 } // namespace
 
@@ -360,10 +363,28 @@ void RayMarchingDirectAOPass::renderUI(Gui::Widgets& widget)
         {static_cast<uint32_t>(RayMarchingDirectAODrawMode::AOOnly), "AOOnly"},
         {static_cast<uint32_t>(RayMarchingDirectAODrawMode::NormalDebug), "NormalDebug"},
         {static_cast<uint32_t>(RayMarchingDirectAODrawMode::CoverageDebug), "CoverageDebug"},
+        {static_cast<uint32_t>(RayMarchingDirectAODrawMode::FaceNormalMask), "FaceNormalMask"},
+        {static_cast<uint32_t>(RayMarchingDirectAODrawMode::LightVisibilityMask), "LightVisibilityMask"},
+        {static_cast<uint32_t>(RayMarchingDirectAODrawMode::UnshadowedDirect), "UnshadowedDirect"},
     };
 
     if (widget.dropdown("Draw Mode", kDrawModes, mDrawMode))
         mOptionsChanged = true;
+    if (mDrawMode == static_cast<uint32_t>(RayMarchingDirectAODrawMode::FaceNormalMask))
+    {
+        widget.text("Mask Legend: green=implicit~=1");
+        widget.text("blue=implicit<1");
+        widget.text("red=fallback");
+    }
+    if (mDrawMode == static_cast<uint32_t>(RayMarchingDirectAODrawMode::LightVisibilityMask))
+    {
+        widget.text("Vis Legend: green=visible");
+        widget.text("cyan=receiverIgnored");
+        widget.text("blue=sameObjectSkipped");
+        widget.text("red=blockedOther");
+        widget.text("orange=blockedSameObject");
+        widget.text("magenta=silhouetteRescued");
+    }
     if (widget.checkbox("Render Background", mRenderBackground))
         mOptionsChanged = true;
     if (widget.checkbox("Use Mipmap", mUseMipmap))
