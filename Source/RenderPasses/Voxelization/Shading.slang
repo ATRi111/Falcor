@@ -386,24 +386,28 @@ struct DeltaBTDF
 };
 #endif
 
-// 单看BSDF，并不体现对称性；要将BSDF和图元形状合起来看才能体现对称性
+// Combine BSDF and primitive shape data to recover the symmetric response.
 struct PrimitiveBSDF
 {
     SurfaceBRDF surface;
 #if !defined(HOST_CODE)
-    DeltaBTDF delta; // GPU上，没有成员变量的结构体不占空间(人为添加无意义的成员变量也会被优化掉)
+    DeltaBTDF delta; // Keep a concrete GPU-side member so the struct layout stays valid there.
 #endif
     SphericalFunc primitiveProjAreaFunc;
-    SphericalFunc polygonsProjAreaFunc; // 所有多边形的可见投影面积
-    SphericalFunc totalProjAreaFunc;    // 所有多边形的总投影面积
+    SphericalFunc polygonsProjAreaFunc; // Visible projected area for clipped polygons.
+    SphericalFunc totalProjAreaFunc;    // Total projected area for all polygon contributors.
     float area;
+    uint dominantInstanceID;
+    float identityConfidence;
 
-    float coverage; // 临时变量
+    float coverage; // Cached coverage for the current shading direction.
 
 #if !defined(HOST_CODE)
     [mutating]
     void init(VoxelData data)
     {
+        dominantInstanceID = kInvalidVoxelInstanceID;
+        identityConfidence = 0.f;
         area = data.ABSDF.area;
         if (area > 0)
         {
@@ -411,6 +415,8 @@ struct PrimitiveBSDF
             polygonsProjAreaFunc = data.polygonsProjAreaFunc;
             totalProjAreaFunc = data.totalProjAreaFunc;
             surface.init(data.ABSDF);
+            dominantInstanceID = data.dominantInstanceID;
+            identityConfidence = saturate(data.identityConfidence);
         }
     }
 
@@ -425,7 +431,7 @@ struct PrimitiveBSDF
         float polygonsProjArea = polygonsProjAreaFunc.calc(direction);
         return saturate(polygonsProjArea / primitiveProjArea);
     }
-    // 采样前必须调用此函数
+    // Must be called before sampling.
     [mutating]
     void updateCoverage(float3 direction, float threshould)
     {
@@ -438,7 +444,7 @@ struct PrimitiveBSDF
             coverage = 1;
     }
 
-    // 自遮挡导致入射光减少
+    // Internal occlusion reduces incoming light.
     float calcInternalVisibility(float3 direction)
     {
 #if !CHECK_VISIBILITY

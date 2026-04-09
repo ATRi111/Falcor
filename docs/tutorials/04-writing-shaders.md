@@ -167,6 +167,6 @@ try: m.addGraph(WireframePass)
 except NameError: None
 ```
 
-You should see a green screen as there is no scene currently loaded. Load a scene by going to `File -> Load Scene`, and you should now see the wireframe for the scene you selected. We used `media/Arcade/Arcade.pyscene`, which looks like this:
+You should see a green screen as there is no scene currently loaded. Load a scene by going to `File -> Load Scene`, and you should now see the wireframe for the scene you selected. We used `Scene/Arcade/Arcade.pyscene`, which looks like this:
 
 ![WireframePass](./images/wireframe-pass.png)

@@ -1,0 +1,52 @@
+Falcor build brief for AI
+
+Scope
+- This file is about configuring the repo once and building any CMake target, not just VoxelizationGPU.
+
+Recommended CMake executable
+- Prefer the repo-local CMake:
+  tools\.packman\cmake\bin\cmake.exe
+- If needed on this machine, the Visual Studio CMake also works:
+  C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe
+
+Available configure presets
+- windows-vs2022
+- windows-vs2022-ci
+- windows-ninja-msvc
+- windows-ninja-msvc-ci
+
+Configure once
+- Visual Studio generator:
+  tools\.packman\cmake\bin\cmake.exe --preset windows-vs2022
+- Ninja Multi-Config:
+  tools\.packman\cmake\bin\cmake.exe --preset windows-ninja-msvc
+
+Build any target
+- Visual Studio generator:
+  tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release --target <TargetName>
+- Ninja preset:
+  tools\.packman\cmake\bin\cmake.exe --build --preset windows-ninja-msvc-release --target <TargetName>
+
+Build the default/all targets
+- Visual Studio generator:
+  tools\.packman\cmake\bin\cmake.exe --build build\windows-vs2022 --config Release
+- Ninja preset:
+  tools\.packman\cmake\bin\cmake.exe --build --preset windows-ninja-msvc-release
+
+How to find target names
+- Read the relevant CMakeLists.txt. The target name is the CMake target name, not necessarily the folder name.
+- Common executable targets in this repo include:
+  Mogwai
+  FalcorTest
+  ImageCompare
+  RenderGraphEditor
+- The Visual Studio solution is:
+  build\windows-vs2022\Falcor.sln
+
+Output location
+- Typical executable output path:
+  build\<preset-or-build-dir>\bin\<Config>\
+
+Notes
+- First configure may update git submodules and pull packman dependencies automatically.
+- Use Release unless debugging or changing low-level code that benefits from asserts.

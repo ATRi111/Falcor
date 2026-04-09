@@ -7,14 +7,17 @@
 BEGIN_NAMESPACE_FALCOR
 
 typedef EvenSphericalHarmonics SphericalFunc;
+static const uint kInvalidVoxelInstanceID = 0xffffffffu;
 
 struct VoxelData
 {
     ABSDF ABSDF;
     Ellipsoid ellipsoid;
     SphericalFunc primitiveProjAreaFunc;
-    SphericalFunc polygonsProjAreaFunc; // 所有多边形的可见投影面积
-    SphericalFunc totalProjAreaFunc;    // 所有多边形的总投影面积
+    SphericalFunc polygonsProjAreaFunc; // Visible projected area for clipped polygons.
+    SphericalFunc totalProjAreaFunc;    // Total projected area for all polygon contributors.
+    uint dominantInstanceID;
+    float identityConfidence;
 
     MUTATING
     void init()
@@ -23,6 +26,8 @@ struct VoxelData
         primitiveProjAreaFunc.init();
         polygonsProjAreaFunc.init();
         totalProjAreaFunc.init();
+        dominantInstanceID = kInvalidVoxelInstanceID;
+        identityConfidence = 0.f;
     }
 
     bool IsSolid() { return ABSDF.area > 0; }

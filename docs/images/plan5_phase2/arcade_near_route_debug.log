@@ -1,0 +1,9 @@
+(Info) Falcor 8.0 (commit: c563fa43, branch: codex/plan5-object-route, contains uncommitted changes)
+(Info) Created GPU device 'NVIDIA GeForce RTX 3060 Laptop GPU' using 'Direct3D 12' API (SM6.7).
+(Warning) Warnings in program:
+Utils/UI/TextRenderer.3d.slang (vsMain, psMain)
+E:\GraduateDesign\Falcor_Cp\build\windows-vs2022\bin\Release\shaders\Utils\UI\TextRenderer.3d.slang(48): warning 30081: implicit conversion from 'vector<float,2>' to 'vector<int,2>' is not recommended
+    float4 color = gFontTex.Load(int3(texC, 0));
+                                      ^~~~
+
+(Info) Loaded 40 plugin(s) in 0.147s

@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ATRi111 体素化与体素渲染最新状况</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        :root {
+            --text-color: #333;
+            --muted-border: #ddd;
+            --soft-border: #eee;
+            --table-head: #f5f5f5;
+            --inline-code: #f4f4f4;
+            --pre-bg: #f6f8fa;
+            --toc-bg: #f8f9fa;
+            --link-color: #0066cc;
+            --good: #0a7a33;
+            --bad: #b42318;
+            --note-bg: #fafafa;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+            color: var(--text-color);
+            background: #fff;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            border-bottom: 1px solid var(--soft-border);
+            padding-bottom: 0.25em;
+        }
+
+        h1 {
+            border-bottom-color: var(--muted-border);
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1em 0;
+        }
+
+        th,
+        td {
+            border: 1px solid var(--muted-border);
+            padding: 0.4em 0.6em;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        th {
+            background: var(--table-head);
+        }
+
+        code,
+        pre code {
+            font-family: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        }
+
+        code {
+            background: var(--inline-code);
+            padding: 0.15em 0.4em;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+
+        pre {
+            background: var(--pre-bg);
+            padding: 1em;
+            overflow-x: auto;
+            border-radius: 4px;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+        }
+
+        pre.mermaid {
+            background: transparent;
+            padding: 0.5em 0;
+        }
+
+        .toc {
+            background: var(--toc-bg);
+            padding: 1em 1.5em;
+            border-radius: 6px;
+            margin-bottom: 2em;
+        }
+
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+            margin: 0.6em 0 0;
+        }
+
+        .toc li {
+            margin: 0.3em 0;
+        }
+
+        .toc a {
+            text-decoration: none;
+            color: var(--link-color);
+        }
+
+        .note {
+            background: var(--note-bg);
+            border: 1px solid var(--soft-border);
+            border-radius: 6px;
+            padding: 0.8em 1em;
+            margin: 1em 0;
+        }
+
+        .good {
+            color: var(--good);
+            font-weight: 600;
+        }
+
+        .bad {
+            color: var(--bad);
+            font-weight: 600;
+        }
+
+        .muted {
+            color: #666;
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid var(--soft-border);
+            margin: 2em 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>ATRi111 体素化与体素渲染最新状况</h1>
+
+    <p>本文只整理当前仓库中 <code>ATRi111</code> 相关实现的<strong>最新有效状态</strong>。判断依据是当前 <code>master</code> 头部代码
+        <code>08e5552</code>（2026-03-22）与 <code>ATRi111</code> 在 <code>Source/RenderPasses/Voxelization</code>、
+        <code>scripts/Voxelization_*.py</code> 上的提交历史。最新的 <code>ATRi111</code> 总提交
+        <code>7768d40</code>（2026-03-13）只改了场景资源；最新与渲染逻辑直接相关的提交是
+        <code>4950f22</code>（2026-01-22，<code>polygon per frame</code>）。
+    </p>
+
+    <nav class="toc" aria-label="目录">
+        <strong>目录</strong>
+        <ul>
+            <li><a href="#summary">1. 结论摘要</a></li>
+            <li><a href="#graph">2. 当前渲染链路</a></li>
+            <li><a href="#voxelization">3. 当前体素化方案</a></li>
+            <li><a href="#rendering">4. 当前体素渲染方案</a></li>
+            <li><a href="#mesh-hybrid">5. Mesh 渲染与混合渲染判断</a></li>
+            <li><a href="#commits">6. 关键提交与现状对应</a></li>
+            <li><a href="#refs">参考</a></li>
+        </ul>
+    </nav>
+
+    <hr>
+
+    <h2 id="summary">1. 结论摘要</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>问题</th>
+                <th>最新结论</th>
+                <th>说明</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>是否进行体素化</td>
+                <td><span class="good">支持</span></td>
+                <td>有两条入口：<code>VoxelizationPass_CPU</code> 和 <code>VoxelizationPass_GPU</code>。</td>
+            </tr>
+            <tr>
+                <td>是否进行体素渲染</td>
+                <td><span class="good">支持</span></td>
+                <td>最终由 <code>RayMarchingPass</code> 的全屏像素着色器做体素光线步进与着色。</td>
+            </tr>
+            <tr>
+                <td>当前是否直接渲染 mesh</td>
+                <td><span class="bad">在体素方案内不直接渲染</span></td>
+                <td>体素脚本里没有 <code>VBufferRT</code> / <code>GBufferRT</code> / <code>PathTracer</code>；mesh 只作为体素化输入数据。</td>
+            </tr>
+            <tr>
+                <td>仓库里是否存在独立 mesh 渲染</td>
+                <td><span class="good">存在</span></td>
+                <td>例如单独的 <code>scripts/PathTracer.py</code>，但它与体素图是分离的。</td>
+            </tr>
+            <tr>
+                <td>当前是否做 mesh + voxel 混合渲染</td>
+                <td><span class="bad">没有</span></td>
+                <td>没有看到把 mesh 图像与体素图像混合、合成或分层显示的现行通路。</td>
+            </tr>
+            <tr>
+                <td>是否完全脱离原始场景 mesh</td>
+                <td><span class="bad">没有</span></td>
+                <td>原始 mesh 仍用于体素化、材质采样、场景灯光和自发光三角形采样，但这属于<strong>数据来源复用</strong>，不是 mesh 直接成像。</td>
+            </tr>
+            <tr>
+                <td>运行模式</td>
+                <td><span class="good">缓存驱动</span></td>
+                <td>先生成 <code>.bin</code> 体素缓存，再由 <code>ReadVoxelPass</code> 读入，之后用 <code>RayMarchingPass</code> 渲染。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="note">
+        当前最准确的表述是：<strong>这是一个以 mesh 为输入、以 voxel cache 为中间表示、以 ray marching 为最终成像手段的体素渲染方案</strong>，
+        而不是一个正在把 mesh 图像和 voxel 图像一起混合输出的方案。
+    </div>
+
+    <hr>
+
+    <h2 id="graph">2. 当前渲染链路</h2>
+
+    <p>当前 <code>scripts/Voxelization_CPU.py</code> 和 <code>scripts/Voxelization_GPU.py</code> 的图都只有同一条主链：</p>
+
+    <pre><code class="language-python">voxel_pass = createPass("VoxelizationPass_CPU")   # 或 VoxelizationPass_GPU
+read_pass = createPass("ReadVoxelPass")
+marching_pass = createPass("RayMarchingPass")
+viewport_pass = createPass("RenderToViewportPass")
+accumulate_pass = createPass("AccumulatePass")
+tone_mapper = createPass("ToneMapper")</code></pre>
+
+    <pre class="mermaid">flowchart LR
+SceneMesh[Scene Mesh / Material / Light] --> Voxelize[VoxelizationPass_CPU or GPU]
+Voxelize --> Cache[resource/*.bin voxel cache]
+Cache --> Read[ReadVoxelPass]
+Read --> March[RayMarchingPass]
+March --> View[RenderToViewportPass]
+View --> Acc[AccumulatePass]
+Acc --> Tone[ToneMapper]
+</pre>
+
+    <table>
+        <thead>
+            <tr>
+                <th>阶段</th>
+                <th>当前职责</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>VoxelizationPass_*</code></td>
+                <td>从场景 mesh 生成体素缓存，输出到仓库相对路径 <code>resource/</code>。</td>
+            </tr>
+            <tr>
+                <td><code>ReadVoxelPass</code></td>
+                <td>读取 <code>.bin</code> 文件，把缓存拆成 <code>vBuffer</code>、<code>PrimitiveBSDF</code>、<code>Ellipsoid</code>、<code>blockMap</code>。</td>
+            </tr>
+            <tr>
+                <td><code>RayMarchingPass</code></td>
+                <td>按像素发射相机光线，在体素网格里做 DDA 或 block-map 跳步，并计算直接光和多次反弹。</td>
+            </tr>
+            <tr>
+                <td><code>RenderToViewportPass</code></td>
+                <td>只负责把输入纹理拷到输出视口，不做与其他 mesh 结果的混合。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p class="muted">补充：当前头部提交 <code>08e5552</code> 的作用主要是把体素缓存路径改成相对仓库根目录解析，不改变核心算法。</p>
+
+    <hr>
+
+    <h2 id="voxelization">3. 当前体素化方案</h2>
+
+    <h3>3.1 共享基础</h3>
+    <p><code>VoxelizationBase::UpdateVoxelGrid()</code> 先用场景 AABB 求出统一体素网格。分辨率由 UI 里的
+        <code>Voxel Resolution</code> 控制，网格边长按场景最长轴做归一化；缓存文件写入到仓库相对路径
+        <code>resource/</code>。</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>共享数据</th>
+                <th>作用</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>vBuffer</code></td>
+                <td>3D 体素到稀疏实体体素索引的映射。</td>
+            </tr>
+            <tr>
+                <td><code>VoxelData</code></td>
+                <td>每个实体体素的聚合材质 <code>ABSDF</code>、拟合椭球、投影面积球谐函数。</td>
+            </tr>
+            <tr>
+                <td><code>blockMap</code></td>
+                <td>稀疏占据信息，用于 ray marching 的块级跳步。</td>
+            </tr>
+            <tr>
+                <td><code>PolygonBufferGroup</code></td>
+                <td>按 <code>maxPolygonCount</code> 分组管理变长 polygon buffer，对应 UI 中的 <code>Polygon Per Frame</code>。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>3.2 CPU 体素化路径</h3>
+
+    <ol>
+        <li><code>LoadMesh.cs.slang</code> 从场景读取顶点、法线、UV、索引。</li>
+        <li>这些数据被回读到 CPU。</li>
+        <li><code>MeshSampler::clipAll()</code> 在 CPU 上把每个三角形裁到体素单元，形成每体素的 polygon 列表。</li>
+        <li>公共的 <code>AnalyzePolygon.cs.slang</code> 再在 GPU 上对每个实体体素做材质采样、椭球拟合、投影面积估计和 <code>blockMap</code> 更新。</li>
+        <li>结果写成 <code>.bin</code> 缓存文件。</li>
+    </ol>
+
+    <h3>3.3 GPU 体素化路径</h3>
+
+    <ol>
+        <li><code>SampleMesh.cs.slang</code> 先在 GPU 上遍历 mesh 三角形，做 box-clip，并对命中的体素原子分配偏移。</li>
+        <li>这一阶段直接累计体素的 <code>ABSDF</code> 面积、材质统计，以及每个体素的 polygon 数量。</li>
+        <li>然后把 <code>solidVoxelCount</code>、<code>vBuffer</code>、<code>polygonCountBuffer</code> 回读到 CPU，仅用于给变长 polygon buffer 做分组预分配。</li>
+        <li><code>ClipMesh.cs.slang</code> 再在 GPU 上把真正的 polygon 写入每组 buffer。</li>
+        <li>之后仍走公共的 <code>AnalyzePolygon.cs.slang</code>，补齐椭球、投影面积球谐函数和 <code>blockMap</code>。</li>
+        <li>最后同样写成 <code>.bin</code>。</li>
+    </ol>
+
+    <div class="note">
+        所以当前 GPU 路线并不是“全流程零回读”的纯 GPU 管线。它已经把大头工作搬到 GPU，但中间仍有一次 CPU 参与，用来处理
+        <code>PolygonBufferGroup.reserve()</code> 的分组和容量规划。
+    </div>
+
+    <h3>3.4 最新状态下的关键特征</h3>
+
+    <table>
+        <thead>
+            <tr>
+                <th>特征</th>
+                <th>最新状态</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>法线/材质来源</td>
+                <td>来自原始 mesh 的顶点法线、UV 和材质纹理。</td>
+            </tr>
+            <tr>
+                <td>法线聚合</td>
+                <td>通过 <code>ABSDF</code> 把体素内多个多边形压成少量 lobe。</td>
+            </tr>
+            <tr>
+                <td>几何近似</td>
+                <td>每个实体体素额外拟合一个 <code>Ellipsoid</code>，供命中判定和调试使用。</td>
+            </tr>
+            <tr>
+                <td>稀疏性利用</td>
+                <td>使用 <code>vBuffer</code> 稀疏索引和 <code>blockMap</code> 跳块。</td>
+            </tr>
+            <tr>
+                <td>生成节奏</td>
+                <td>按 <code>Polygon Per Frame</code> 分批执行，不是一次性把所有 polygon 全吞完。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <h2 id="rendering">4. 当前体素渲染方案</h2>
+
+    <h3>4.1 运行时输入</h3>
+    <p><code>ReadVoxelPass</code> 从缓存文件中读入 <code>GridData</code>、<code>vBuffer</code>、<code>VoxelData</code>、
+        <code>blockMap</code>，再通过 <code>PrepareShadingData.cs.slang</code> 把 <code>VoxelData</code> 拆成运行时使用的
+        <code>PrimitiveBSDF</code> 和 <code>Ellipsoid</code>。</p>
+
+    <h3>4.2 光线步进</h3>
+    <p><code>RayMarching.ps.slang</code> 对每个像素：</p>
+    <ol>
+        <li>从当前相机逆 VP 矩阵反投影出相机射线。</li>
+        <li>先与体素网格包围盒求交。</li>
+        <li>在网格内部用 <code>DDA</code> 或 <code>blockMap mip-style</code> 跳步搜索命中体素。</li>
+        <li>如果启用 <code>CHECK_ELLIPSOID</code>，会在命中体素后再用椭球裁段做更细命中。</li>
+        <li>拿到命中体素的 <code>PrimitiveBSDF</code> 后，计算直接光与多次反弹。</li>
+    </ol>
+
+    <h3>4.3 着色模型</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>模块</th>
+                <th>当前做法</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><code>PrimitiveBSDF</code></td>
+                <td>由体素内聚合后的表面 BRDF、覆盖率、内部可见性和投影面积函数组成。</td>
+            </tr>
+            <tr>
+                <td>直接光</td>
+                <td>由 <code>sampleLight()</code> 混合采样一般灯光、环境光、自发光三角形。</td>
+            </tr>
+            <tr>
+                <td>阴影/遮挡</td>
+                <td>不是查 mesh，也不是 RT；而是继续在体素网格中做 <code>rayMarching()</code>。</td>
+            </tr>
+            <tr>
+                <td>全局光照</td>
+                <td>在体素命中点之间做非递归多次反弹，默认 UI 是 <code>Max Bounce = 3</code>，着色器上限为 <code>4</code>。</td>
+            </tr>
+            <tr>
+                <td>背景</td>
+                <td>可选环境贴图或纯色背景。</td>
+            </tr>
+            <tr>
+                <td>调试模式</td>
+                <td>支持显示法线、椭球、投影面积、覆盖率、NDF 选中体素等。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="note">
+        这里最重要的一点是：<strong>当前的可见性判断和反弹路径都发生在体素表示里</strong>。即使灯光来源能复用原始场景的灯和自发光三角形，
+        阴影与遮挡依然是 voxel-space 的。
+    </div>
+
+    <hr>
+
+    <h2 id="mesh-hybrid">5. Mesh 渲染与混合渲染判断</h2>
+
+    <h3>5.1 有没有 mesh 渲染</h3>
+    <p>要分成两个层次看：</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>层次</th>
+                <th>判断</th>
+                <th>理由</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>ATRi111 当前体素方案内部</td>
+                <td><span class="bad">没有 mesh 直接成像</span></td>
+                <td><code>scripts/Voxelization_CPU.py</code> / <code>scripts/Voxelization_GPU.py</code> 只创建体素相关 pass，没有创建 <code>VBufferRT</code>、<code>GBufferRT</code>、<code>PathTracer</code>。</td>
+            </tr>
+            <tr>
+                <td>整个仓库级别</td>
+                <td><span class="good">有独立 mesh 渲染</span></td>
+                <td><code>scripts/PathTracer.py</code> 等脚本仍然是标准 mesh 路径，但它们和体素图分开使用。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>5.2 有没有混合渲染</h3>
+    <p><span class="bad">当前没有看到 mesh + voxel 的混合渲染方案。</span></p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>检查点</th>
+                <th>结果</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>体素脚本是否引入 mesh 渲染 pass</td>
+                <td>没有。</td>
+            </tr>
+            <tr>
+                <td>体素像素着色器是否发真实 RT 射线到 mesh</td>
+                <td>没有检到 <code>traceRay</code> / <code>TraceRay</code>。</td>
+            </tr>
+            <tr>
+                <td><code>RenderToViewportPass</code> 是否做结果合成</td>
+                <td>没有，只是把输入纹理采样到输出。</td>
+            </tr>
+            <tr>
+                <td>是否有“前景体素、背景 mesh”之类双通路</td>
+                <td>没有现行脚本或 pass 连接证明这一点。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>5.3 但它确实复用了哪些 mesh 信息</h3>
+    <ul>
+        <li>mesh 几何：用于体素化时读取三角形、法线、UV、材质。</li>
+        <li>mesh 材质：用于体素内的纹理采样和 <code>ABSDF</code> 聚合。</li>
+        <li>场景灯光：<code>Point</code>、<code>Directional</code>、<code>EnvMap</code> 直接参与 voxel shading。</li>
+        <li>自发光三角形：用于作为光源被采样，命中时还会做近邻 emissive 检查。</li>
+    </ul>
+
+    <div class="note">
+        因此如果一定要说“混合”，那也只是<strong>mesh 数据参与 voxel 着色</strong>，而不是<strong>mesh 图像与 voxel 图像混合显示</strong>。
+        从成像路径上看，当前方案仍然是纯 voxel ray marching。
+    </div>
+
+    <hr>
+
+    <h2 id="commits">6. 关键提交与现状对应</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>日期</th>
+                <th>提交</th>
+                <th>含义</th>
+                <th>对当前状态的影响</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>2026-03-13</td>
+                <td><code>7768d40</code></td>
+                <td><code>chore:modify Arcade scene</code></td>
+                <td>只改场景资源，不改变体素算法。</td>
+            </tr>
+            <tr>
+                <td>2026-01-22</td>
+                <td><code>4950f22</code></td>
+                <td><code>chore:polygon per frame</code></td>
+                <td>当前“按组/按帧处理 polygon”的 UI 与分批执行节奏来自这里。</td>
+            </tr>
+            <tr>
+                <td>2026-01-12</td>
+                <td><code>84d69dc</code></td>
+                <td><code>refactor:sample texture on GPU</code></td>
+                <td>把更多材质采样与分析搬到 GPU，是当前共享 <code>AnalyzePolygon</code> 路线的关键节点。</td>
+            </tr>
+            <tr>
+                <td>2026-01-07</td>
+                <td><code>f521297</code></td>
+                <td><code>feat:clip mesh on GPU</code></td>
+                <td>形成当前 GPU 路线里 <code>SampleMesh</code> + <code>ClipMesh</code> 的两段式结构。</td>
+            </tr>
+            <tr>
+                <td>2025-12-31</td>
+                <td><code>1e6b59b</code></td>
+                <td><code>feat:variable-length polygon buffer</code></td>
+                <td>为当前 <code>PolygonBufferGroup</code> 的变长分组结构打基础。</td>
+            </tr>
+            <tr>
+                <td>2025-12-26</td>
+                <td><code>e77f84f</code></td>
+                <td><code>feat:render to viewport</code></td>
+                <td>把最终显示独立成 <code>RenderToViewportPass</code>，但并未引入 mesh + voxel 合成。</td>
+            </tr>
+            <tr>
+                <td>2026-03-22</td>
+                <td><code>08e5552</code></td>
+                <td><code>fix: resolve voxelization plugin paths relative to repo</code></td>
+                <td>当前头部代码修了资源路径解析，算法本身未变。</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <h2 id="refs">参考</h2>
+    <ul>
+        <li><code>scripts/Voxelization_CPU.py</code></li>
+        <li><code>scripts/Voxelization_GPU.py</code></li>
+        <li><code>scripts/PathTracer.py</code></li>
+        <li><code>Source/RenderPasses/Voxelization/VoxelizationPass.cpp</code></li>
+        <li><code>Source/RenderPasses/Voxelization/VoxelizationPass_CPU.cpp</code></li>
+        <li><code>Source/RenderPasses/Voxelization/VoxelizationPass_GPU.cpp</code></li>
+        <li><code>Source/RenderPasses/Voxelization/SampleMesh.cs.slang</code></li>
+        <li><code>Source/RenderPasses/Voxelization/ClipMesh.cs.slang</code></li>
+        <li><code>Source/RenderPasses/Voxelization/AnalyzePolygon.cs.slang</code></li>
+        <li><code>Source/RenderPasses/Voxelization/ReadVoxelPass.cpp</code></li>
+        <li><code>Source/RenderPasses/Voxelization/PrepareShadingData.cs.slang</code></li>
+        <li><code>Source/RenderPasses/Voxelization/RayMarchingPass.cpp</code></li>
+        <li><code>Source/RenderPasses/Voxelization/RayMarching.ps.slang</code></li>
+        <li><code>Source/RenderPasses/Voxelization/MixLightSampler.slang</code></li>
+        <li><code>Source/RenderPasses/Voxelization/Shading.slang</code></li>
+        <li><code>Source/RenderPasses/Voxelization/VoxelizationBase.h</code></li>
+        <li><code>Source/RenderPasses/Viewport/RenderToViewportPass.cpp</code></li>
+        <li><code>Source/RenderPasses/Viewport/RenderToViewport.ps.slang</code></li>
+    </ul>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+        hljs.highlightAll();
+    </script>
+
+</body>
+
+</html>

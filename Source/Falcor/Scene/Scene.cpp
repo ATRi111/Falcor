@@ -53,6 +53,7 @@
 #include <numeric>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 #include <execution>
 
 namespace Falcor
@@ -77,6 +78,16 @@ const std::string kProceduralPrimAABBBufferName = "proceduralPrimitiveAABBs";
 const std::string kCurveBufferName = "curves";
 const std::string kCurveIndexBufferName = "curveIndices";
 const std::string kCurveVertexBufferName = "curveVertices";
+
+uint32_t getGeometryInstanceRenderRouteBit(GeometryInstanceRenderRoute route)
+{
+    return 1u << static_cast<uint32_t>(route);
+}
+
+bool isGeometryInstanceRenderRouteEnabled(uint32_t routeMask, GeometryInstanceRenderRoute route)
+{
+    return (routeMask & getGeometryInstanceRenderRouteBit(route)) != 0u;
+}
 const std::string kPrevCurveVertexBufferName = "prevCurveVertices";
 const std::string kSDFGridsArrayName = "sdfGrids";
 const std::string kCustomPrimitiveBufferName = "customPrimitives";
@@ -298,6 +309,113 @@ ref<Scene> Scene::create(ref<Device> pDevice, SceneData&& sceneData)
     return ref<Scene>(new Scene(pDevice, std::move(sceneData)));
 }
 
+GeometryInstanceRenderRoute Scene::getGeometryInstanceRenderRoute(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    return mGeometryInstanceData[instanceID].getRenderRoute();
+}
+
+void Scene::setGeometryInstanceRenderRoute(uint32_t instanceID, GeometryInstanceRenderRoute route)
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    mGeometryInstanceData[instanceID].setRenderRoute(route);
+    clearFilteredDrawArgsCache();
+
+    if (mpGeometryInstancesBuffer)
+        updateGeometryInstances(true);
+}
+
+void Scene::setGeometryInstanceRenderRoutes(const std::vector<std::pair<uint32_t, GeometryInstanceRenderRoute>>& updates)
+{
+    bool changed = false;
+    for (const auto& [instanceID, route] : updates)
+    {
+        FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+        auto& instance = mGeometryInstanceData[instanceID];
+        if (instance.getRenderRoute() == route)
+            continue;
+
+        instance.setRenderRoute(route);
+        changed = true;
+    }
+
+    if (!changed)
+        return;
+
+    clearFilteredDrawArgsCache();
+
+    if (mpGeometryInstancesBuffer)
+        updateGeometryInstances(true);
+}
+
+std::string Scene::getGeometryInstanceNodeName(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    const uint32_t nodeID = mGeometryInstanceData[instanceID].globalMatrixID;
+    return nodeID < mSceneGraph.size() ? mSceneGraph[nodeID].name : std::string();
+}
+
+AABB Scene::getGeometryInstanceBounds(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+
+    const auto& instance = mGeometryInstanceData[instanceID];
+    const auto& globalMatrices = mpAnimationController->getGlobalMatrices();
+    FALCOR_CHECK(instance.globalMatrixID < globalMatrices.size(), "'globalMatrixID' ({}) is out of range.", instance.globalMatrixID);
+    const float4x4& transform = globalMatrices[instance.globalMatrixID];
+
+    switch (instance.getType())
+    {
+    case GeometryType::TriangleMesh:
+    case GeometryType::DisplacedTriangleMesh:
+        return mMeshBBs[instance.geometryID].transform(transform);
+    case GeometryType::Curve:
+        return mCurveBBs[instance.geometryID].transform(transform);
+    case GeometryType::SDFGrid:
+    {
+        float3x3 transform3x3 = float3x3(transform);
+        transform3x3[0] = abs(transform3x3[0]);
+        transform3x3[1] = abs(transform3x3[1]);
+        transform3x3[2] = abs(transform3x3[2]);
+        const float3 center = transform.getCol(3).xyz();
+        const float3 halfExtent = transformVector(transform3x3, float3(0.5f));
+        return AABB(center - halfExtent, center + halfExtent);
+    }
+    default:
+        return {};
+    }
+}
+
+std::string Scene::getGeometryInstanceGeometryName(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    const auto& instance = mGeometryInstanceData[instanceID];
+
+    switch (instance.getType())
+    {
+    case GeometryType::TriangleMesh:
+    case GeometryType::DisplacedTriangleMesh:
+        return instance.geometryID < mMeshNames.size() ? mMeshNames[instance.geometryID] : fmt::format("Mesh#{}", instance.geometryID);
+    case GeometryType::Curve:
+        return fmt::format("Curve#{}", instance.geometryID);
+    case GeometryType::SDFGrid:
+        return fmt::format("SDFGrid#{}", instance.geometryID);
+    case GeometryType::Custom:
+        return fmt::format("Custom#{}", instance.geometryID);
+    default:
+        return fmt::format("Geometry#{}", instance.geometryID);
+    }
+}
+
+std::string Scene::getGeometryInstanceMaterialName(uint32_t instanceID) const
+{
+    FALCOR_CHECK(instanceID < mGeometryInstanceData.size(), "'instanceID' ({}) is out of range.", instanceID);
+    const auto& instance = mGeometryInstanceData[instanceID];
+    if (!mpMaterials || !mpMaterials->hasMaterial(MaterialID::fromSlang(instance.materialID)))
+        return std::string();
+    return mpMaterials->getMaterial(MaterialID::fromSlang(instance.materialID))->getName();
+}
+
 void Scene::updateSceneDefines()
 {
     DefineList defines;
@@ -386,7 +504,18 @@ const ref<LightCollection>& Scene::getLightCollection(RenderContext* pRenderCont
 
 void Scene::rasterize(RenderContext* pRenderContext, GraphicsState* pState, ProgramVars* pVars, RasterizerState::CullMode cullMode)
 {
-    rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode]);
+    rasterize(pRenderContext, pState, pVars, cullMode, kAllGeometryInstanceRenderRoutesMask);
+}
+
+void Scene::rasterize(
+    RenderContext* pRenderContext,
+    GraphicsState* pState,
+    ProgramVars* pVars,
+    RasterizerState::CullMode cullMode,
+    uint32_t instanceRouteMask
+)
+{
+    rasterize(pRenderContext, pState, pVars, mFrontClockwiseRS[cullMode], mFrontCounterClockwiseRS[cullMode], instanceRouteMask);
 }
 
 void Scene::rasterize(
@@ -397,14 +526,27 @@ void Scene::rasterize(
     const ref<RasterizerState>& pRasterizerStateCCW
 )
 {
+    rasterize(pRenderContext, pState, pVars, pRasterizerStateCW, pRasterizerStateCCW, kAllGeometryInstanceRenderRoutesMask);
+}
+
+void Scene::rasterize(
+    RenderContext* pRenderContext,
+    GraphicsState* pState,
+    ProgramVars* pVars,
+    const ref<RasterizerState>& pRasterizerStateCW,
+    const ref<RasterizerState>& pRasterizerStateCCW,
+    uint32_t instanceRouteMask
+)
+{
     FALCOR_PROFILE(pRenderContext, "rasterizeScene");
 
     pVars->setParameterBlock(kParameterBlockName, mpSceneBlock);
 
     auto pCurrentRS = pState->getRasterizerState();
     bool isIndexed = hasIndexBuffer();
+    const auto& drawArgs = getDrawArgs(instanceRouteMask);
 
-    for (const auto& draw : mDrawArgs)
+    for (const auto& draw : drawArgs)
     {
         FALCOR_ASSERT(draw.count > 0);
 
@@ -2875,43 +3017,39 @@ void Scene::setBlasUpdateMode(UpdateMode mode)
 
 void Scene::createDrawList()
 {
+    clearFilteredDrawArgsCache();
+    mDrawArgs = createDrawArgs(kAllGeometryInstanceRenderRoutesMask);
+}
+
+std::vector<Scene::DrawArgs> Scene::createDrawArgs(uint32_t instanceRouteMask)
+{
+    std::vector<DrawArgs> drawArgs;
     if (!mpMeshVao)
-        return;
+        return drawArgs;
 
-    // This function creates argument buffers for draw indirect calls to rasterize the scene.
-    // The updateGeometryInstances() function must have been called before so that the flags are accurate.
-    //
-    // Note that we create four draw buffers to handle all combinations of:
-    // 1) mesh is using 16- or 32-bit indices,
-    // 2) mesh triangle winding is CW or CCW after transformation.
-    //
-    // TODO: Update the draw args if a mesh undergoes animation that flips the winding.
+    instanceRouteMask &= kAllGeometryInstanceRenderRoutesMask;
 
-    mDrawArgs.clear();
-
-    // Helper to create the draw-indirect buffer.
-    auto createDrawBuffer = [this](const auto& drawMeshes, bool ccw, ResourceFormat ibFormat = ResourceFormat::Unknown)
+    auto createDrawBuffer = [this, &drawArgs](const auto& drawMeshes, bool ccw, ResourceFormat ibFormat = ResourceFormat::Unknown)
     {
-        if (drawMeshes.size() > 0)
-        {
-            DrawArgs draw;
-            draw.pBuffer = mpDevice->createBuffer(
-                sizeof(drawMeshes[0]) * drawMeshes.size(), ResourceBindFlags::IndirectArg, MemoryType::DeviceLocal, drawMeshes.data()
-            );
-            draw.pBuffer->setName("Scene draw buffer");
-            FALCOR_ASSERT(drawMeshes.size() <= std::numeric_limits<uint32_t>::max());
-            draw.count = (uint32_t)drawMeshes.size();
-            draw.ccw = ccw;
-            draw.ibFormat = ibFormat;
-            mDrawArgs.push_back(draw);
-        }
+        if (drawMeshes.empty())
+            return;
+
+        DrawArgs draw;
+        draw.pBuffer =
+            mpDevice->createBuffer(sizeof(drawMeshes[0]) * drawMeshes.size(), ResourceBindFlags::IndirectArg, MemoryType::DeviceLocal, drawMeshes.data());
+        draw.pBuffer->setName("Scene draw buffer");
+        FALCOR_ASSERT(drawMeshes.size() <= std::numeric_limits<uint32_t>::max());
+        draw.count = (uint32_t)drawMeshes.size();
+        draw.ccw = ccw;
+        draw.ibFormat = ibFormat;
+        drawArgs.push_back(draw);
     };
 
     if (hasIndexBuffer())
     {
         std::vector<DrawIndexedArguments> drawClockwiseMeshes[2], drawCounterClockwiseMeshes[2];
 
-        uint32_t instanceID = 0;
+        uint32_t rasterInstanceID = 0;
         for (const auto& instance : mGeometryInstanceData)
         {
             if (instance.getType() != GeometryType::TriangleMesh)
@@ -2925,7 +3063,10 @@ void Scene::createDrawList()
             draw.InstanceCount = 1;
             draw.StartIndexLocation = mesh.ibOffset * (use16Bit ? 2 : 1);
             draw.BaseVertexLocation = mesh.vbOffset;
-            draw.StartInstanceLocation = instanceID++;
+            draw.StartInstanceLocation = rasterInstanceID++;
+
+            if (!isGeometryInstanceRenderRouteEnabled(instanceRouteMask, instance.getRenderRoute()))
+                continue;
 
             int i = use16Bit ? 0 : 1;
             (instance.isWorldFrontFaceCW()) ? drawClockwiseMeshes[i].push_back(draw) : drawCounterClockwiseMeshes[i].push_back(draw);
@@ -2940,7 +3081,7 @@ void Scene::createDrawList()
     {
         std::vector<DrawArguments> drawClockwiseMeshes, drawCounterClockwiseMeshes;
 
-        uint32_t instanceID = 0;
+        uint32_t rasterInstanceID = 0;
         for (const auto& instance : mGeometryInstanceData)
         {
             if (instance.getType() != GeometryType::TriangleMesh)
@@ -2953,7 +3094,10 @@ void Scene::createDrawList()
             draw.VertexCountPerInstance = mesh.vertexCount;
             draw.InstanceCount = 1;
             draw.StartVertexLocation = mesh.vbOffset;
-            draw.StartInstanceLocation = instanceID++;
+            draw.StartInstanceLocation = rasterInstanceID++;
+
+            if (!isGeometryInstanceRenderRouteEnabled(instanceRouteMask, instance.getRenderRoute()))
+                continue;
 
             (instance.isWorldFrontFaceCW()) ? drawClockwiseMeshes.push_back(draw) : drawCounterClockwiseMeshes.push_back(draw);
         }
@@ -2961,6 +3105,26 @@ void Scene::createDrawList()
         createDrawBuffer(drawClockwiseMeshes, false);
         createDrawBuffer(drawCounterClockwiseMeshes, true);
     }
+
+    return drawArgs;
+}
+
+const std::vector<Scene::DrawArgs>& Scene::getDrawArgs(uint32_t instanceRouteMask)
+{
+    instanceRouteMask &= kAllGeometryInstanceRenderRoutesMask;
+    if (instanceRouteMask == kAllGeometryInstanceRenderRoutesMask)
+        return mDrawArgs;
+
+    auto it = mFilteredDrawArgsCache.find(instanceRouteMask);
+    if (it == mFilteredDrawArgsCache.end())
+        it = mFilteredDrawArgsCache.emplace(instanceRouteMask, createDrawArgs(instanceRouteMask)).first;
+
+    return it->second;
+}
+
+void Scene::clearFilteredDrawArgsCache()
+{
+    mFilteredDrawArgsCache.clear();
 }
 
 void Scene::initGeomDesc(RenderContext* pRenderContext)
@@ -4419,6 +4583,92 @@ inline pybind11::dict toPython(const Scene::SceneStats& stats)
     return d;
 }
 
+inline std::string toLowerString(std::string value)
+{
+    std::transform(
+        value.begin(),
+        value.end(),
+        value.begin(),
+        [](unsigned char c)
+        {
+            return (char)std::tolower(c);
+        }
+    );
+    return value;
+}
+
+inline std::string geometryTypeToPythonString(GeometryType type)
+{
+    switch (type)
+    {
+    case GeometryType::TriangleMesh:
+        return "TriangleMesh";
+    case GeometryType::DisplacedTriangleMesh:
+        return "DisplacedTriangleMesh";
+    case GeometryType::Curve:
+        return "Curve";
+    case GeometryType::SDFGrid:
+        return "SDFGrid";
+    case GeometryType::Custom:
+        return "Custom";
+    default:
+        return "None";
+    }
+}
+
+inline std::string geometryInstanceRouteToPythonString(GeometryInstanceRenderRoute route)
+{
+    switch (route)
+    {
+    case GeometryInstanceRenderRoute::MeshOnly:
+        return "MeshOnly";
+    case GeometryInstanceRenderRoute::VoxelOnly:
+        return "VoxelOnly";
+    case GeometryInstanceRenderRoute::Blend:
+    default:
+        return "Blend";
+    }
+}
+
+inline GeometryInstanceRenderRoute parseGeometryInstanceRoutePython(const std::string& value)
+{
+    const std::string normalized = toLowerString(value);
+    if (normalized == "meshonly" || normalized == "mesh")
+        return GeometryInstanceRenderRoute::MeshOnly;
+    if (normalized == "voxelonly" || normalized == "voxel")
+        return GeometryInstanceRenderRoute::VoxelOnly;
+    if (normalized == "blend")
+        return GeometryInstanceRenderRoute::Blend;
+
+    FALCOR_THROW("Unsupported geometry instance route '{}'. Expected MeshOnly, VoxelOnly, or Blend.", value);
+}
+
+inline pybind11::tuple toPythonFloat3(const float3& value)
+{
+    return pybind11::make_tuple(value.x, value.y, value.z);
+}
+
+inline pybind11::dict toPythonGeometryInstanceInfo(const Scene& scene, uint32_t instanceID)
+{
+    const auto& instance = scene.getGeometryInstance(instanceID);
+    const AABB bounds = scene.getGeometryInstanceBounds(instanceID);
+
+    pybind11::dict info;
+    info["instance_id"] = instanceID;
+    info["geometry_id"] = instance.geometryID;
+    info["matrix_id"] = instance.globalMatrixID;
+    info["type"] = geometryTypeToPythonString(instance.getType());
+    info["node_name"] = scene.getGeometryInstanceNodeName(instanceID);
+    info["geometry_name"] = scene.getGeometryInstanceGeometryName(instanceID);
+    info["material_name"] = scene.getGeometryInstanceMaterialName(instanceID);
+    info["route"] = geometryInstanceRouteToPythonString(instance.getRenderRoute());
+    info["bounds_min"] = toPythonFloat3(bounds.minPoint);
+    info["bounds_max"] = toPythonFloat3(bounds.maxPoint);
+    info["bounds_center"] = toPythonFloat3(bounds.center());
+    info["bounds_radius"] = bounds.valid() ? bounds.radius() : 0.f;
+    return info;
+}
+
 /** Get serialized material parameters for a list of materials.
  *   \param materialIDsBuffer Buffer containing material IDs
  *   \param paramsBuffer Buffer to write material parameters to
@@ -4574,6 +4824,7 @@ FALCOR_SCRIPT_BINDING(Scene)
     scene.def_property_readonly(kLights.c_str(), &Scene::getLights);
     scene.def_property_readonly(kGridVolumes.c_str(), &Scene::getGridVolumes);
     scene.def_property_readonly("volumes", &Scene::getGridVolumes); // PYTHONDEPRECATED
+    scene.def_property_readonly("path", &Scene::getPath);
     scene.def_property(kCameraSpeed.c_str(), &Scene::getCameraSpeed, &Scene::setCameraSpeed);
     scene.def_property(kAnimated.c_str(), &Scene::isAnimated, &Scene::setIsAnimated);
     scene.def_property(kLoopAnimations.c_str(), &Scene::isLooped, &Scene::setIsLooped);
@@ -4594,8 +4845,52 @@ FALCOR_SCRIPT_BINDING(Scene)
         "minPoint"_a,
         "maxPoint"_a
     );
+    scene.def_property_readonly("geometry_instance_count", &Scene::getGeometryInstanceCount);
     scene.def("getGeometryUVTiles", &Scene::getGeometryUVTiles, "geometryID"_a);
     scene.def_property_readonly("memory_usage", &Scene::getMemoryUsageInBytes);
+    scene.def(
+        "get_geometry_instance_info",
+        [](const Scene* pScene, uint32_t instanceID)
+        {
+            return toPythonGeometryInstanceInfo(*pScene, instanceID);
+        },
+        "instance_id"_a
+    );
+    scene.def(
+        "get_geometry_instance_infos",
+        [](const Scene* pScene)
+        {
+            pybind11::list infos;
+            for (uint32_t instanceID = 0; instanceID < pScene->getGeometryInstanceCount(); ++instanceID)
+                infos.append(toPythonGeometryInstanceInfo(*pScene, instanceID));
+            return infos;
+        }
+    );
+    scene.def(
+        "set_geometry_instance_route",
+        [](Scene* pScene, uint32_t instanceID, const std::string& route)
+        {
+            pScene->setGeometryInstanceRenderRoute(instanceID, parseGeometryInstanceRoutePython(route));
+        },
+        "instance_id"_a,
+        "route"_a
+    );
+    scene.def(
+        "set_geometry_instance_routes",
+        [](Scene* pScene, const pybind11::dict& updates)
+        {
+            std::vector<std::pair<uint32_t, GeometryInstanceRenderRoute>> parsed;
+            parsed.reserve(pybind11::len(updates));
+            for (auto item : updates)
+            {
+                const uint32_t instanceID = item.first.cast<uint32_t>();
+                const std::string route = item.second.cast<std::string>();
+                parsed.emplace_back(instanceID, parseGeometryInstanceRoutePython(route));
+            }
+            pScene->setGeometryInstanceRenderRoutes(parsed);
+        },
+        "updates"_a
+    );
 
     // Materials
     scene.def_property_readonly(kMaterials.c_str(), &Scene::getMaterials);

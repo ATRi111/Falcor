@@ -1123,6 +1123,7 @@ namespace Falcor
         instance.geometryID = desc.sdfGridID.getSlang();
         instance.materialID = desc.materialID.getSlang();
         instance.globalMatrixID = nodeID.getSlang();
+        instance.setRenderRoute(GeometryInstanceRenderRoute::Blend);
         instance.geometryIndex = 0;
 
         mSceneData.sdfGridInstances.push_back(instance);
@@ -2805,6 +2806,7 @@ namespace Falcor
                     instance.ibOffset = mesh.indexOffset;
                     instance.flags |= mesh.use16BitIndices ? (uint32_t)GeometryInstanceFlags::Use16BitIndices : 0;
                     instance.flags |= mesh.isDynamic() ? (uint32_t)GeometryInstanceFlags::IsDynamic : 0;
+                    instance.setRenderRoute(GeometryInstanceRenderRoute::Blend);
                     instance.instanceIndex = tlasInstanceIndex;
                     instance.geometryIndex = blasGeometryIndex;
                     instanceData.push_back(instance);
@@ -2873,6 +2875,7 @@ namespace Falcor
                 instance.geometryID = curveID;
                 instance.vbOffset = curve.staticVertexOffset;
                 instance.ibOffset = curve.indexOffset;
+                instance.setRenderRoute(GeometryInstanceRenderRoute::Blend);
                 instance.instanceIndex = tlasInstanceIndex + (uint32_t)instanceIdx;
                 instance.geometryIndex = blasGeometryIndex;
                 instanceData.push_back(instance);

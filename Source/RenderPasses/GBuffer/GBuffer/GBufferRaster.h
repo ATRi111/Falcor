@@ -45,6 +45,7 @@ public:
 
     GBufferRaster(ref<Device> pDevice, const Properties& props);
 
+    Properties getProperties() const override;
     RenderPassReflection reflect(const CompileData& compileData) override;
     void execute(RenderContext* pRenderContext, const RenderData& renderData) override;
     void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
@@ -52,6 +53,7 @@ public:
     virtual void compile(RenderContext* pRenderContext, const CompileData& compileData) override;
 
 private:
+    void parseProperties(const Properties& props) override;
     void recreatePrograms();
 
     // Internal state
@@ -71,4 +73,6 @@ private:
         ref<Program> pProgram;
         ref<ProgramVars> pVars;
     } mGBufferPass;
+
+    uint32_t mInstanceRouteMask = Scene::kAllGeometryInstanceRenderRoutesMask;
 };

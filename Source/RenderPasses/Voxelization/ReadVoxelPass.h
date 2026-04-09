@@ -23,6 +23,7 @@ public:
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
 private:
+    bool tryQueueAutoBinFile();
     bool tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize);
     GridData& gridData;
 
@@ -36,4 +37,8 @@ private:
 
     bool mComplete;
     bool mOptionsChanged;
+    std::filesystem::path mAutoBinFile;
+    std::filesystem::path mLastManualBinFile;
+    bool mAutoBinFileQueued = false;
+    bool mSelectedFileInitialized = false;
 };

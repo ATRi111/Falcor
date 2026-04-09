@@ -40,6 +40,7 @@
 #include "Utils/Scripting/Console.h"
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -286,6 +287,11 @@ public:
     bool isVsyncEnabled() { return mVsyncOn; }
 
     /**
+     * Request a profiler state change to be applied at the start of the next frame.
+     */
+    void requestProfilerState(bool enabled);
+
+    /**
      * Get the global shortcuts message.
      */
     static std::string getKeyboardShortcutsStr();
@@ -337,6 +343,7 @@ private:
     bool mVsyncOn = false;
     bool mShowUI = true;
     bool mCaptureScreen = false;
+    std::optional<bool> mPendingProfilerState;
 
     int mReturnCode = 0;
 

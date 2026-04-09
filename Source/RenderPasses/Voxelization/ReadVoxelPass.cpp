@@ -4,7 +4,73 @@
 
 namespace
 {
-const std::string kPrepareProgramFile = "E:/Project/Falcor/Source/RenderPasses/Voxelization/PrepareShadingData.cs.slang";
+const std::string kPrepareProgramFile = "RenderPasses/Voxelization/PrepareShadingData.cs.slang";
+const char kLastManualCacheFileName[] = ".readvoxelpass_last_manual_cache.txt";
+
+struct LegacyVoxelData
+{
+    ABSDF ABSDF;
+    Ellipsoid ellipsoid;
+    SphericalFunc primitiveProjAreaFunc;
+    SphericalFunc polygonsProjAreaFunc;
+    SphericalFunc totalProjAreaFunc;
+};
+
+bool doesGridLayoutRequireRecompile(const GridData& current, const GridData& loaded)
+{
+    return current.voxelCount.x != loaded.voxelCount.x || current.voxelCount.y != loaded.voxelCount.y || current.voxelCount.z != loaded.voxelCount.z ||
+           current.solidVoxelCount != loaded.solidVoxelCount;
+}
+
+std::filesystem::path getLastManualCacheRecordPath()
+{
+    return getVoxelizationResourceFolderPath() / kLastManualCacheFileName;
+}
+
+std::filesystem::path loadLastManualCachePath()
+{
+    const auto recordPath = getLastManualCacheRecordPath();
+    if (!std::filesystem::exists(recordPath))
+        return {};
+
+    std::ifstream record(recordPath);
+    if (!record.is_open())
+        return {};
+
+    std::string fileName;
+    std::getline(record, fileName);
+    if (fileName.empty())
+        return {};
+
+    const auto cachePath = getVoxelizationResourceFolderPath() / fileName;
+    return std::filesystem::exists(cachePath) ? cachePath : std::filesystem::path{};
+}
+
+void persistLastManualCachePath(const std::filesystem::path& cachePath)
+{
+    if (cachePath.empty())
+        return;
+
+    std::ofstream record(getLastManualCacheRecordPath(), std::ios::trunc);
+    if (!record.is_open())
+        return;
+
+    record << cachePath.filename().string();
+}
+
+uint findSelectedFileIndex(const std::vector<std::filesystem::path>& filePaths, const std::filesystem::path& preferredPath)
+{
+    if (preferredPath.empty())
+        return 0;
+
+    for (uint i = 0; i < filePaths.size(); ++i)
+    {
+        if (std::filesystem::equivalent(filePaths[i], preferredPath))
+            return i;
+    }
+
+    return 0;
+}
 
 }; // namespace
 
@@ -14,6 +80,17 @@ ReadVoxelPass::ReadVoxelPass(ref<Device> pDevice, const Properties& props) : Ren
     mOptionsChanged = false;
     selectedFile = 0;
     mpDevice = pDevice;
+
+    mLastManualBinFile = loadLastManualCachePath();
+    if (!mLastManualBinFile.empty())
+    {
+        mAutoBinFile = mLastManualBinFile;
+    }
+    else if (props.has("binFile"))
+    {
+        // 支持从脚本传入 binFile 路径自动触发读取
+        mAutoBinFile = props["binFile"].operator std::filesystem::path();
+    }
 }
 
 RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
@@ -45,11 +122,20 @@ RenderPassReflection ReadVoxelPass::reflect(const CompileData& compileData)
         .format(ResourceFormat::RGBA32Uint)
         .texture2D(gridData.blockCount().x, gridData.blockCount().y);
 
+    reflector.addOutput(kSolidVoxelCellBuffer, "Solid voxel cell coordinates")
+        .bindFlags(ResourceBindFlags::ShaderResource)
+        .format(ResourceFormat::Unknown)
+        .rawBuffer(gridData.solidVoxelCount * sizeof(int3))
+        .flags(RenderPassReflection::Field::Flags::Optional);
+
     return reflector;
 }
 
 void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& renderData)
 {
+    if (mComplete)
+        tryQueueAutoBinFile();
+
     if (mComplete)
         return;
 
@@ -87,16 +173,84 @@ void ReadVoxelPass::execute(RenderContext* pRenderContext, const RenderData& ren
     tryRead(f, offset, gridData.totalVoxelCount() * sizeof(uint), vBuffer, fileSize);
     pVBuffer->setSubresourceBlob(0, vBuffer, gridData.totalVoxelCount() * sizeof(uint));
 
+    ref<Buffer> pSolidVoxelCellBuffer = renderData.getResource(kSolidVoxelCellBuffer) ? renderData.getResource(kSolidVoxelCellBuffer)->asBuffer() : nullptr;
+    std::vector<int3> solidVoxelCells;
+    if (pSolidVoxelCellBuffer)
+    {
+        solidVoxelCells.resize(gridData.solidVoxelCount, int3(0));
+        const uint3 dims = gridData.voxelCount;
+        const size_t xyStride = size_t(dims.x) * size_t(dims.y);
+        for (size_t linearIndex = 0; linearIndex < voxelCount; ++linearIndex)
+        {
+            const int voxelOffset = static_cast<int>(vBuffer[linearIndex]);
+            if (voxelOffset < 0 || voxelOffset >= static_cast<int>(gridData.solidVoxelCount))
+                continue;
+
+            const uint z = uint(linearIndex / xyStride);
+            const size_t xyIndex = linearIndex - size_t(z) * xyStride;
+            const uint y = uint(xyIndex / dims.x);
+            const uint x = uint(xyIndex - size_t(y) * dims.x);
+            solidVoxelCells[size_t(voxelOffset)] = int3(int(x), int(y), int(z));
+        }
+        pSolidVoxelCellBuffer->setBlob(solidVoxelCells.data(), 0, solidVoxelCells.size() * sizeof(int3));
+    }
+    delete[] vBuffer;
+
+    const size_t currentVoxelDataBytes = size_t(gridData.solidVoxelCount) * sizeof(VoxelData);
+    const size_t legacyVoxelDataBytes = size_t(gridData.solidVoxelCount) * sizeof(LegacyVoxelData);
+    const size_t blockMapBytes = size_t(gridData.totalBlockCount()) * sizeof(uint4);
+    const size_t remainingBytes = fileSize - offset;
+    const bool useCurrentLayout = remainingBytes == currentVoxelDataBytes + blockMapBytes;
+    const bool useLegacyLayout = remainingBytes == legacyVoxelDataBytes + blockMapBytes;
+    if (!useCurrentLayout && !useLegacyLayout)
+    {
+        logWarning(
+            "ReadVoxelPass: incompatible cache layout '{}' (remaining={} bytes, expected current={} or legacy={} plus blockMap={}).",
+            filePaths[selectedFile].string(),
+            remainingBytes,
+            currentVoxelDataBytes,
+            legacyVoxelDataBytes,
+            blockMapBytes
+        );
+        mComplete = true;
+        return;
+    }
+
     mpVoxelDataBuffer = mpDevice->createStructuredBuffer(sizeof(VoxelData), gridData.solidVoxelCount, ResourceBindFlags::ShaderResource);
     VoxelData* voxelDataBuffer = new VoxelData[gridData.solidVoxelCount];
-    tryRead(f, offset, gridData.solidVoxelCount * sizeof(VoxelData), voxelDataBuffer, fileSize);
+    if (useCurrentLayout)
+    {
+        tryRead(f, offset, currentVoxelDataBytes, voxelDataBuffer, fileSize);
+    }
+    else
+    {
+        LegacyVoxelData* legacyVoxelDataBuffer = new LegacyVoxelData[gridData.solidVoxelCount];
+        tryRead(f, offset, legacyVoxelDataBytes, legacyVoxelDataBuffer, fileSize);
+        for (size_t i = 0; i < gridData.solidVoxelCount; ++i)
+        {
+            voxelDataBuffer[i].ABSDF = legacyVoxelDataBuffer[i].ABSDF;
+            voxelDataBuffer[i].ellipsoid = legacyVoxelDataBuffer[i].ellipsoid;
+            voxelDataBuffer[i].primitiveProjAreaFunc = legacyVoxelDataBuffer[i].primitiveProjAreaFunc;
+            voxelDataBuffer[i].polygonsProjAreaFunc = legacyVoxelDataBuffer[i].polygonsProjAreaFunc;
+            voxelDataBuffer[i].totalProjAreaFunc = legacyVoxelDataBuffer[i].totalProjAreaFunc;
+            voxelDataBuffer[i].dominantInstanceID = kInvalidVoxelInstanceID;
+            voxelDataBuffer[i].identityConfidence = 0.f;
+        }
+        delete[] legacyVoxelDataBuffer;
+        logWarning(
+            "ReadVoxelPass: cache '{}' uses the legacy voxel contract. identity/confidence were reset; regenerate this cache for Phase3 validation.",
+            filePaths[selectedFile].string()
+        );
+    }
     mpVoxelDataBuffer->setBlob(voxelDataBuffer, 0, gridData.solidVoxelCount * sizeof(VoxelData));
+    delete[] voxelDataBuffer;
     pRenderContext->submit(true);
 
     ref<Texture> pBlockMap = renderData.getTexture(kBlockMap);
     uint4* blockMap = new uint4[gridData.totalBlockCount()];
     tryRead(f, offset, gridData.totalBlockCount() * sizeof(uint4), blockMap, fileSize);
     pBlockMap->setSubresourceBlob(0, blockMap, gridData.totalBlockCount() * sizeof(uint4));
+    delete[] blockMap;
 
     // VoxelData将拆分成PrimitiveBSDF和Ellipsoid
     ref<Buffer> pGBuffer = renderData.getResource(kGBuffer)->asBuffer();
@@ -118,18 +272,37 @@ void ReadVoxelPass::compile(RenderContext* pRenderContext, const CompileData& co
 
 void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 {
-    if (VoxelizationBase::FileUpdated)
+    if (gVoxelizationFilesUpdated)
     {
         filePaths.clear();
-        for (const auto& entry : std::filesystem::directory_iterator(VoxelizationBase::ResourceFolder))
+        const auto& resourceFolder = getVoxelizationResourceFolderPath();
+        if (std::filesystem::exists(resourceFolder))
         {
-            if (std::filesystem::is_regular_file(entry))
+            for (const auto& entry : std::filesystem::directory_iterator(resourceFolder))
             {
-                filePaths.push_back(entry.path());
+                if (std::filesystem::is_regular_file(entry))
+                {
+                    filePaths.push_back(entry.path());
+                }
             }
         }
-        VoxelizationBase::FileUpdated = false;
+        mSelectedFileInitialized = false;
+        gVoxelizationFilesUpdated = false;
     }
+
+    if (filePaths.empty())
+    {
+        widget.text("No voxel cache files found in " + getVoxelizationResourceFolderPath().string());
+        return;
+    }
+
+    selectedFile = std::min(selectedFile, uint(filePaths.size() - 1));
+    if (!mSelectedFileInitialized)
+    {
+        selectedFile = findSelectedFileIndex(filePaths, mAutoBinFile);
+        mSelectedFileInitialized = true;
+    }
+
     Gui::DropdownList list;
     for (uint i = 0; i < filePaths.size(); i++)
     {
@@ -151,6 +324,9 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 
         f.close();
 
+        mAutoBinFile = filePaths[selectedFile];
+        mLastManualBinFile = mAutoBinFile;
+        persistLastManualCachePath(mAutoBinFile);
         requestRecompile();
         mComplete = false;
         mOptionsChanged = true;
@@ -170,6 +346,42 @@ void ReadVoxelPass::renderUI(Gui::Widgets& widget)
 void ReadVoxelPass::setScene(RenderContext* pRenderContext, const ref<Scene>& pScene)
 {
     mpScene = pScene;
+
+    // 如果脚本指定了 binFile，场景加载后自动触发读取
+    tryQueueAutoBinFile();
+}
+
+bool ReadVoxelPass::tryQueueAutoBinFile()
+{
+    if (mAutoBinFileQueued || mAutoBinFile.empty() || !std::filesystem::exists(mAutoBinFile))
+        return false;
+
+    std::ifstream f(mAutoBinFile, std::ios::binary | std::ios::ate);
+    if (!f.is_open())
+        return false;
+
+    size_t offset = 0;
+    size_t fileSize = std::filesystem::file_size(mAutoBinFile);
+    GridData loadedGridData = {};
+    if (!tryRead(f, offset, sizeof(GridData), &loadedGridData, fileSize))
+        return false;
+
+    f.close();
+
+    const bool requiresRecompile = doesGridLayoutRequireRecompile(gridData, loadedGridData);
+    gridData = loadedGridData;
+    logInfo("ReadVoxelPass: auto-reading cache '{}'.", mAutoBinFile.string());
+
+    filePaths.clear();
+    filePaths.push_back(mAutoBinFile);
+    selectedFile = 0;
+
+    if (requiresRecompile)
+        requestRecompile();
+    mComplete = false;
+    mOptionsChanged = true;
+    mAutoBinFileQueued = true;
+    return true;
 }
 
 bool ReadVoxelPass::tryRead(std::ifstream& f, size_t& offset, size_t bytes, void* dst, size_t fileSize)

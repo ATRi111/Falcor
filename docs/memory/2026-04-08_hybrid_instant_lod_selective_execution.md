@@ -1,0 +1,2 @@
+- Hybrid LOD 的每帧 route resolve 不能逐实例调用 `set_geometry_instance_route()`；那样会重复清 filtered draw cache 并频繁上传实例缓冲。应改成 batched `set_geometry_instance_routes()`，一帧只做一次 scene route 提交。
+- 只在 `RayMarchingTraversal.slang` 里做 hit-level route filter 不足以去掉 mesh 形态的 voxel 成本；要把 `ReadVoxelPass` 暴露的 `solidVoxelCellBuffer` 接到一个 route-aware block prepare pass，先把 `MeshOnly` 主导的 block 从 traversal mip/block map 入口裁掉。

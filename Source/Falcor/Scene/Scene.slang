@@ -215,6 +215,11 @@ struct Scene
         return geometryInstances[instanceID.index];
     }
 
+    GeometryInstanceRenderRoute getGeometryInstanceRenderRoute(const GeometryInstanceID instanceID)
+    {
+        return geometryInstances[instanceID.index].getRenderRoute();
+    }
+
     MeshDesc getMeshDesc(const GeometryInstanceID instanceID)
     {
         return meshes[geometryInstances[instanceID.index].geometryID];

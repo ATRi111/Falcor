@@ -5,6 +5,7 @@
 #include "Math/Polygon.slang"
 #include "Math/Triangle.slang"
 #include "Math/SphericalHarmonics.slang"
+#include <atomic>
 #include <unordered_map>
 
 using namespace Falcor;
@@ -12,7 +13,7 @@ using namespace Falcor;
 class PolygonGenerator
 {
 private:
-    GridData& gridData;
+    GridData gridData;
 
 public:
     std::vector<VoxelData> gBuffer;
@@ -20,9 +21,11 @@ public:
     std::vector<std::vector<Polygon>> polygonArrays;
     std::vector<PolygonRange> polygonRangeBuffer;
 
-    PolygonGenerator() : gridData(VoxelizationBase::GlobalGridData)
+    explicit PolygonGenerator(const GridData& gridData = VoxelizationBase::GlobalGridData) : gridData(gridData)
     {
     }
+
+    const GridData& getGridData() const { return gridData; }
 
     void reset()
     {
@@ -30,6 +33,9 @@ public:
         vBuffer.clear();
         polygonArrays.clear();
         polygonRangeBuffer.clear();
+        gridData.solidVoxelCount = 0;
+        gridData.maxPolygonCount = 0;
+        gridData.totalPolygonCount = 0;
         vBuffer.assign(gridData.totalVoxelCount(), -1);
     }
 
@@ -55,59 +61,99 @@ public:
         return vBuffer[index];
     }
 
-    void clip(const MeshHeader& mesh,uint triangleID, Triangle& tri)
+    void clip(const InstanceHeader& instance, uint triangleID, Triangle& tri)
     {
         AABBInt aabb = tri.calcAABBInt();
         for (int i = 0; i < aabb.count(); i++)
         {
             int3 cellInt = aabb.indexToCell(i);
             float3 minPoint = float3(cellInt);
-            Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri); // 多边形与三角形顶点顺序一致
-            polygon.normal = tri.TBN.getCol(2); // 几何法线
+            Polygon polygon = VoxelizationUtility::BoxClipTriangle(minPoint, minPoint + 1.f, tri); // Preserve winding from the source triangle.
+            polygon.normal = tri.TBN.getCol(2); // Geometric normal.
             if (polygon.count >= 3)
             {
                 //sampleArea(tri, polygon, cellInt);
-                polygon.triRef.meshID = mesh.meshID;
+                polygon.triRef.meshID = instance.meshID;
                 polygon.triRef.triangleID = triangleID;
-                polygon.triRef.materialID = mesh.materialID;
+                polygon.triRef.materialID = instance.materialID;
+                polygon.triRef.instanceID = instance.instanceID;
                 int offset = tryGetOffset(cellInt);
                 polygonArrays[offset].push_back(polygon);
             }
         }
     }
 
-    void clipMesh(const MeshHeader& mesh, float3* pPos, float3* pNormal, float2* pUV, uint3* pIndex)
+    bool clipMesh(
+        const InstanceHeader& instance,
+        float3* pPos,
+        float3* pNormal,
+        float2* pUV,
+        uint3* pIndex,
+        const std::atomic_bool* pCancelRequested = nullptr,
+        std::atomic<uint64_t>* pProcessedTriangles = nullptr
+    )
     {
-        for (uint tid = 0; tid < mesh.triangleCount; tid++)
+        uint64_t pendingProgress = 0;
+        for (uint tid = 0; tid < instance.triangleCount; tid++)
         {
+            if (pCancelRequested && pCancelRequested->load(std::memory_order_relaxed))
+            {
+                if (pProcessedTriangles && pendingProgress > 0)
+                    pProcessedTriangles->fetch_add(pendingProgress, std::memory_order_relaxed);
+                return false;
+            }
+
             Triangle tri = {};
-            uint3 indices = pIndex[tid + mesh.triangleOffset];
-            tri.vertices[0] = pPos[indices.x];
-            tri.vertices[1] = pPos[indices.y];
-            tri.vertices[2] = pPos[indices.z];
+            uint3 indices = pIndex[tid + instance.triangleOffset];
+            tri.vertices[0] = math::transformPoint(instance.worldMatrix, pPos[indices.x]);
+            tri.vertices[1] = math::transformPoint(instance.worldMatrix, pPos[indices.y]);
+            tri.vertices[2] = math::transformPoint(instance.worldMatrix, pPos[indices.z]);
             tri.uvs[0] = pUV[indices.x];
             tri.uvs[1] = pUV[indices.y];
             tri.uvs[2] = pUV[indices.z];
-            tri.normals[0] = pNormal[indices.x];
-            tri.normals[1] = pNormal[indices.y];
-            tri.normals[2] = pNormal[indices.z];
+            tri.normals[0] = math::normalize(math::transformVector(instance.worldInvTransposeMatrix, pNormal[indices.x]));
+            tri.normals[1] = math::normalize(math::transformVector(instance.worldInvTransposeMatrix, pNormal[indices.y]));
+            tri.normals[2] = math::normalize(math::transformVector(instance.worldInvTransposeMatrix, pNormal[indices.z]));
 
-            // 世界坐标处理成网格坐标
+            // Convert world-space vertices into grid-space coordinates.
             for (int i = 0; i < 3; i++)
             {
                 tri.vertices[i] = (tri.vertices[i] - gridData.gridMin) / gridData.voxelSize;
             }
             tri.buildTBN();
-            clip(mesh, tid, tri);
+            clip(instance, tid, tri);
+
+            pendingProgress++;
+            if (pProcessedTriangles && pendingProgress >= 64)
+            {
+                pProcessedTriangles->fetch_add(pendingProgress, std::memory_order_relaxed);
+                pendingProgress = 0;
+            }
         }
+
+        if (pProcessedTriangles && pendingProgress > 0)
+            pProcessedTriangles->fetch_add(pendingProgress, std::memory_order_relaxed);
+
+        return true;
     }
 
-    void clipAll(SceneHeader scene, std::vector<MeshHeader> meshList, float3* pPos, float3* pNormal, float2* pUV, uint3* pTri)
+    bool clipAll(
+        SceneHeader scene,
+        const std::vector<InstanceHeader>& instanceList,
+        float3* pPos,
+        float3* pNormal,
+        float2* pUV,
+        uint3* pTri,
+        const std::atomic_bool* pCancelRequested = nullptr,
+        std::atomic<uint64_t>* pProcessedTriangles = nullptr
+    )
     {
-        for (size_t i = 0; i < meshList.size(); i++)
+        for (size_t i = 0; i < instanceList.size(); i++)
         {
-            clipMesh(meshList[i], pPos, pNormal, pUV, pTri);
+            if (!clipMesh(instanceList[i], pPos, pNormal, pUV, pTri, pCancelRequested, pProcessedTriangles))
+                return false;
         }
         gridData.solidVoxelCount = gBuffer.size();
+        return true;
     }
 };

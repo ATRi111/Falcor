@@ -608,6 +608,47 @@ namespace Falcor
         */
         const GeometryInstanceData &getGeometryInstance(uint32_t instanceID) const { return mGeometryInstanceData[instanceID]; }
 
+        /** Get the render route of a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return Render route stored in GeometryInstanceData.flags.
+        */
+        GeometryInstanceRenderRoute getGeometryInstanceRenderRoute(uint32_t instanceID) const;
+
+        /** Set the render route of a geometry instance and upload the updated instance buffer.
+            \param[in] instanceID Global geometry instance ID.
+            \param[in] route New render route.
+        */
+        void setGeometryInstanceRenderRoute(uint32_t instanceID, GeometryInstanceRenderRoute route);
+
+        /** Set render routes for multiple geometry instances and upload the updated instance buffer once.
+            \param[in] updates Pairs of instance IDs and routes to apply.
+        */
+        void setGeometryInstanceRenderRoutes(const std::vector<std::pair<uint32_t, GeometryInstanceRenderRoute>>& updates);
+
+        /** Get the scene-graph node name backing a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return Node name or empty string if unavailable.
+        */
+        std::string getGeometryInstanceNodeName(uint32_t instanceID) const;
+
+        /** Get the world-space bounds of a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return World-space bounds or an invalid AABB if unavailable.
+        */
+        AABB getGeometryInstanceBounds(uint32_t instanceID) const;
+
+        /** Get a human-readable geometry name for a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return Geometry name or a synthetic fallback.
+        */
+        std::string getGeometryInstanceGeometryName(uint32_t instanceID) const;
+
+        /** Get the material name bound to a geometry instance.
+            \param[in] instanceID Global geometry instance ID.
+            \return Material name or empty string if unavailable.
+        */
+        std::string getGeometryInstanceMaterialName(uint32_t instanceID) const;
+
         /** Get a list of all geometry IDs for a given geometry type.
             \param[in] geometryType The geometry type.
             \return List of geometry IDs.
@@ -882,6 +923,8 @@ namespace Falcor
         */
         void setTlasUpdateMode(UpdateMode mode) { mTlasUpdateMode = mode; }
 
+        static constexpr uint32_t kAllGeometryInstanceRenderRoutesMask = (1u << 3u) - 1u;
+
         /** Get the scene's TLAS update mode when raytracing.
         */
         UpdateMode getTlasUpdateMode() { return mTlasUpdateMode; }
@@ -924,6 +967,13 @@ namespace Falcor
             \param[in] cullMode Optional rasterizer cull mode. The default is to cull back-facing primitives.
         */
         void rasterize(RenderContext* pRenderContext, GraphicsState* pState, ProgramVars* pVars, RasterizerState::CullMode cullMode = RasterizerState::CullMode::Back);
+        void rasterize(
+            RenderContext* pRenderContext,
+            GraphicsState* pState,
+            ProgramVars* pVars,
+            RasterizerState::CullMode cullMode,
+            uint32_t instanceRouteMask
+        );
 
         /** Render the scene using the rasterizer.
             This overload uses the supplied rasterizer states.
@@ -934,6 +984,14 @@ namespace Falcor
             \param[in] pRasterizerStateCCW Rasterizer state for meshes with counter-clockwise triangle winding. Can be the same as for clockwise.
         */
         void rasterize(RenderContext* pRenderContext, GraphicsState* pState, ProgramVars* pVars, const ref<RasterizerState>& pRasterizerStateCW, const ref<RasterizerState>& pRasterizerStateCCW);
+        void rasterize(
+            RenderContext* pRenderContext,
+            GraphicsState* pState,
+            ProgramVars* pVars,
+            const ref<RasterizerState>& pRasterizerStateCW,
+            const ref<RasterizerState>& pRasterizerStateCCW,
+            uint32_t instanceRouteMask
+        );
 
         /** Get the required raytracing maximum attribute size for this scene.
             Note: This depends on what types of geometry are used in the scene.
@@ -1235,6 +1293,10 @@ namespace Falcor
             ResourceFormat ibFormat = ResourceFormat::Unknown;  ///< Index buffer format.
         };
 
+        std::vector<DrawArgs> createDrawArgs(uint32_t instanceRouteMask);
+        const std::vector<DrawArgs>& getDrawArgs(uint32_t instanceRouteMask);
+        void clearFilteredDrawArgsCache();
+
         GeometryTypeFlags mGeometryTypes;                           ///< Set of geometry types that exist in the scene.
 
         std::vector<GeometryInstanceData> mGeometryInstanceData;    ///< Geometry instance data (for all types of geometry).
@@ -1247,6 +1309,7 @@ namespace Falcor
         ref<Vao> mpMeshVao16Bit;                          ///< VAO for drawing meshes with 16-bit vertex indices.
         ref<Vao> mpCurveVao;                                        ///< Vertex array object for the global curve vertex/index buffers.
         std::vector<DrawArgs> mDrawArgs;                            ///< List of draw arguments for rasterizing the meshes in the scene.
+        std::unordered_map<uint32_t, std::vector<DrawArgs>> mFilteredDrawArgsCache; ///< Cached route-filtered draw arguments.
 
         // Triangle meshes
         std::vector<MeshDesc> mMeshDesc;                            ///< Copy of mesh data GPU buffer (mpMeshesBuffer).

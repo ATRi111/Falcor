@@ -25,6 +25,7 @@ target_sources(Voxelization PRIVATE
 
     VoxelizationBase.h
     VoxelizationBase.cpp
+    VoxelizationProperties.h
 
     VoxelizationShared.slang
     Shading.slang
@@ -46,12 +47,19 @@ target_sources(Voxelization PRIVATE
 
     RayMarchingPass.cpp
     RayMarchingPass.h
+    RayMarchingDirectAOPass.cpp
+    RayMarchingDirectAOPass.h
+    RayMarchingTraversal.slang
     PrepareShadingData.cs.slang
     RayMarching.ps.slang
+    RayMarchingDirectAO.ps.slang
     DisplayNDF.ps.slang
 
     ReadVoxelPass.cpp
     ReadVoxelPass.h
+    VoxelRoutePreparePass.cpp
+    VoxelRoutePreparePass.h
+    VoxelRoutePrepare.cs.slang
 )
 target_copy_shaders(Voxelization RenderPasses/Voxelization)
 target_source_group(Voxelization "RenderPasses")

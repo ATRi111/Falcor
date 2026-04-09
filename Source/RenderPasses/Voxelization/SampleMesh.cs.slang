@@ -17,6 +17,7 @@ RWStructuredBuffer<VoxelData> gBuffer;
 RWStructuredBuffer<uint> polygonCountBuffer;
 RWStructuredBuffer<uint> gBufferLock;
 RWStructuredBuffer<uint> solidVoxelCount; // 单元素缓冲区
+RWStructuredBuffer<uint> overflowFlag; // 单元素缓冲区
 SamplerState s;
 
 cbuffer GridData
@@ -24,6 +25,7 @@ cbuffer GridData
     float3 gridMin;
     float3 voxelSize;
     uint3 voxelCount;
+    uint maxSolidVoxelCount;
 };
 
 cbuffer MeshData
@@ -34,15 +36,19 @@ cbuffer MeshData
     uint ibOffset;
     bool use16BitIndices;
     uint materialID;
+    uint instanceID;
 };
 
 int tryGetOffset(int3 cellInt)
 {
+    static const int kOverflowSentinel = -3;
     int index = CellToIndex(cellInt, voxelCount);
 
     int v = vBuffer[index];
     if (v >= 0)
         return v;
+    if (v == kOverflowSentinel)
+        return -1;
 
     int original;
     InterlockedCompareExchange(vBuffer[index], -1, -2, original); //-2表示分配中
@@ -51,6 +57,14 @@ int tryGetOffset(int3 cellInt)
         uint offset;
         InterlockedAdd(solidVoxelCount[0], 1u, offset);
 
+        if (offset >= maxSolidVoxelCount)
+        {
+            uint old;
+            InterlockedExchange(overflowFlag[0], 1u, old);
+            vBuffer[index] = kOverflowSentinel;
+            return -1;
+        }
+
         vBuffer[index] = (int)offset;
         return (int)offset;
     }
@@ -58,7 +72,7 @@ int tryGetOffset(int3 cellInt)
     while ((v = vBuffer[index]) == -2)
     {
     }
-    return v;
+    return v >= 0 ? v : -1;
 }
 
 float4 sampleTextureArea(TextureHandle handle, float2 uv, float uvArea, float4 uniformValue)
@@ -74,7 +88,6 @@ float4 sampleTextureArea(TextureHandle handle, float2 uv, float uvArea, float4 u
 void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
 {
     MaterialSystem ms = gScene.materials;
-    MaterialType type = ms.getMaterialType(materialID);
 
     float2[MAX_VERTEX_COUNT] uvs;
     for (uint i = 0; i < polygon.count; i++)
@@ -104,6 +117,8 @@ void sampleArea(Triangle tri, Polygon polygon, int3 cellInt)
     ABSDFInput input = { baseColor, spec, normal, polygon.calcArea() };
 
     int offset = tryGetOffset(cellInt);
+    if (offset < 0)
+        return;
 #if !DISABLE_LOCK
     uint old;
     do
@@ -138,6 +153,9 @@ void voxelizeTriangle(uint triangleId)
     if (triangleId >= triangleCount)
         return;
 
+    const GeometryInstanceID geometryInstanceID = { instanceID };
+    const float4x4 worldMat = gScene.getWorldMatrix(geometryInstanceID);
+    const float3x3 worldInvTranspose = gScene.getInverseTransposeWorldMatrix(geometryInstanceID);
     Triangle triangle = {};
     uint3 vtxIndices = gScene.getLocalIndices(ibOffset, triangleId, use16BitIndices);
     if (any(vtxIndices >= vertexCount))
@@ -147,8 +165,10 @@ void voxelizeTriangle(uint triangleId)
     // 世界坐标处理成网格坐标
     for (int i = 0; i < 3; i++)
     {
-        triangle.vertices[i] = (vertices[i].position - gridMin) / voxelSize;
+        float3 posW = mul(worldMat, float4(vertices[i].position, 1.f)).xyz;
+        triangle.vertices[i] = (posW - gridMin) / voxelSize;
         triangle.uvs[i] = vertices[i].texCrd;
+        triangle.normals[i] = normalizeSafe(mul(worldInvTranspose, vertices[i].normal));
     }
     triangle.buildTBN();
     sampleTriangle(triangle);

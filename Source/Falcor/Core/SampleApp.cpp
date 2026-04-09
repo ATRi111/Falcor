@@ -477,6 +477,14 @@ void SampleApp::renderFrame()
 
     RenderContext* pRenderContext = mpDevice->getRenderContext();
 
+#if FALCOR_ENABLE_PROFILER
+    if (mPendingProfilerState.has_value())
+    {
+        mpDevice->getProfiler()->setEnabled(*mPendingProfilerState);
+        mPendingProfilerState.reset();
+    }
+#endif
+
     // Render a frame.
     // If the renderer is paused, create a copy of the rendered output and copy that back each frame.
     if (mRendererPaused && mpPausedRenderOutput)
@@ -582,6 +590,11 @@ void SampleApp::captureScreen(Texture* pTexture)
     std::filesystem::path directory = getRuntimeDirectory();
     std::filesystem::path path = findAvailableFilename(filename, directory, "png");
     pTexture->captureToFile(0, 0, path);
+}
+
+void SampleApp::requestProfilerState(bool enabled)
+{
+    mPendingProfilerState = enabled;
 }
 
 void SampleApp::shutdown(int returnCode)

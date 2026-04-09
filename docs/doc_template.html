@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文档标题</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        :root {
+            --text-color: #333;
+            --muted-border: #ddd;
+            --soft-border: #eee;
+            --table-head: #f5f5f5;
+            --inline-code: #f4f4f4;
+            --pre-bg: #f6f8fa;
+            --toc-bg: #f8f9fa;
+            --link-color: #0066cc;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+            color: var(--text-color);
+            background: #fff;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            border-bottom: 1px solid var(--soft-border);
+            padding-bottom: 0.25em;
+        }
+
+        h1 {
+            border-bottom-color: var(--muted-border);
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1em 0;
+        }
+
+        th,
+        td {
+            border: 1px solid var(--muted-border);
+            padding: 0.4em 0.6em;
+            text-align: left;
+        }
+
+        th {
+            background: var(--table-head);
+        }
+
+        code,
+        pre code {
+            font-family: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        }
+
+        code {
+            background: var(--inline-code);
+            padding: 0.15em 0.4em;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+
+        pre {
+            background: var(--pre-bg);
+            padding: 1em;
+            overflow-x: auto;
+            border-radius: 4px;
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+        }
+
+        pre.mermaid {
+            background: transparent;
+            padding: 0.5em 0;
+        }
+
+        .toc {
+            background: var(--toc-bg);
+            padding: 1em 1.5em;
+            border-radius: 6px;
+            margin-bottom: 2em;
+        }
+
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .toc li {
+            margin: 0.3em 0;
+        }
+
+        .toc a {
+            text-decoration: none;
+            color: var(--link-color);
+        }
+
+        hr {
+            border: none;
+            border-top: 1px solid var(--soft-border);
+            margin: 2em 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>文档标题</h1>
+
+    <p>文档简介内容。</p>
+
+    <nav class="toc" aria-label="目录">
+        <strong>目录</strong>
+        <ul>
+            <li><a href="#s1">1. 章节一</a></li>
+            <li><a href="#s2">2. 章节二</a></li>
+            <li><a href="#ref">参考</a></li>
+        </ul>
+    </nav>
+
+    <hr>
+
+    <h2 id="s1">1. 章节一</h2>
+
+    <h3>1.1 子章节</h3>
+    <p>正文内容，包含 <code>代码片段</code> 示例。</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>列1</th>
+                <th>列2</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>值1</strong></td>
+                <td>说明1</td>
+            </tr>
+            <tr>
+                <td><strong>值2</strong></td>
+                <td>说明2</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>1.2 代码示例</h3>
+    <pre><code class="language-cpp">// C++ 代码示例
+UCLASS()
+class UMyClass : public UObject
+{
+    GENERATED_BODY()
+public:
+    UPROPERTY()
+    FString Name;
+};</code></pre>
+
+    <h3>1.3 流程图示例</h3>
+    <pre class="mermaid">flowchart LR
+A[开始] --> B[处理]
+B --> C[结束]</pre>
+
+    <hr>
+
+    <h2 id="s2">2. 章节二</h2>
+    <p>更多内容...</p>
+
+    <hr>
+
+    <h2 id="ref">参考</h2>
+    <ul>
+        <li>参考资料1</li>
+        <li>参考资料2</li>
+    </ul>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+        hljs.highlightAll();
+    </script>
+
+</body>
+
+</html>

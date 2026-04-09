@@ -1,0 +1,38 @@
+AI doc navigation
+
+Current entry
+- 唯一计划文档：`.FORAGENT\plan5.md`
+- 当前 cache 默认值基线：`docs\handoff\2026-04-08_readvoxel_last_manual_cache_default_handoff.md`
+- 当前回退说明：`docs\handoff\2026-04-08_voxel_runtime_normal_rollback_handoff.md`
+- 当前 hybrid 基线（plan5 Phase1-3 已完成）：`docs\handoff\2026-04-05_plan5_phase3_identity_contract_handoff.md`
+- 当前 voxel 主线基线：`docs\handoff\2026-04-04_mainline_direct_ao_stage4_handoff.md`
+- 构建说明：`.FORAGENT\build_any_target_brief.txt`
+
+Current status
+- 截至 2026-04-05，plan5 已完成 Phase1-3；下一阶段是 Phase4 object-level composite。
+- `scripts\Voxelization_HybridMeshVoxel.py` 是 hybrid 开发基线，`scripts\Voxelization_MainlineDirectAO.py` 仍是最终验收基线。
+- Phase5 selective execution 尚未开始；当前 `Composite / MeshOnly / VoxelOnly / BlendMask` 仍不代表正式成本隔离。
+
+Read source in this order if docs are insufficient
+- Hybrid script and graph wiring:
+  `scripts\Voxelization_HybridMeshVoxel.py`
+- Scene route contract:
+  `Source\Falcor\Scene\SceneTypes.slang`
+  `Source\Falcor\Scene\Scene.slang`
+  `Source\Falcor\Scene\SceneBuilder.cpp`
+- Hybrid route/composite path:
+  `Source\RenderPasses\HybridVoxelMesh\HybridBlendMaskPass.ps.slang`
+  `Source\RenderPasses\HybridVoxelMesh\HybridCompositePass.ps.slang`
+  `Source\RenderPasses\HybridVoxelMesh\HybridMeshDebugPass.ps.slang`
+- Voxel Phase3 contract:
+  `Source\RenderPasses\Voxelization\ReadVoxelPass.cpp`
+  `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+  `Source\RenderPasses\Voxelization\RayMarchingDirectAO.ps.slang`
+  `Source\RenderPasses\Voxelization\VoxelizationShared.slang`
+- Voxel mainline baseline:
+  `scripts\Voxelization_MainlineDirectAO.py`
+  `Source\RenderPasses\Voxelization\RayMarchingDirectAOPass.cpp`
+
+Working rule
+- 先读 `plan5.md` 和当前 handoff，再只打开与你修改直接相关的源码。
+- 这个工作区里的 `rg.exe` 可能触发“拒绝访问”；做全文搜索时优先用 PowerShell `Get-ChildItem` + `Select-String`。
