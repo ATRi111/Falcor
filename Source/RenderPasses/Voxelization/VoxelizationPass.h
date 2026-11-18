@@ -24,16 +24,29 @@ public:
     virtual bool onKeyEvent(const KeyboardEvent& keyEvent) override { return false; }
     virtual void setScene(RenderContext* pRenderContext, const ref<Scene>& pScene) override;
 
-    void clipPolygon(RenderContext* pRenderContext, const RenderData& renderData);
-    void analyzePolygon(RenderContext* pRenderContext, const RenderData& renderData);
+    void runHierarchicalClip(RenderContext* pRenderContext);
+    void uploadBuffers(RenderContext* pRenderContext);
+    void analyzeAllNodes(RenderContext* pRenderContext);
+    void readbackAndWrite(RenderContext* pRenderContext);
+    void outputDebugInfo();
     std::string getFileName();
-    void* getVBufferCPU() const { return pVBuffer_CPU; }
+
+    // Find a node's gBuffer index by traversing the octree from root
+    uint32_t findNodeByLODAndCell(int3 targetCellInt, uint32_t targetLOD);
+
+    // Validate SH fitting: compare ground truth (rasterization) vs SH reconstruction
+    // directions are in world space, normalized
+    void validateProjection(RenderContext* pRenderContext, uint32_t lodLevel,
+                            int3 cellInt, const std::vector<float3>& directions);
+
+    static uint64_t morton3(uint32_t x, uint32_t y, uint32_t z);
 
 protected:
-    void write(std::string fileName, void* gBuffer, void* vBuffer, void* pBlockMap, void* pHyperBlockMap);
+    void write(std::string fileName, void* pGBuffer);
 
     ref<ComputePass> mAnalyzePolygonPass;
     ref<ComputePass> mLoadMeshPass;
+    ref<ComputePass> mValidationPass;
 
     ref<Device> mpDevice;
     ref<Scene> mpScene;
@@ -41,20 +54,25 @@ protected:
     ref<Sampler> mpSampler;
 
     ref<Buffer> gBuffer;
+    ref<Buffer> pBuffer;
+    ref<Buffer> octreeBuffer;
     ref<Buffer> polygonRangeBuffer;
-    PolygonBufferGroup polygonGroup;
-    ref<Buffer> blockMap;
-    ref<Buffer> hyperBlockMap;
 
+    PolygonBufferGroup polygonGroup;
     PolygonGenerator polygonGenerator;
-    void* pVBuffer_CPU;
 
     uint mSampleFrequency;
-    uint mVoxelResolution;
+    uint mMaxVoxelResolution;
     GridData& gridData;
 
-    bool mSamplingComplete;
-    bool mVoxelizationComplete;
     bool mUseMultiThread = true;
-    uint mCompleteTimes;
+    bool mEnableDebug = false;
+    bool mVoxelizationDirty = false;
+
+    // Validation state
+    int3 mValidationCellInt = int3(0, 0, 0);
+    uint32_t mValidationLOD = 0;
+    bool mValidationRequested = false;
+
+    bool mLerpNormal;
 };

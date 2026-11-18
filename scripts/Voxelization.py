@@ -18,11 +18,7 @@ def render_graph_Pass():
     g.addPass(ToneMapper, "ToneMapper")
 
     g.addEdge("VoxelizationPass.dummy","ReadVoxelPass.dummy")
-    g.addEdge("ReadVoxelPass.vBuffer","RayMarchingPass.vBuffer")
-    g.addEdge("ReadVoxelPass.gBuffer","RayMarchingPass.gBuffer")
-    g.addEdge("ReadVoxelPass.pBuffer","RayMarchingPass.pBuffer")
-    g.addEdge("ReadVoxelPass.blockMap","RayMarchingPass.blockMap")
-    g.addEdge("ReadVoxelPass.hyperBlockMap","RayMarchingPass.hyperBlockMap")
+    g.addEdge("ReadVoxelPass.dummy","RayMarchingPass.dummy")
 
     g.addEdge("RayMarchingPass.color","RenderToViewportPass.input")
     g.addEdge("RenderToViewportPass.output","AccumulatePass.input")
@@ -32,7 +28,7 @@ def render_graph_Pass():
     return g
 
 Graph = render_graph_Pass()
-try: 
+try:
     m.addGraph(Graph)
-except NameError: 
+except NameError:
     pass
